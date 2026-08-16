@@ -11,38 +11,7 @@ const FEEDBACKS_FILE = path.join(DATA_DIR, 'feedbacks.json');
 const INVOICES_FILE = path.join(DATA_DIR, 'invoices.json');
 const PROPERTIES_FILE = path.join(DATA_DIR, 'properties.json');
 
-const DEFAULT_AGENTS = [
-  {
-    id: 1,
-    user_id: '1',
-    name: 'Vikram Joshi',
-    email: 'vikram.joshi@rentalpune.com',
-    phone: '+91 98221 44556',
-    role: 'AGENT',
-    notes: 'Koregaon Park & Kalyani Nagar Luxury Rental Specialist',
-    created_at: new Date(Date.now() - 3600000 * 48).toISOString()
-  },
-  {
-    id: 2,
-    user_id: '2',
-    name: 'Pooja Kulkarni',
-    email: 'pooja.kulkarni@rentalpune.com',
-    phone: '+91 98222 77889',
-    role: 'AGENT',
-    notes: 'Boat Club Road, Bund Garden & Camp Area Specialist',
-    created_at: new Date(Date.now() - 3600000 * 36).toISOString()
-  },
-  {
-    id: 3,
-    user_id: '3',
-    name: 'Rahul Deshmukh',
-    email: 'rahul.deshmukh@rentalpune.com',
-    phone: '+91 98223 11223',
-    role: 'AGENT',
-    notes: 'Baner, Balewadi & Hinjewadi Phase 1-3 Specialist',
-    created_at: new Date(Date.now() - 3600000 * 24).toISOString()
-  }
-];
+const DEFAULT_AGENTS: any[] = [];
 
 function ensureDataDir(): void {
   try {
@@ -1071,17 +1040,22 @@ export const supabaseDb = {
 
   // --- AGENTS (PROFILES / USERS TABLE) ---
   async getAgents(): Promise<any[]> {
-    const fileAgents = loadJsonFile<any[]>(AGENTS_FILE, DEFAULT_AGENTS);
+    const fileAgents = loadJsonFile<any[]>(AGENTS_FILE, []);
     const map = new Map<string, any>();
 
-    // 1. Seed with local file-backed agents
+    // 1. Seed with local file-backed agents (excluding legacy mock placeholders)
     for (const a of fileAgents) {
-      const key = String(a.email || a.id || a.user_id || '').toLowerCase();
+      if (!a) continue;
+      const email = String(a.email || '').toLowerCase().trim();
+      if (email === 'vikram.joshi@rentalpune.com' || email === 'pooja.kulkarni@rentalpune.com' || email === 'rahul.deshmukh@rentalpune.com') {
+        continue;
+      }
+      const key = email || String(a.id || a.user_id || '').toLowerCase();
       if (key) {
         map.set(key, {
           id: a.id || a.user_id,
           user_id: a.user_id || a.id,
-          name: a.name || 'Agent',
+          name: a.name || (email ? email.split('@')[0] : 'Agent'),
           email: a.email || '',
           phone: a.phone || '',
           role: 'AGENT',
@@ -1095,18 +1069,22 @@ export const supabaseDb = {
     // 2. Fetch from Supabase profiles table
     try {
       const supabase = getClient();
-      const { data, error } = await supabase.from('profiles').select('*').order('name', { ascending: true });
+      const { data, error } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
       if (!error && Array.isArray(data)) {
         for (const p of data) {
           const r = String(p.role || '').toLowerCase();
-          if (r === 'agent' || r === 'field_agent' || r === 'sub_admin' || (!r.includes('admin') && p.email)) {
-            const key = String(p.email || p.id || p.user_id || '').toLowerCase();
+          const email = String(p.email || '').toLowerCase().trim();
+          if (email === 'vikram.joshi@rentalpune.com' || email === 'pooja.kulkarni@rentalpune.com' || email === 'rahul.deshmukh@rentalpune.com') {
+            continue;
+          }
+          if (r === 'agent' || r === 'field_agent' || r === 'sub_admin' || (!r.includes('admin') && email && !email.includes('admin@'))) {
+            const key = email || String(p.id || p.user_id || '').toLowerCase();
             if (key) {
               const existing = map.get(key) || {};
               map.set(key, {
                 id: p.id || p.user_id || existing.id,
                 user_id: p.user_id || p.id || existing.user_id,
-                name: p.name || existing.name || 'Agent',
+                name: p.name || existing.name || (email ? email.split('@')[0] : 'Agent'),
                 email: p.email || existing.email || '',
                 phone: p.phone || existing.phone || '',
                 role: 'AGENT',
@@ -1125,18 +1103,22 @@ export const supabaseDb = {
     // 3. Fetch from Supabase users table
     try {
       const supabase = getClient();
-      const { data, error } = await supabase.from('users').select('*').order('name', { ascending: true });
+      const { data, error } = await supabase.from('users').select('*').order('created_at', { ascending: false });
       if (!error && Array.isArray(data)) {
         for (const u of data) {
           const r = String(u.role || '').toLowerCase();
-          if (r === 'agent' || r === 'field_agent' || r === 'sub_admin' || (!r.includes('admin') && u.email)) {
-            const key = String(u.email || u.id || '').toLowerCase();
+          const email = String(u.email || '').toLowerCase().trim();
+          if (email === 'vikram.joshi@rentalpune.com' || email === 'pooja.kulkarni@rentalpune.com' || email === 'rahul.deshmukh@rentalpune.com') {
+            continue;
+          }
+          if (r === 'agent' || r === 'field_agent' || r === 'sub_admin' || (!r.includes('admin') && email && !email.includes('admin@'))) {
+            const key = email || String(u.id || '').toLowerCase();
             if (key) {
               const existing = map.get(key) || {};
               map.set(key, {
                 id: u.id || existing.id,
                 user_id: u.id || existing.user_id,
-                name: u.name || existing.name || 'Agent',
+                name: u.name || existing.name || (email ? email.split('@')[0] : 'Agent'),
                 email: u.email || existing.email || '',
                 phone: u.phone || existing.phone || '',
                 role: 'AGENT',
@@ -1159,14 +1141,18 @@ export const supabaseDb = {
       if (!authListError && authList?.users && Array.isArray(authList.users)) {
         for (const u of authList.users) {
           const r = String(u.user_metadata?.role || '').toLowerCase();
-          if (r === 'agent' || r === 'field_agent' || (!r.includes('admin') && u.email)) {
-            const key = String(u.email || u.id || '').toLowerCase();
+          const email = String(u.email || '').toLowerCase().trim();
+          if (email === 'vikram.joshi@rentalpune.com' || email === 'pooja.kulkarni@rentalpune.com' || email === 'rahul.deshmukh@rentalpune.com') {
+            continue;
+          }
+          if (r === 'agent' || r === 'field_agent' || (!r.includes('admin') && email && !email.includes('admin@'))) {
+            const key = email || String(u.id || '').toLowerCase();
             if (key) {
               const existing = map.get(key) || {};
               map.set(key, {
                 id: u.id || existing.id,
                 user_id: u.id || existing.user_id,
-                name: u.user_metadata?.name || existing.name || (u.email ? u.email.split('@')[0] : 'Agent'),
+                name: u.user_metadata?.name || existing.name || (email ? email.split('@')[0] : 'Agent'),
                 email: u.email || existing.email || '',
                 phone: u.user_metadata?.phone || existing.phone || '',
                 role: 'AGENT',
@@ -1181,9 +1167,7 @@ export const supabaseDb = {
     } catch (e) {}
 
     const result = Array.from(map.values());
-    if (result.length > 0) {
-      saveJsonFile(AGENTS_FILE, result);
-    }
+    saveJsonFile(AGENTS_FILE, result);
     return result;
   },
 

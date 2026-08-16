@@ -205,17 +205,30 @@ export default function Agents() {
           </p>
         </div>
 
-        <button 
-          id="btn-add-agent"
-          onClick={() => {
-            setIsAddModalOpen(true);
-            setErrorMessage('');
-          }}
-          className="flex items-center justify-center px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm transition-all shadow-lg shadow-red-600/30 cursor-pointer"
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          <span>Add New Agent</span>
-        </button>
+        <div className="flex items-center space-x-3">
+          <button 
+            id="btn-refresh-agents"
+            onClick={() => fetchAgents(true)}
+            disabled={loading}
+            className="flex items-center justify-center px-4 py-2.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-white rounded-xl font-medium text-sm transition-all shadow-md cursor-pointer disabled:opacity-50"
+            title="Sync all agents from database"
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin text-red-500' : 'text-neutral-400'}`} />
+            <span>{loading ? 'Syncing...' : 'Sync Directory'}</span>
+          </button>
+
+          <button 
+            id="btn-add-agent"
+            onClick={() => {
+              setIsAddModalOpen(true);
+              setErrorMessage('');
+            }}
+            className="flex items-center justify-center px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm transition-all shadow-lg shadow-red-600/30 cursor-pointer"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            <span>Add New Agent</span>
+          </button>
+        </div>
       </div>
 
       {/* Search & Stats Bar */}

@@ -220,29 +220,7 @@ const SEED_FAQS: FAQ[] = [
 ];
 
 // Initial Seed Agents
-const SEED_AGENTS: User[] = [
-  {
-    id: 1,
-    name: 'Vikram Joshi',
-    email: 'vikram.joshi@rentalpune.com',
-    role: 'AGENT',
-    created_at: new Date().toISOString()
-  },
-  {
-    id: 2,
-    name: 'Pooja Kulkarni',
-    email: 'pooja.kulkarni@rentalpune.com',
-    role: 'AGENT',
-    created_at: new Date().toISOString()
-  },
-  {
-    id: 3,
-    name: 'Rahul Deshmukh',
-    email: 'rahul.deshmukh@rentalpune.com',
-    role: 'AGENT',
-    created_at: new Date().toISOString()
-  }
-];
+const SEED_AGENTS: User[] = [];
 
 // Initial Seed Owner Submissions
 const SEED_OWNER_SUBMISSIONS = [
@@ -600,13 +578,14 @@ export const supabaseService = {
         console.warn('Supabase users fetch error:', e);
       }
 
-      const result = Array.from(agentMap.values());
-      if (result.length > 0) {
-        setLocal('agents', result);
-        return result;
-      }
+      const result = Array.from(agentMap.values()).filter(a => {
+        const email = String(a.email || '').toLowerCase().trim();
+        return email !== 'vikram.joshi@rentalpune.com' && email !== 'pooja.kulkarni@rentalpune.com' && email !== 'rahul.deshmukh@rentalpune.com';
+      });
 
-      return getLocal<User[]>('agents', SEED_AGENTS);
+      // Always overwrite local cache with real database truth
+      setLocal('agents', result);
+      return result;
     },
 
     async getById(id: string | number): Promise<User | null> {
@@ -617,7 +596,7 @@ export const supabaseService = {
     async registerAgent(userData: any): Promise<void> {
       if (!userData || !userData.email) return;
       const cleanEmail = String(userData.email).trim().toLowerCase();
-      const current = getLocal<User[]>('agents', SEED_AGENTS);
+      const current = getLocal<User[]>('agents', []);
       const existingIdx = current.findIndex(a => (a.email || '').toLowerCase() === cleanEmail);
       const updatedAgent: User = {
         id: userData.id || (existingIdx >= 0 ? current[existingIdx].id : `agent-${Date.now()}`),
@@ -772,7 +751,7 @@ export const supabaseService = {
         };
       }
 
-      const all = getLocal<User[]>('agents', SEED_AGENTS);
+      const all = getLocal<User[]>('agents', []);
       const updatedList = [createdAgent, ...all.filter(a => (a.email || '').toLowerCase() !== cleanEmail)];
       setLocal('agents', updatedList);
       notifyUpdate('agents', createdAgent);
@@ -805,9 +784,10 @@ export const supabaseService = {
         console.warn('Supabase update agent error:', e);
       }
 
-      const all = getLocal<User[]>('agents', SEED_AGENTS);
+      const all = getLocal<User[]>('agents', []);
       const updated = all.map(a => String(a.id) === String(id) || String(a.user_id) === String(id) ? { ...a, ...updates } : a);
       setLocal('agents', updated);
+      notifyUpdate('agents', updated);
       return updated.find(a => String(a.id) === String(id) || String(a.user_id) === String(id)) || (updates as User);
     },
 
@@ -827,8 +807,10 @@ export const supabaseService = {
       } catch (e) {
         console.warn('Supabase delete agent error:', e);
       }
-      const all = getLocal<User[]>('agents', SEED_AGENTS);
-      setLocal('agents', all.filter(a => String(a.id) !== String(id) && String(a.user_id) !== String(id)));
+      const all = getLocal<User[]>('agents', []);
+      const remaining = all.filter(a => String(a.id) !== String(id) && String(a.user_id) !== String(id));
+      setLocal('agents', remaining);
+      notifyUpdate('agents', remaining);
     }
   },
 
