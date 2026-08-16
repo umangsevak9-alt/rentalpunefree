@@ -139,34 +139,35 @@ export default function ListProperty() {
 
     let submittedSuccessfully = false;
 
-    // 1. Primary: Server API POST
+    // Call supabaseService.ownerSubmissions.create which handles API POST, Supabase fallback, and local cache
     try {
-      const res = await fetch('/api/owner-submissions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(submissionPayload)
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
+      const result = await supabaseService.ownerSubmissions.create(submissionPayload);
+      if (result) {
         submittedSuccessfully = true;
       }
     } catch (err: any) {
-      console.warn('API owner submission fallback triggered:', err);
-    }
-
-    // 2. Secondary fallback: Direct Supabase client insert
-    if (!submittedSuccessfully) {
+      console.warn('supabaseService ownerSubmissions.create warning:', err);
+      // Secondary fallback
       try {
-        await supabaseService.ownerSubmissions.create(submissionPayload);
-        submittedSuccessfully = true;
-      } catch (fallbackErr: any) {
-        console.error('Direct Supabase owner submission failed:', fallbackErr);
+        const res = await fetch('/api/owner-submissions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(submissionPayload)
+        });
+        if (res.ok) {
+          submittedSuccessfully = true;
+        }
+      } catch (e) {
+        console.error('Final fallback error:', e);
       }
     }
 
     if (submittedSuccessfully) {
       setSubmitted(true);
+      // Broadcast event
+      try {
+        window.dispatchEvent(new CustomEvent('owner_submissions_updated'));
+      } catch {}
       // Navigate to Thank You page with owner context
       navigate('/thank-you?type=owner', { 
         state: { 

@@ -439,6 +439,7 @@ export const supabaseDb = {
       photos: typeof f.photos === 'string' ? f.photos : JSON.stringify(f.photos || [])
     };
 
+    let resultData = null;
     if (payload.visit_id) {
       const { data: existing } = await supabase
         .from('site_visit_feedback')
@@ -453,13 +454,26 @@ export const supabaseDb = {
           .eq('id', existing.id)
           .select()
           .single();
-        if (!error && data) return data;
+        if (!error && data) resultData = data;
       }
     }
 
-    return executeWithInsertRetry<any>(async () => 
-      await supabase.from('site_visit_feedback').insert([payload]).select().single()
-    );
+    if (!resultData) {
+      resultData = await executeWithInsertRetry<any>(async () => 
+        await supabase.from('site_visit_feedback').insert([payload]).select().single()
+      );
+    }
+
+    // Automatically update the visit status to 'Completed' in site_visits table
+    if (payload.visit_id) {
+      try {
+        await supabase.from('site_visits').update({ status: 'Completed' }).eq('id', payload.visit_id);
+      } catch (e) {
+        console.warn('Could not auto-update site_visit status to Completed:', e);
+      }
+    }
+
+    return resultData;
   },
 
   async deleteFeedback(id: any): Promise<boolean> {

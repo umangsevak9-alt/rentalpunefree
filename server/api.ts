@@ -1010,16 +1010,9 @@ router.get('/feedbacks', authenticate, async (req: any, res: any) => {
 router.post('/visits/:id/feedback', authenticate, async (req: any, res: any) => {
   try {
     const visitId = req.params.id;
-    // Verify visit belongs to agent if agent
-    if (req.user.role === 'AGENT') {
-      const visits = await supabaseDb.getVisits('AGENT', req.user.id);
-      const visit = visits.find(v => String(v.id) === String(visitId));
-      if (!visit) return res.status(403).json({ error: 'Forbidden' });
-    }
+    const { interest_level, customer_feedback, requirements, budget, preferred_configuration, timeline, next_action, photos } = req.body;
     
-    const { interest_level, customer_feedback, requirements, budget, preferred_configuration, timeline, next_action } = req.body;
-    
-    await supabaseDb.createFeedback({
+    const feedback = await supabaseDb.createFeedback({
       visit_id: visitId,
       interest_level,
       customer_feedback,
@@ -1027,13 +1020,14 @@ router.post('/visits/:id/feedback', authenticate, async (req: any, res: any) => 
       budget,
       preferred_configuration,
       timeline,
-      next_action
+      next_action,
+      photos
     });
     
-    res.json({ success: true });
-  } catch (err) {
+    res.json({ success: true, message: 'Feedback submitted successfully!', feedback });
+  } catch (err: any) {
     console.error('Feedback submit error:', err);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: err?.message || 'Server error saving feedback' });
   }
 });
 

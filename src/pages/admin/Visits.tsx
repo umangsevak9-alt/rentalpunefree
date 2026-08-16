@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAppStore } from '../../store/index.js';
 import { Visit, Lead, Property, User } from '../../types.js';
 import { formatINR } from '../../utils/currency.js';
-import { supabaseService } from '../../services/supabaseService.js';
+import { supabase, supabaseService } from '../../services/supabaseService.js';
 import { 
   Plus, 
   Trash2, 
@@ -75,6 +75,7 @@ export default function Visits() {
   const [viewingFeedbackVisit, setViewingFeedbackVisit] = useState<Visit | null>(null);
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [feedbackSuccess, setFeedbackSuccess] = useState(false);
   const [feedbackForm, setFeedbackForm] = useState({ 
     interest_level: 'Hot', 
     customer_feedback: '', 
@@ -85,8 +86,8 @@ export default function Visits() {
     next_action: '' 
   });
 
-  const fetchData = async () => {
-    setLoading(true);
+  const fetchData = async (isManual = false) => {
+    if (isManual) setLoading(true);
     try {
       const [visitsData, leadsData, propsData, agentsData] = await Promise.all([
         supabaseService.visits.getAll(),
@@ -102,12 +103,37 @@ export default function Visits() {
     } catch (err) {
       console.error('Error fetching site visits data:', err);
     } finally {
-      setLoading(false);
+      if (isManual) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchData();
+    fetchData(true);
+
+    // Supabase Realtime channel for site visits and feedback
+    const channel = supabase
+      .channel('visits_feedback_realtime_channel')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'site_visits' },
+        () => fetchData(false)
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'site_visit_feedback' },
+        () => fetchData(false)
+      )
+      .subscribe();
+
+    // Auto-polling interval every 5 seconds
+    const interval = setInterval(() => {
+      fetchData(false);
+    }, 5000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(interval);
+    };
   }, [token]);
 
   const openAddModal = () => {
@@ -204,12 +230,19 @@ export default function Visits() {
     setFeedbackError(null);
     try {
       await supabaseService.visits.submitFeedback(selectedVisitId, feedbackForm);
-      setSelectedVisitId(null);
-      await fetchData();
+      setFeedbackSuccess(true);
+      setBulkActionMessage('Visit feedback submitted successfully! Visit status set to Completed.');
+      setTimeout(() => setBulkActionMessage(null), 5000);
+      
+      // Auto close and refresh after showing success message
+      setTimeout(async () => {
+        setFeedbackSuccess(false);
+        setSelectedVisitId(null);
+        await fetchData();
+      }, 1200);
     } catch (err: any) {
       console.error('Error submitting feedback:', err);
       setFeedbackError(err?.message || 'Failed to submit feedback. Please try again.');
-    } finally {
       setIsSubmittingFeedback(false);
     }
   };
@@ -376,7 +409,7 @@ export default function Visits() {
           </button>
 
           <button
-            onClick={fetchData}
+            onClick={() => fetchData(true)}
             className="flex items-center px-4 py-2.5 bg-neutral-900 border border-neutral-800 text-neutral-300 hover:text-white rounded-xl text-xs font-bold hover:bg-neutral-800 transition-colors shadow-sm cursor-pointer"
             title="Refresh list"
           >
@@ -1063,106 +1096,134 @@ export default function Visits() {
       {selectedVisitId && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-neutral-950 rounded-2xl shadow-2xl border border-neutral-800 text-white w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col">
-            <div className="p-6 border-b border-neutral-800 flex justify-between items-center bg-neutral-950 sticky top-0 z-10">
-              <h2 className="text-xl font-bold text-white">Submit Visit Feedback</h2>
-              <button onClick={() => setSelectedVisitId(null)} className="text-neutral-400 hover:text-white cursor-pointer">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-6 overflow-y-auto">
-              <form id="feedbackForm" onSubmit={handleFeedbackSubmit} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-1 text-neutral-300">Interest Level</label>
-                    <select 
-                      value={feedbackForm.interest_level} 
-                      onChange={e => setFeedbackForm({...feedbackForm, interest_level: e.target.value})} 
-                      className="w-full px-3 py-2 bg-black border border-neutral-800 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-[#d4a359]"
-                    >
-                      <option>Hot</option>
-                      <option>Warm</option>
-                      <option>Cold</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1 text-neutral-300">Budget (₹ INR)</label>
-                    <input 
-                      type="number" 
-                      required 
-                      value={feedbackForm.budget} 
-                      onChange={e => setFeedbackForm({...feedbackForm, budget: e.target.value})} 
-                      className="w-full px-3 py-2 bg-black border border-neutral-800 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-[#d4a359]" 
-                      placeholder="e.g. 5000000" 
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1 text-neutral-300">Timeline</label>
-                    <select 
-                      value={feedbackForm.timeline} 
-                      onChange={e => setFeedbackForm({...feedbackForm, timeline: e.target.value})} 
-                      className="w-full px-3 py-2 bg-black border border-neutral-800 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-[#d4a359]"
-                    >
-                      <option>Immediate (0-1 month)</option>
-                      <option>1-3 months</option>
-                      <option>3-6 months</option>
-                      <option>6+ months</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1 text-neutral-300">Preferred Config</label>
-                    <input 
-                      required 
-                      value={feedbackForm.preferred_configuration} 
-                      onChange={e => setFeedbackForm({...feedbackForm, preferred_configuration: e.target.value})} 
-                      className="w-full px-3 py-2 bg-black border border-neutral-800 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-[#d4a359]" 
-                      placeholder="e.g. 3BHK high floor" 
-                    />
-                  </div>
+            {feedbackSuccess ? (
+              <div className="p-10 flex flex-col items-center justify-center text-center space-y-4 animate-in zoom-in-95 duration-200">
+                <div className="w-16 h-16 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+                  <CheckCircle2 className="w-9 h-9 animate-bounce" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1 text-neutral-300">Customer Feedback</label>
-                  <textarea 
-                    required 
-                    rows={3} 
-                    value={feedbackForm.customer_feedback} 
-                    onChange={e => setFeedbackForm({...feedbackForm, customer_feedback: e.target.value})} 
-                    className="w-full px-3 py-2 bg-black border border-neutral-800 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-[#d4a359]"
-                  ></textarea>
+                  <h2 className="text-2xl font-black text-white">Feedback Submitted Successfully!</h2>
+                  <p className="text-sm text-neutral-400 mt-2 max-w-md">
+                    The visit has been marked as <span className="text-emerald-400 font-bold">Completed</span> and customer notes have been saved to the cloud.
+                  </p>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1 text-neutral-300">Next Action Required</label>
-                  <input 
-                    required 
-                    value={feedbackForm.next_action} 
-                    onChange={e => setFeedbackForm({...feedbackForm, next_action: e.target.value})} 
-                    className="w-full px-3 py-2 bg-black border border-neutral-800 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-[#d4a359]" 
-                    placeholder="e.g. Follow up on Monday with floor plans" 
-                  />
+                <div className="pt-4">
+                  <button
+                    onClick={() => {
+                      setFeedbackSuccess(false);
+                      setSelectedVisitId(null);
+                      fetchData();
+                    }}
+                    className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition-colors shadow-lg cursor-pointer"
+                  >
+                    Done & Close
+                  </button>
                 </div>
-                {feedbackError && (
-                  <div className="p-3 bg-red-950/80 border border-red-800 text-red-300 rounded-xl text-xs">
-                    {feedbackError}
-                  </div>
-                )}
-              </form>
-            </div>
-            <div className="p-6 border-t border-neutral-800 bg-black flex justify-end">
-              <button 
-                form="feedbackForm" 
-                type="submit" 
-                disabled={isSubmittingFeedback}
-                className="px-6 py-2 bg-[#d4a359] hover:bg-[#e5b364] text-[#080f1a] font-bold rounded-lg transition-colors shadow-md shadow-[#d4a359]/20 cursor-pointer disabled:opacity-50 flex items-center space-x-2"
-              >
-                {isSubmittingFeedback ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Saving to Supabase...</span>
-                  </>
-                ) : (
-                  <span>Submit Feedback</span>
-                )}
-              </button>
-            </div>
+              </div>
+            ) : (
+              <>
+                <div className="p-6 border-b border-neutral-800 flex justify-between items-center bg-neutral-950 sticky top-0 z-10">
+                  <h2 className="text-xl font-bold text-white">Submit Visit Feedback</h2>
+                  <button onClick={() => setSelectedVisitId(null)} className="text-neutral-400 hover:text-white cursor-pointer">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="p-6 overflow-y-auto">
+                  <form id="feedbackForm" onSubmit={handleFeedbackSubmit} className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium mb-1 text-neutral-300">Interest Level</label>
+                        <select 
+                          value={feedbackForm.interest_level} 
+                          onChange={e => setFeedbackForm({...feedbackForm, interest_level: e.target.value})} 
+                          className="w-full px-3 py-2 bg-black border border-neutral-800 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-[#d4a359]"
+                        >
+                          <option>Hot</option>
+                          <option>Warm</option>
+                          <option>Cold</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1 text-neutral-300">Budget (₹ INR)</label>
+                        <input 
+                          type="number" 
+                          required 
+                          value={feedbackForm.budget} 
+                          onChange={e => setFeedbackForm({...feedbackForm, budget: e.target.value})} 
+                          className="w-full px-3 py-2 bg-black border border-neutral-800 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-[#d4a359]" 
+                          placeholder="e.g. 5000000" 
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1 text-neutral-300">Timeline</label>
+                        <select 
+                          value={feedbackForm.timeline} 
+                          onChange={e => setFeedbackForm({...feedbackForm, timeline: e.target.value})} 
+                          className="w-full px-3 py-2 bg-black border border-neutral-800 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-[#d4a359]"
+                        >
+                          <option>Immediate (0-1 month)</option>
+                          <option>1-3 months</option>
+                          <option>3-6 months</option>
+                          <option>6+ months</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1 text-neutral-300">Preferred Config</label>
+                        <input 
+                          required 
+                          value={feedbackForm.preferred_configuration} 
+                          onChange={e => setFeedbackForm({...feedbackForm, preferred_configuration: e.target.value})} 
+                          className="w-full px-3 py-2 bg-black border border-neutral-800 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-[#d4a359]" 
+                          placeholder="e.g. 3BHK high floor" 
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1 text-neutral-300">Customer Feedback</label>
+                      <textarea 
+                        required 
+                        rows={3} 
+                        value={feedbackForm.customer_feedback} 
+                        onChange={e => setFeedbackForm({...feedbackForm, customer_feedback: e.target.value})} 
+                        className="w-full px-3 py-2 bg-black border border-neutral-800 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-[#d4a359]"
+                      ></textarea>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1 text-neutral-300">Next Action Required</label>
+                      <input 
+                        required 
+                        value={feedbackForm.next_action} 
+                        onChange={e => setFeedbackForm({...feedbackForm, next_action: e.target.value})} 
+                        className="w-full px-3 py-2 bg-black border border-neutral-800 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-[#d4a359]" 
+                        placeholder="e.g. Follow up on Monday with floor plans" 
+                      />
+                    </div>
+                    {feedbackError && (
+                      <div className="p-3 bg-red-950/80 border border-red-800 text-red-300 rounded-xl text-xs">
+                        {feedbackError}
+                      </div>
+                    )}
+                  </form>
+                </div>
+                <div className="p-6 border-t border-neutral-800 bg-black flex justify-end">
+                  <button 
+                    form="feedbackForm" 
+                    type="submit" 
+                    disabled={isSubmittingFeedback}
+                    className="px-6 py-2 bg-[#d4a359] hover:bg-[#e5b364] text-[#080f1a] font-bold rounded-lg transition-colors shadow-md shadow-[#d4a359]/20 cursor-pointer disabled:opacity-50 flex items-center space-x-2"
+                  >
+                    {isSubmittingFeedback ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Saving to Supabase...</span>
+                      </>
+                    ) : (
+                      <span>Submit Feedback</span>
+                    )}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

@@ -1706,7 +1706,7 @@ export const supabaseService = {
         const res = await fetch('/api/owner-submissions', { headers });
         if (res.ok) {
           const apiData = await res.json();
-          if (Array.isArray(apiData) && apiData.length > 0) {
+          if (Array.isArray(apiData)) {
             const mapped = apiData.map((s: any) => ({
               id: Number(s.id),
               owner_name: s.owner_name,
@@ -1745,7 +1745,7 @@ export const supabaseService = {
           .select('*')
           .order('id', { ascending: false });
 
-        if (!error && data && data.length > 0) {
+        if (!error && Array.isArray(data)) {
           const mapped = data.map((s: any) => ({
             id: Number(s.id),
             owner_name: s.owner_name,
@@ -1791,16 +1791,18 @@ export const supabaseService = {
         bhk_config: sub.bhk_config || '2 BHK',
         location: sub.location,
         address: sub.address,
-        expected_rent: sub.expected_rent || 0,
-        security_deposit: sub.security_deposit || 0,
+        expected_rent: sub.expected_rent ? Number(sub.expected_rent) : null,
+        security_deposit: sub.security_deposit ? Number(sub.security_deposit) : null,
         furnishing: sub.furnishing || 'Semi-Furnished',
         available_from: sub.available_from,
         preferred_tenants: sub.preferred_tenants || 'Any',
-        amenities: JSON.stringify(sub.amenities || []),
-        images: JSON.stringify(sub.images || []),
+        amenities: Array.isArray(sub.amenities) ? JSON.stringify(sub.amenities) : (sub.amenities || '[]'),
+        images: Array.isArray(sub.images) ? JSON.stringify(sub.images) : (sub.images || '[]'),
         notes: sub.notes,
         status: 'PENDING'
       };
+
+      let newSub: any = null;
 
       // 1. Post to API
       try {
@@ -1811,32 +1813,52 @@ export const supabaseService = {
         });
         if (res.ok) {
           const apiRes = await res.json();
-          const newSub = { id: Number(apiRes.id), ...sub, status: 'PENDING', created_at: new Date().toISOString() };
-          const all = getLocal<any[]>('submissions', []);
-          setLocal('submissions', [newSub, ...all]);
-          return newSub;
+          newSub = { 
+            id: Number(apiRes.id || Date.now()), 
+            ...sub, 
+            status: 'PENDING', 
+            created_at: new Date().toISOString() 
+          };
         }
       } catch {}
 
-      // 2. Direct Supabase fallback
-      try {
-        const { data, error } = await supabase
-          .from('owner_submissions')
-          .insert([payload])
-          .select()
-          .single();
+      // 2. Direct Supabase fallback if API didn't respond
+      if (!newSub) {
+        try {
+          const { data, error } = await supabase
+            .from('owner_submissions')
+            .insert([payload])
+            .select()
+            .single();
 
-        if (!error && data) {
-          const newSub = { id: Number(data.id), ...sub, status: 'PENDING', created_at: data.created_at };
-          const all = getLocal<any[]>('submissions', []);
-          setLocal('submissions', [newSub, ...all]);
-          return newSub;
-        }
-      } catch {}
+          if (!error && data) {
+            newSub = { 
+              id: Number(data.id), 
+              ...sub, 
+              status: 'PENDING', 
+              created_at: data.created_at || new Date().toISOString() 
+            };
+          }
+        } catch {}
+      }
+
+      if (!newSub) {
+        newSub = {
+          id: Date.now(),
+          ...sub,
+          status: 'PENDING',
+          created_at: new Date().toISOString()
+        };
+      }
 
       const all = getLocal<any[]>('submissions', []);
-      const newSub = { id: Date.now(), ...sub, status: 'PENDING', created_at: new Date().toISOString() };
       setLocal('submissions', [newSub, ...all]);
+
+      // Broadcast custom event so other components refresh immediately
+      try {
+        window.dispatchEvent(new CustomEvent('owner_submissions_updated', { detail: newSub }));
+      } catch {}
+
       return newSub;
     },
 

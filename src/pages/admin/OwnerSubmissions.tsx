@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { 
   Building2, 
   Search, 
@@ -24,11 +24,13 @@ import {
   Square,
   ArrowUpDown,
   FileSpreadsheet,
-  AlertTriangle
+  AlertTriangle,
+  RefreshCw,
+  Activity
 } from 'lucide-react';
 import { useAppStore } from '../../store/index.js';
 import { getWhatsAppUrl } from '../../utils/whatsapp.js';
-import { supabaseService } from '../../services/supabaseService.js';
+import { supabase, supabaseService } from '../../services/supabaseService.js';
 
 export interface OwnerSubmission {
   id: number;
@@ -58,6 +60,8 @@ export default function OwnerSubmissions() {
   const { token, user, settings } = useAppStore();
   const [submissions, setSubmissions] = useState<OwnerSubmission[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<Date>(new Date());
 
   // Search, Status and Date Filtering
   const [search, setSearch] = useState('');
@@ -79,12 +83,14 @@ export default function OwnerSubmissions() {
   const [approvingId, setApprovingId] = useState<number | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const fetchSubmissions = async () => {
-    setLoading(true);
+  const fetchSubmissions = async (isManual = false) => {
+    if (isManual) {
+      setIsRefreshing(true);
+    }
     try {
       // 1. Try Supabase service directly or API
       const data = await supabaseService.ownerSubmissions.getAll();
-      if (Array.isArray(data) && data.length > 0) {
+      if (Array.isArray(data)) {
         setSubmissions(data);
       } else {
         const res = await fetch('/api/owner-submissions', {
@@ -97,6 +103,7 @@ export default function OwnerSubmissions() {
           setSubmissions(data || []);
         }
       }
+      setLastSyncTime(new Date());
     } catch (e) {
       console.error('Error fetching submissions:', e);
       try {
@@ -107,11 +114,42 @@ export default function OwnerSubmissions() {
       }
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
   };
 
   useEffect(() => {
-    fetchSubmissions();
+    fetchSubmissions(true);
+
+    // 1. Supabase Realtime Subscription for instantaneous updates
+    const channel = supabase
+      .channel('owner_submissions_realtime_channel')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'owner_submissions' },
+        (payload) => {
+          console.log('Realtime owner listing change detected:', payload.eventType);
+          fetchSubmissions(false);
+        }
+      )
+      .subscribe();
+
+    // 2. Window event listener for in-browser instant updates
+    const handleLocalUpdate = () => {
+      fetchSubmissions(false);
+    };
+    window.addEventListener('owner_submissions_updated', handleLocalUpdate);
+
+    // 3. Periodic Background Polling every 5 seconds
+    const interval = setInterval(() => {
+      fetchSubmissions(false);
+    }, 5000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      window.removeEventListener('owner_submissions_updated', handleLocalUpdate);
+      clearInterval(interval);
+    };
   }, [token, user]);
 
   const handleUpdateStatus = async (id: number, status: string, adminNotes?: string) => {
@@ -345,7 +383,25 @@ export default function OwnerSubmissions() {
           </p>
         </div>
 
-        <div className="flex items-center space-x-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="inline-flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-neutral-900/80 border border-neutral-800 text-neutral-300 text-xs">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <span className="font-semibold text-neutral-300 text-[11px]">Live Sync Active</span>
+          </div>
+
+          <button
+            onClick={() => fetchSubmissions(true)}
+            disabled={isRefreshing}
+            className="inline-flex items-center space-x-1.5 px-3 py-2 bg-neutral-900 hover:bg-neutral-800 text-neutral-200 border border-neutral-700 rounded-xl font-bold text-xs transition-all shadow-sm cursor-pointer disabled:opacity-50"
+            title="Force refresh owner submissions from cloud database"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-[#d4a359] ${isRefreshing ? 'animate-spin' : ''}`} />
+            <span>{isRefreshing ? 'Syncing...' : 'Refresh'}</span>
+          </button>
+
           <button
             onClick={exportToCSV}
             className="inline-flex items-center space-x-2 px-4 py-2.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 rounded-xl font-bold text-xs transition-all shadow-md cursor-pointer hover:border-emerald-500/60"

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAppStore } from '../../store/index.js';
 import { VisitFeedback } from '../../types.js';
 import { formatINR } from '../../utils/currency.js';
-import { supabaseService } from '../../services/supabaseService.js';
+import { supabase, supabaseService } from '../../services/supabaseService.js';
 import { 
   Flame, 
   Search, 
@@ -32,6 +32,7 @@ export default function Feedback() {
   const { user, token } = useAppStore();
   const [feedbacks, setFeedbacks] = useState<VisitFeedback[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [interestFilter, setInterestFilter] = useState<string>('ALL');
   const [timelineFilter, setTimelineFilter] = useState<string>('ALL');
@@ -39,12 +40,14 @@ export default function Feedback() {
   const [selectedFeedback, setSelectedFeedback] = useState<VisitFeedback | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const fetchFeedbacks = async () => {
-    setLoading(true);
+  const fetchFeedbacks = async (isManual = false) => {
+    if (isManual) {
+      setIsRefreshing(true);
+    }
     try {
       // 1. Fetch through supabaseService (includes backend API + direct Supabase cloud query with joins)
       const data = await supabaseService.feedbacks.getAll();
-      if (Array.isArray(data) && data.length > 0) {
+      if (Array.isArray(data)) {
         setFeedbacks(data);
       } else {
         // Fallback to API endpoint
@@ -68,6 +71,7 @@ export default function Feedback() {
       }
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
   };
 
@@ -77,7 +81,7 @@ export default function Feedback() {
     try {
       await supabaseService.feedbacks.delete(id);
       setSelectedFeedback(null);
-      await fetchFeedbacks();
+      await fetchFeedbacks(true);
     } catch (err) {
       console.error('Error deleting feedback:', err);
       alert('Error deleting feedback review.');
@@ -87,7 +91,27 @@ export default function Feedback() {
   };
 
   useEffect(() => {
-    fetchFeedbacks();
+    fetchFeedbacks(true);
+
+    // Supabase Realtime channel subscription
+    const channel = supabase
+      .channel('feedbacks_realtime_channel')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'site_visit_feedback' },
+        () => fetchFeedbacks(false)
+      )
+      .subscribe();
+
+    // Auto-polling interval every 5 seconds
+    const interval = setInterval(() => {
+      fetchFeedbacks(false);
+    }, 5000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(interval);
+    };
   }, [token]);
 
   // Calculations for KPI cards
@@ -160,13 +184,22 @@ export default function Feedback() {
         </div>
 
         <div className="flex items-center space-x-3">
+          <div className="hidden sm:inline-flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-neutral-900/80 border border-neutral-800 text-neutral-300 text-xs">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <span className="font-semibold text-neutral-300 text-[11px]">Live Sync</span>
+          </div>
+
           <button
-            onClick={fetchFeedbacks}
-            className="flex items-center px-4 py-2.5 bg-neutral-900 border border-neutral-800 text-neutral-300 hover:text-white rounded-xl text-sm font-bold hover:bg-neutral-800 transition-colors shadow-sm cursor-pointer"
-            title="Refresh list"
+            onClick={() => fetchFeedbacks(true)}
+            disabled={isRefreshing}
+            className="flex items-center px-4 py-2.5 bg-neutral-900 border border-neutral-800 text-neutral-300 hover:text-white rounded-xl text-sm font-bold hover:bg-neutral-800 transition-colors shadow-sm cursor-pointer disabled:opacity-50"
+            title="Refresh list from database"
           >
-            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin text-red-500' : ''}`} />
-            Refresh
+            <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin text-[#d4a359]' : ''}`} />
+            <span>{isRefreshing ? 'Syncing...' : 'Refresh'}</span>
           </button>
           
           <div className="flex bg-neutral-900 border border-neutral-800 p-1 rounded-xl">
