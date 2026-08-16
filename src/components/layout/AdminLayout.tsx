@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAppStore } from '../../store/index.js';
+import { supabaseService } from '../../services/supabaseService.js';
 import { 
   Home, 
   Users, 
@@ -24,9 +25,14 @@ export default function AdminLayout() {
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await supabaseService.auth.logout();
+    } catch (e) {
+      console.warn('Logout error:', e);
+    }
     logout();
-    navigate('/login');
+    navigate('/login', { replace: true });
   };
 
   const navItems = user?.role === 'AGENT' ? [

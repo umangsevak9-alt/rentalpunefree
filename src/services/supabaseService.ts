@@ -277,9 +277,39 @@ export const supabaseService = {
   // --- AUTHENTICATION VIA OFFICIAL SUPABASE AUTH ---
   auth: {
     /**
+     * Fetch user profile metadata & role from profiles table
+     */
+    async fetchUserProfile(supabaseUser: SupabaseAuthUser): Promise<User> {
+      let role: 'MAIN_ADMIN' | 'ADMIN' | 'AGENT' = 'MAIN_ADMIN';
+      let name = supabaseUser.user_metadata?.name || supabaseUser.email?.split('@')[0] || 'Administrator';
+
+      try {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', supabaseUser.id)
+          .maybeSingle();
+
+        if (profile) {
+          role = (profile.role as any) || 'ADMIN';
+          name = profile.name || name;
+        }
+      } catch (e) {
+        console.warn('Profile fetch note:', e);
+      }
+
+      return {
+        id: 1,
+        name: name,
+        email: supabaseUser.email || '',
+        role: role
+      };
+    },
+
+    /**
      * Sign in via official Supabase Auth
      */
-    async login(email: string, password?: string): Promise<{ success: boolean; user?: User; token?: string; error?: string }> {
+    async login(email: string, password?: string): Promise<{ success: boolean; user?: User; token?: string; session?: any; error?: string }> {
       try {
         const cleanEmail = (email || '').trim().toLowerCase();
         
@@ -298,34 +328,8 @@ export const supabaseService = {
         }
 
         if (data?.user && data?.session) {
-          // Check role from profiles table or user metadata
-          let role: 'MAIN_ADMIN' | 'ADMIN' | 'AGENT' = 'MAIN_ADMIN';
-          let name = data.user.user_metadata?.name || data.user.email?.split('@')[0] || 'Administrator';
-
-          try {
-            const { data: profile } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('id', data.user.id)
-              .maybeSingle();
-
-            if (profile) {
-              role = (profile.role as any) || 'ADMIN';
-              name = profile.name || name;
-            }
-          } catch (e) {
-            console.warn('Profile fetch note:', e);
-          }
-
-          const userObj: User = {
-            id: 1,
-            name: name,
-            email: data.user.email || cleanEmail,
-            role: role
-          };
-
-          setLocal('current_user', userObj);
-          return { success: true, user: userObj, token: data.session.access_token };
+          const userObj = await this.fetchUserProfile(data.user);
+          return { success: true, user: userObj, token: data.session.access_token, session: data.session };
         }
 
         return { success: false, error: 'No active session returned from Supabase Auth' };
@@ -337,7 +341,7 @@ export const supabaseService = {
     /**
      * Sign up a new Admin or Agent in Supabase Auth
      */
-    async signUp(email: string, password: string, name: string, role: 'MAIN_ADMIN' | 'ADMIN' | 'AGENT' = 'ADMIN'): Promise<{ success: boolean; user?: User; token?: string; error?: string }> {
+    async signUp(email: string, password: string, name: string, role: 'MAIN_ADMIN' | 'ADMIN' | 'AGENT' = 'ADMIN'): Promise<{ success: boolean; user?: User; token?: string; session?: any; error?: string }> {
       try {
         const cleanEmail = (email || '').trim().toLowerCase();
 
@@ -357,16 +361,10 @@ export const supabaseService = {
         }
 
         if (data?.user) {
-          const userObj: User = {
-            id: 1,
-            name: name,
-            email: data.user.email || cleanEmail,
-            role: role
-          };
+          const userObj = await this.fetchUserProfile(data.user);
 
           if (data.session) {
-            setLocal('current_user', userObj);
-            return { success: true, user: userObj, token: data.session.access_token };
+            return { success: true, user: userObj, token: data.session.access_token, session: data.session };
           }
 
           return { success: true, user: userObj, error: 'Account created! If email confirmation is enabled in your Supabase project, please check your inbox.' };
@@ -387,48 +385,21 @@ export const supabaseService = {
       } catch (e) {
         console.warn('Supabase logout error:', e);
       }
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('token');
-        localStorage.removeItem('rp_current_user');
-      }
     },
 
     /**
      * Get currently authenticated user from Supabase session
      */
-    async getMe(token?: string): Promise<User | null> {
+    async getMe(): Promise<User | null> {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
-          let role: 'MAIN_ADMIN' | 'ADMIN' | 'AGENT' = 'MAIN_ADMIN';
-          let name = session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Administrator';
-
-          try {
-            const { data: profile } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('id', session.user.id)
-              .maybeSingle();
-
-            if (profile) {
-              role = (profile.role as any) || 'ADMIN';
-              name = profile.name || name;
-            }
-          } catch {}
-
-          const userObj: User = {
-            id: 1,
-            name: name,
-            email: session.user.email || 'admin@admin.com',
-            role: role
-          };
-          setLocal('current_user', userObj);
-          return userObj;
+          return await this.fetchUserProfile(session.user);
         }
-      } catch {}
-      
-      const cached = getLocal<User | null>('current_user', null);
-      return cached;
+      } catch (err) {
+        console.warn('getMe error:', err);
+      }
+      return null;
     }
   },
 

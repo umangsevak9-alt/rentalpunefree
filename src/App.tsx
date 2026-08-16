@@ -4,8 +4,9 @@
  */
 
 import React, { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAppStore } from './store/index.js';
+import { supabase, supabaseService } from './services/supabaseService.js';
 
 // Layouts
 import PublicLayout from './components/layout/PublicLayout.js';
@@ -29,52 +30,108 @@ import Feedback from './pages/admin/Feedback.js';
 import Invoices from './pages/admin/Invoices.js';
 import Faqs from './pages/admin/Faqs.js';
 
+/**
+ * Route protection wrapper based directly on verified Supabase Auth Session
+ */
 function ProtectedRoute({ children, requireAdmin = false }: { children: React.ReactNode, requireAdmin?: boolean }) {
-  const { user, token } = useAppStore();
-  
-  if (!token) return <Navigate to="/login" replace />;
-  
+  const { user, session, isAuthLoading } = useAppStore();
+  const location = useLocation();
+
+  // If initial Supabase session verification is in-flight, show clean loading state
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-[#080f1a] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-[#d4a359] border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-xs text-[#d4a359] font-medium tracking-wide">Verifying Supabase Session...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Not authenticated via Supabase session
+  if (!session || !user) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  // Role permissions check
   if (requireAdmin && user?.role === 'AGENT') {
     return <Navigate to="/admin/visits" replace />;
   }
-  
-  return children;
+
+  return <>{children}</>;
 }
 
 export default function App() {
-  const { token, setAuth, setSettings } = useAppStore();
+  const { setAuth, logout, setSettings } = useAppStore();
 
   useEffect(() => {
-    // Load Settings
-    fetch('/api/settings')
-      .then(res => res.json())
+    // 1. Fetch public settings
+    supabaseService.settings.get()
       .then(data => setSettings(data))
       .catch(console.error);
-      
-    // Verify token
-    if (token) {
-      fetch('/api/auth/me', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-      .then(res => {
-        if (!res.ok) throw new Error('Invalid token');
-        return res.json();
-      })
-      .then(user => setAuth(user, token))
-      .catch(() => setAuth(null, null));
-    }
-  }, [token, setAuth, setSettings]);
+
+    let isSubscribed = true;
+
+    // 2. On application/page load: verify existing session via getSession()
+    supabase.auth.getSession().then(async ({ data: { session }, error }) => {
+      if (!isSubscribed) return;
+      if (error || !session?.user) {
+        logout();
+      } else {
+        try {
+          const profile = await supabaseService.auth.fetchUserProfile(session.user);
+          if (isSubscribed) {
+            setAuth(profile, session.access_token, session);
+          }
+        } catch (err) {
+          console.error('Session user profile load failed:', err);
+          if (isSubscribed) logout();
+        }
+      }
+    }).catch((err) => {
+      console.error('getSession error:', err);
+      if (isSubscribed) logout();
+    });
+
+    // 3. Reliable auth state listener using onAuthStateChange
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!isSubscribed) return;
+
+      if (event === 'SIGNED_OUT' || !session?.user) {
+        logout();
+      } else if (session?.user) {
+        try {
+          const profile = await supabaseService.auth.fetchUserProfile(session.user);
+          if (isSubscribed) {
+            setAuth(profile, session.access_token, session);
+          }
+        } catch (err) {
+          console.error('onAuthStateChange profile error:', err);
+        }
+      }
+    });
+
+    return () => {
+      isSubscribed = false;
+      subscription.unsubscribe();
+    };
+  }, [setAuth, logout, setSettings]);
 
   return (
     <BrowserRouter>
       <Routes>
+        {/* Public Routes */}
         <Route path="/" element={<PublicLayout />}>
           <Route index element={<Home />} />
           <Route path="list-property" element={<ListProperty />} />
         </Route>
         
+        {/* Authentication Routes */}
         <Route path="/login" element={<Login />} />
+        <Route path="/admin/login" element={<Navigate to="/login" replace />} />
         
+        {/* Protected Admin Routes */}
         <Route path="/admin" element={
           <ProtectedRoute>
             <AdminLayout />
@@ -92,6 +149,9 @@ export default function App() {
           <Route path="visits" element={<Visits />} />
           <Route path="feedback" element={<Feedback />} />
         </Route>
+
+        {/* Catch-all fallback */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );

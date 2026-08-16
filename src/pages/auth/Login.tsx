@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAppStore } from '../../store/index.js';
 import { 
   supabaseService, 
@@ -25,8 +25,17 @@ export default function Login() {
   const [inputKey, setInputKey] = useState(supabaseAnonKey || '');
   const [configMsg, setConfigMsg] = useState('');
 
-  const { setAuth } = useAppStore();
+  const { user, session, isAuthLoading, setAuth } = useAppStore();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // If already authenticated with a valid Supabase session, redirect directly to /admin
+  useEffect(() => {
+    if (!isAuthLoading && session && user) {
+      const destination = (location.state as any)?.from?.pathname || '/admin';
+      navigate(destination, { replace: true });
+    }
+  }, [session, user, isAuthLoading, navigate, location]);
 
   const handleSaveConfig = (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,7 +70,7 @@ export default function Login() {
       if (mode === 'signin') {
         const result = await supabaseService.auth.login(email, password);
         
-        if (!result.success || !result.user || !result.token) {
+        if (!result.success || !result.user) {
           const errMsg = result.error || 'Login failed. Please check your credentials or create an admin account below.';
           if (errMsg.toLowerCase().includes('api key') || errMsg.toLowerCase().includes('invalid')) {
             setShowConfigModal(true);
@@ -69,8 +78,12 @@ export default function Login() {
           throw new Error(errMsg);
         }
         
-        setAuth(result.user, result.token);
-        navigate('/admin');
+        // Update auth state with verified Supabase session
+        setAuth(result.user, result.token || null, result.session || null);
+        
+        // Immediate clean navigation to /admin
+        const destination = (location.state as any)?.from?.pathname || '/admin';
+        navigate(destination, { replace: true });
       } else {
         const result = await supabaseService.auth.signUp(email, password, name, 'MAIN_ADMIN');
         
@@ -82,9 +95,9 @@ export default function Login() {
           throw new Error(errMsg);
         }
 
-        if (result.user && result.token) {
-          setAuth(result.user, result.token);
-          navigate('/admin');
+        if (result.user && result.session) {
+          setAuth(result.user, result.token || null, result.session);
+          navigate('/admin', { replace: true });
         } else {
           setSuccessMsg(result.error || 'Admin account created successfully in Supabase! You can now sign in.');
           setMode('signin');
