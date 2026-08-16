@@ -667,11 +667,30 @@ router.post('/leads', async (req, res) => {
   }
 });
 
-router.get('/leads', authenticate, requireAdmin, async (req, res) => {
+router.get('/leads', authenticate, async (req: any, res: any) => {
   try {
-    const leads = await supabaseDb.getLeads();
-    const properties = await supabaseDb.getProperties();
-    const agents = await supabaseDb.getAgents();
+    const userRole = String(req.user?.role || '').toUpperCase();
+    const userId = req.user?.id || req.user?.user_id;
+
+    let leads = await supabaseDb.getLeads();
+    
+    // If agent, only show their assigned leads
+    if (userRole === 'AGENT' && userId) {
+      leads = leads.filter(l => String(l.assigned_agent_id) === String(userId));
+    }
+
+    let properties: any[] = [];
+    let agents: any[] = [];
+    try {
+      properties = await supabaseDb.getProperties();
+    } catch (e) {
+      console.warn('Could not fetch properties for leads join:', e);
+    }
+    try {
+      agents = await supabaseDb.getAgents();
+    } catch (e) {
+      console.warn('Could not fetch agents for leads join:', e);
+    }
 
     const joinedLeads = leads.map(l => {
       const prop = properties.find(p => String(p.id) === String(l.property_id));
@@ -684,9 +703,9 @@ router.get('/leads', authenticate, requireAdmin, async (req, res) => {
     });
 
     res.json(joinedLeads);
-  } catch (err) {
+  } catch (err: any) {
     console.error('Error fetching leads:', err);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: err?.message || 'Server error fetching leads' });
   }
 });
 

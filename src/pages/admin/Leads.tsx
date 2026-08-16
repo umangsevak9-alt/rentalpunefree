@@ -61,8 +61,11 @@ export default function Leads() {
     notes: ''
   });
 
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
   const fetchData = async () => {
     setLoading(true);
+    setErrorMsg(null);
     try {
       const [leadsRes, propsRes, agentsRes] = await Promise.all([
         fetch('/api/leads', { headers: { 'Authorization': `Bearer ${token}` } }),
@@ -70,11 +73,30 @@ export default function Leads() {
         fetch('/api/agents', { headers: { 'Authorization': `Bearer ${token}` } })
       ]);
 
-      if (leadsRes.ok) setLeads(await leadsRes.json());
-      if (propsRes.ok) setProperties(await propsRes.json());
-      if (agentsRes.ok) setAgents(await agentsRes.json());
-    } catch (err) {
+      if (leadsRes.ok) {
+        const data = await leadsRes.json();
+        if (Array.isArray(data)) {
+          setLeads(data);
+        } else {
+          setLeads([]);
+        }
+      } else {
+        const errData = await leadsRes.json().catch(() => ({}));
+        setErrorMsg(errData.error || 'Failed to fetch leads from server.');
+      }
+
+      if (propsRes.ok) {
+        const propsData = await propsRes.json().catch(() => []);
+        if (Array.isArray(propsData)) setProperties(propsData);
+      }
+
+      if (agentsRes.ok) {
+        const agentsData = await agentsRes.json().catch(() => []);
+        if (Array.isArray(agentsData)) setAgents(agentsData);
+      }
+    } catch (err: any) {
       console.error('Error fetching leads data:', err);
+      setErrorMsg('Network error fetching leads.');
     } finally {
       setLoading(false);
     }
@@ -382,6 +404,22 @@ export default function Leads() {
           </button>
         </div>
       </div>
+
+      {/* Error Notification Banner */}
+      {errorMsg && (
+        <div className="p-4 bg-red-950/60 border border-red-500/40 text-red-300 text-xs font-semibold rounded-2xl flex items-center justify-between animate-in fade-in duration-150">
+          <div className="flex items-center space-x-2.5">
+            <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
+            <span>{errorMsg}</span>
+          </div>
+          <button 
+            onClick={() => fetchData()} 
+            className="px-3 py-1 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg text-xs transition-colors cursor-pointer"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Success Notification Banner */}
       {bulkActionMessage && (

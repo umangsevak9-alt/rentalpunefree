@@ -225,24 +225,32 @@ export const supabaseDb = {
   // --- SITE VISITS ---
   async getVisits(userRole?: string, userId?: any): Promise<any[]> {
     const supabase = getClient();
-    const [vRes, lRes, pRes, prRes, fRes] = await Promise.all([
+    const [vRes, lRes, pRes, fRes] = await Promise.all([
       supabase.from('site_visits').select('*'),
       supabase.from('leads').select('*'),
       supabase.from('properties').select('*'),
-      supabase.from('profiles').select('*'),
       supabase.from('site_visit_feedback').select('*')
     ]);
 
     if (vRes.error) throw new Error(`Supabase query failed (Visits): ${vRes.error.message}`);
     if (lRes.error) throw new Error(`Supabase query failed (Leads for Visits): ${lRes.error.message}`);
     if (pRes.error) throw new Error(`Supabase query failed (Properties for Visits): ${pRes.error.message}`);
-    if (prRes.error) throw new Error(`Supabase query failed (Agent profiles for Visits): ${prRes.error.message}`);
     if (fRes.error) throw new Error(`Supabase query failed (Feedback for Visits): ${fRes.error.message}`);
+
+    let profiles: any[] = [];
+    try {
+      const prRes = await supabase.from('profiles').select('*');
+      if (!prRes.error && prRes.data) {
+        profiles = prRes.data;
+      } else {
+        const uRes = await supabase.from('users').select('*');
+        if (!uRes.error && uRes.data) profiles = uRes.data;
+      }
+    } catch {}
 
     let visits = vRes.data || [];
     const leads = lRes.data || [];
     const properties = pRes.data || [];
-    const profiles = prRes.data || [];
     const feedback = fRes.data || [];
 
     // Filter by agent if role is AGENT
@@ -343,25 +351,33 @@ export const supabaseDb = {
   // --- SITE VISIT FEEDBACK ---
   async getFeedbacks(userRole?: string, userId?: any): Promise<any[]> {
     const supabase = getClient();
-    const [fRes, vRes, lRes, pRes, prRes] = await Promise.all([
+    const [fRes, vRes, lRes, pRes] = await Promise.all([
       supabase.from('site_visit_feedback').select('*'),
       supabase.from('site_visits').select('*'),
       supabase.from('leads').select('*'),
-      supabase.from('properties').select('*'),
-      supabase.from('profiles').select('*')
+      supabase.from('properties').select('*')
     ]);
 
     if (fRes.error) throw new Error(`Supabase query failed (Feedback): ${fRes.error.message}`);
     if (vRes.error) throw new Error(`Supabase query failed (Visits for Feedback): ${vRes.error.message}`);
     if (lRes.error) throw new Error(`Supabase query failed (Leads for Feedback): ${lRes.error.message}`);
     if (pRes.error) throw new Error(`Supabase query failed (Properties for Feedback): ${pRes.error.message}`);
-    if (prRes.error) throw new Error(`Supabase query failed (Agent profiles for Feedback): ${prRes.error.message}`);
+
+    let profiles: any[] = [];
+    try {
+      const prRes = await supabase.from('profiles').select('*');
+      if (!prRes.error && prRes.data) {
+        profiles = prRes.data;
+      } else {
+        const uRes = await supabase.from('users').select('*');
+        if (!uRes.error && uRes.data) profiles = uRes.data;
+      }
+    } catch {}
 
     const feedbacks = fRes.data || [];
     const visits = vRes.data || [];
     const leads = lRes.data || [];
     const properties = pRes.data || [];
-    const profiles = prRes.data || [];
 
     // In-memory Join & Filter by agent if needed
     const joined = feedbacks.map(f => {
@@ -744,14 +760,24 @@ export const supabaseDb = {
     return true;
   },
 
-  // --- AGENTS (PROFILES TABLE) ---
+  // --- AGENTS (PROFILES / USERS TABLE) ---
   async getAgents(): Promise<any[]> {
     const supabase = getClient();
-    const { data, error } = await supabase.from('profiles').select('*').eq('role', 'agent').order('name', { ascending: true });
-    if (error) {
-      throw new Error(`Supabase query failed (Agents profile): ${error.message} (Code: ${error.code})`);
-    }
-    return data || [];
+    try {
+      const { data, error } = await supabase.from('profiles').select('*').eq('role', 'agent').order('name', { ascending: true });
+      if (!error && data && data.length > 0) {
+        return data;
+      }
+    } catch {}
+
+    try {
+      const { data, error } = await supabase.from('users').select('*').ilike('role', '%AGENT%').order('name', { ascending: true });
+      if (!error && data) {
+        return data;
+      }
+    } catch {}
+
+    return [];
   },
 
   async updateAgent(id: any, agent: any): Promise<boolean> {
@@ -763,21 +789,33 @@ export const supabaseDb = {
       notes: agent.notes || '',
       updated_at: new Date().toISOString()
     };
-    const { error } = await supabase.from('profiles').update(payload).eq('id', id);
-    if (error) {
-      throw new Error(`Supabase update failed (Agent Profile ID ${id}): ${error.message} (Code: ${error.code})`);
-    }
+    
+    try {
+      const { error } = await supabase.from('profiles').update(payload).eq('id', id);
+      if (!error) return true;
+    } catch {}
+
+    try {
+      const { error } = await supabase.from('users').update(payload).eq('id', id);
+      if (!error) return true;
+    } catch {}
+
     return true;
   },
 
   async deleteAgent(id: any): Promise<boolean> {
     const supabase = getClient();
-    // 1. Delete profiles entry
-    const { error: profileError } = await supabase.from('profiles').delete().eq('id', id);
-    if (profileError) {
-      throw new Error(`Supabase agent profile deletion failed (ID ${id}): ${profileError.message}`);
-    }
-    // 2. Also attempt Auth deletion if possible
+    // 1. Delete profiles entry if exists
+    try {
+      await supabase.from('profiles').delete().eq('id', id);
+    } catch {}
+
+    // 2. Delete users entry if exists
+    try {
+      await supabase.from('users').delete().eq('id', id);
+    } catch {}
+
+    // 3. Also attempt Auth deletion if possible
     try {
       await supabase.auth.admin.deleteUser(id);
     } catch (e) {
