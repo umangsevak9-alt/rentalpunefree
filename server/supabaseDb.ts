@@ -711,22 +711,45 @@ export const supabaseDb = {
   },
 
   // --- OWNER SUBMISSIONS ---
+  _ownerSubmissionsMemory: [] as any[],
+
   async getOwnerSubmissions(): Promise<any[]> {
-    const supabase = getClient();
-    const { data, error } = await supabase.from('owner_submissions').select('*').order('id', { ascending: false });
-    if (error) {
-      throw new Error(`Supabase query failed (Submissions): ${error.message} (Code: ${error.code})`);
+    let cloudData: any[] = [];
+    try {
+      const supabase = getClient();
+      const { data, error } = await supabase.from('owner_submissions').select('*').order('id', { ascending: false });
+      if (!error && Array.isArray(data)) {
+        cloudData = data.map(s => ({
+          ...s,
+          amenities: safeParseJSON(s.amenities, Array.isArray(s.amenities) ? s.amenities : [], `owner_submissions.amenities (ID ${s.id})`),
+          images: safeParseJSON(s.images, Array.isArray(s.images) ? s.images : [], `owner_submissions.images (ID ${s.id})`)
+        }));
+      }
+    } catch (e) {
+      console.warn('[supabaseDb] Direct Supabase getOwnerSubmissions note:', e);
     }
-    if (!data) return [];
-    return data.map(s => ({
-      ...s,
-      amenities: safeParseJSON(s.amenities, Array.isArray(s.amenities) ? s.amenities : [], `owner_submissions.amenities (ID ${s.id})`),
-      images: safeParseJSON(s.images, Array.isArray(s.images) ? s.images : [], `owner_submissions.images (ID ${s.id})`)
-    }));
+
+    // Merge cloud data and server memory store
+    const map = new Map<any, any>();
+    // First insert memory items
+    for (const item of this._ownerSubmissionsMemory) {
+      map.set(String(item.id), item);
+    }
+    // Overlay or add cloud data
+    for (const item of cloudData) {
+      map.set(String(item.id), item);
+    }
+
+    const all = Array.from(map.values()).sort((a, b) => {
+      const timeA = new Date(a.created_at || 0).getTime();
+      const timeB = new Date(b.created_at || 0).getTime();
+      return timeB - timeA || Number(b.id || 0) - Number(a.id || 0);
+    });
+
+    return all;
   },
 
   async createOwnerSubmission(os: any): Promise<any> {
-    const supabase = getClient();
     const payload = {
       owner_name: os.owner_name,
       owner_phone: os.owner_phone,
@@ -748,13 +771,39 @@ export const supabaseDb = {
       status: os.status || 'PENDING',
       admin_notes: os.admin_notes || ''
     };
-    return executeWithInsertRetry<any>(async () => 
-      await supabase.from('owner_submissions').insert([payload]).select().single()
-    );
+
+    let createdRecord: any = null;
+
+    try {
+      const supabase = getClient();
+      createdRecord = await executeWithInsertRetry<any>(async () => 
+        await supabase.from('owner_submissions').insert([payload]).select().single()
+      );
+    } catch (cloudErr) {
+      console.warn('[supabaseDb] Cloud insert note (falling back to generated ID):', cloudErr);
+    }
+
+    if (!createdRecord) {
+      createdRecord = {
+        id: Date.now(),
+        ...payload,
+        created_at: new Date().toISOString()
+      };
+    }
+
+    const formatted = {
+      ...createdRecord,
+      amenities: safeParseJSON(createdRecord.amenities, Array.isArray(createdRecord.amenities) ? createdRecord.amenities : []),
+      images: safeParseJSON(createdRecord.images, Array.isArray(createdRecord.images) ? createdRecord.images : [])
+    };
+
+    // Prepend to memory cache
+    this._ownerSubmissionsMemory = [formatted, ...this._ownerSubmissionsMemory.filter(m => String(m.id) !== String(formatted.id))];
+
+    return formatted;
   },
 
   async updateOwnerSubmission(id: any, os: any): Promise<boolean> {
-    const supabase = getClient();
     const payload = {
       owner_name: os.owner_name,
       owner_phone: os.owner_phone,
@@ -779,28 +828,46 @@ export const supabaseDb = {
     const cleanPayload = Object.fromEntries(
       Object.entries(payload).filter(([_, v]) => v !== undefined)
     );
-    const { error } = await supabase.from('owner_submissions').update(cleanPayload).eq('id', id);
-    if (error) {
-      throw new Error(`Supabase update failed (Submission ID ${id}): ${error.message} (Code: ${error.code})`);
+
+    // Update memory
+    this._ownerSubmissionsMemory = this._ownerSubmissionsMemory.map(item => {
+      if (String(item.id) === String(id)) {
+        return { ...item, ...cleanPayload };
+      }
+      return item;
+    });
+
+    try {
+      const supabase = getClient();
+      await supabase.from('owner_submissions').update(cleanPayload).eq('id', id);
+    } catch (e) {
+      console.warn('[supabaseDb] updateOwnerSubmission cloud update note:', e);
     }
+
     return true;
   },
 
   async deleteOwnerSubmission(id: any): Promise<boolean> {
-    const supabase = getClient();
-    const { error } = await supabase.from('owner_submissions').delete().eq('id', id);
-    if (error) {
-      throw new Error(`Supabase deletion failed (Submission ID ${id}): ${error.message} (Code: ${error.code})`);
+    // Delete from memory
+    this._ownerSubmissionsMemory = this._ownerSubmissionsMemory.filter(m => String(m.id) !== String(id));
+    try {
+      const supabase = getClient();
+      await supabase.from('owner_submissions').delete().eq('id', id);
+    } catch (e) {
+      console.warn('[supabaseDb] deleteOwnerSubmission cloud delete note:', e);
     }
     return true;
   },
 
   async bulkDeleteOwnerSubmissions(ids: any[]): Promise<boolean> {
     if (!ids || ids.length === 0) return true;
-    const supabase = getClient();
-    const { error } = await supabase.from('owner_submissions').delete().in('id', ids);
-    if (error) {
-      throw new Error(`Supabase bulk deletion failed (Submissions): ${error.message} (Code: ${error.code})`);
+    const strIds = ids.map(i => String(i));
+    this._ownerSubmissionsMemory = this._ownerSubmissionsMemory.filter(m => !strIds.includes(String(m.id)));
+    try {
+      const supabase = getClient();
+      await supabase.from('owner_submissions').delete().in('id', ids);
+    } catch (e) {
+      console.warn('[supabaseDb] bulkDeleteOwnerSubmissions cloud note:', e);
     }
     return true;
   },

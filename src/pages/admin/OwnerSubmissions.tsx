@@ -134,16 +134,21 @@ export default function OwnerSubmissions() {
       )
       .subscribe();
 
-    // 2. Window event listener for in-browser instant updates
+    // 2. Window and storage event listeners for cross-tab and in-browser instant updates
     const handleLocalUpdate = () => {
       fetchSubmissions(false);
     };
     window.addEventListener('owner_submissions_updated', handleLocalUpdate);
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'submissions' || e.key === 'rental_pune_submissions') {
+        fetchSubmissions(false);
+      }
+    });
 
-    // 3. Periodic Background Polling every 5 seconds
+    // 3. Periodic Background Polling every 2.5 seconds for instant multi-device sync
     const interval = setInterval(() => {
       fetchSubmissions(false);
-    }, 5000);
+    }, 2500);
 
     return () => {
       supabase.removeChannel(channel);

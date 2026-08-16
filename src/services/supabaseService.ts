@@ -1698,37 +1698,43 @@ export const supabaseService = {
 
       // 1. Try server API endpoint
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        let token = '';
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.access_token) token = session.access_token;
+        } catch {}
+
         const headers: Record<string, string> = {};
-        if (session?.access_token) {
-          headers['Authorization'] = `Bearer ${session.access_token}`;
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
         }
+
         const res = await fetch('/api/owner-submissions', { headers });
         if (res.ok) {
           const apiData = await res.json();
-          if (Array.isArray(apiData)) {
+          if (Array.isArray(apiData) && apiData.length >= 0) {
             const mapped = apiData.map((s: any) => ({
               id: Number(s.id),
-              owner_name: s.owner_name,
-              owner_phone: s.owner_phone,
-              owner_email: s.owner_email,
+              owner_name: s.owner_name || '',
+              owner_phone: s.owner_phone || '',
+              owner_email: s.owner_email || '',
               owner_type: s.owner_type || 'OWNER',
-              property_title: s.property_title,
+              property_title: s.property_title || 'Property Listing',
               property_type: s.property_type || 'Apartment',
               bhk_config: s.bhk_config || '2 BHK',
-              location: s.location,
-              address: s.address,
+              location: s.location || '',
+              address: s.address || '',
               expected_rent: Number(s.expected_rent || 0),
               security_deposit: Number(s.security_deposit || 0),
               furnishing: s.furnishing || 'Semi-Furnished',
-              available_from: s.available_from,
+              available_from: s.available_from || '',
               preferred_tenants: s.preferred_tenants || 'Any',
               amenities: safeJsonParse<string[]>(s.amenities, Array.isArray(s.amenities) ? s.amenities : []),
               images: safeJsonParse<string[]>(s.images, Array.isArray(s.images) ? s.images : []),
-              notes: s.notes,
+              notes: s.notes || '',
               status: s.status || 'PENDING',
-              admin_notes: s.admin_notes,
-              created_at: s.created_at
+              admin_notes: s.admin_notes || '',
+              created_at: s.created_at || new Date().toISOString()
             }));
             setLocal('submissions', mapped);
             return mapped;
@@ -1738,7 +1744,7 @@ export const supabaseService = {
         console.warn('API owner_submissions fetch warning:', err);
       }
 
-      // 2. Direct Supabase query
+      // 2. Direct Supabase query fallback
       try {
         const { data, error } = await supabase
           .from('owner_submissions')
@@ -1748,26 +1754,26 @@ export const supabaseService = {
         if (!error && Array.isArray(data)) {
           const mapped = data.map((s: any) => ({
             id: Number(s.id),
-            owner_name: s.owner_name,
-            owner_phone: s.owner_phone,
-            owner_email: s.owner_email,
+            owner_name: s.owner_name || '',
+            owner_phone: s.owner_phone || '',
+            owner_email: s.owner_email || '',
             owner_type: s.owner_type || 'OWNER',
-            property_title: s.property_title,
+            property_title: s.property_title || '',
             property_type: s.property_type || 'Apartment',
             bhk_config: s.bhk_config || '2 BHK',
-            location: s.location,
-            address: s.address,
+            location: s.location || '',
+            address: s.address || '',
             expected_rent: Number(s.expected_rent || 0),
             security_deposit: Number(s.security_deposit || 0),
             furnishing: s.furnishing || 'Semi-Furnished',
-            available_from: s.available_from,
+            available_from: s.available_from || '',
             preferred_tenants: s.preferred_tenants || 'Any',
             amenities: safeJsonParse<string[]>(s.amenities, Array.isArray(s.amenities) ? s.amenities : []),
             images: safeJsonParse<string[]>(s.images, Array.isArray(s.images) ? s.images : []),
-            notes: s.notes,
+            notes: s.notes || '',
             status: s.status || 'PENDING',
-            admin_notes: s.admin_notes,
-            created_at: s.created_at
+            admin_notes: s.admin_notes || '',
+            created_at: s.created_at || new Date().toISOString()
           }));
 
           setLocal('submissions', mapped);
@@ -1784,21 +1790,21 @@ export const supabaseService = {
       const payload = {
         owner_name: sub.owner_name,
         owner_phone: sub.owner_phone,
-        owner_email: sub.owner_email,
+        owner_email: sub.owner_email || '',
         owner_type: sub.owner_type || 'OWNER',
         property_title: sub.property_title,
         property_type: sub.property_type || 'Apartment',
         bhk_config: sub.bhk_config || '2 BHK',
         location: sub.location,
-        address: sub.address,
+        address: sub.address || '',
         expected_rent: sub.expected_rent ? Number(sub.expected_rent) : null,
         security_deposit: sub.security_deposit ? Number(sub.security_deposit) : null,
         furnishing: sub.furnishing || 'Semi-Furnished',
-        available_from: sub.available_from,
+        available_from: sub.available_from || '',
         preferred_tenants: sub.preferred_tenants || 'Any',
         amenities: Array.isArray(sub.amenities) ? JSON.stringify(sub.amenities) : (sub.amenities || '[]'),
         images: Array.isArray(sub.images) ? JSON.stringify(sub.images) : (sub.images || '[]'),
-        notes: sub.notes,
+        notes: sub.notes || '',
         status: 'PENDING'
       };
 
@@ -1820,27 +1826,27 @@ export const supabaseService = {
             created_at: new Date().toISOString() 
           };
         }
-      } catch {}
-
-      // 2. Direct Supabase fallback if API didn't respond
-      if (!newSub) {
-        try {
-          const { data, error } = await supabase
-            .from('owner_submissions')
-            .insert([payload])
-            .select()
-            .single();
-
-          if (!error && data) {
-            newSub = { 
-              id: Number(data.id), 
-              ...sub, 
-              status: 'PENDING', 
-              created_at: data.created_at || new Date().toISOString() 
-            };
-          }
-        } catch {}
+      } catch (e) {
+        console.warn('API submission note:', e);
       }
+
+      // 2. Direct Supabase insertion for cloud redundancy
+      try {
+        const { data, error } = await supabase
+          .from('owner_submissions')
+          .insert([payload])
+          .select()
+          .single();
+
+        if (!error && data) {
+          newSub = { 
+            id: Number(data.id), 
+            ...sub, 
+            status: 'PENDING', 
+            created_at: data.created_at || new Date().toISOString() 
+          };
+        }
+      } catch {}
 
       if (!newSub) {
         newSub = {
@@ -1852,7 +1858,7 @@ export const supabaseService = {
       }
 
       const all = getLocal<any[]>('submissions', []);
-      setLocal('submissions', [newSub, ...all]);
+      setLocal('submissions', [newSub, ...all.filter(i => String(i.id) !== String(newSub.id))]);
 
       // Broadcast custom event so other components refresh immediately
       try {
