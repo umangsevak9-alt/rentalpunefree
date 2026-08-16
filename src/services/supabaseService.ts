@@ -1,10 +1,12 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient, User as SupabaseAuthUser } from '@supabase/supabase-js';
 import { Property, Lead, Visit, VisitFeedback, Invoice, User, FAQ, Settings } from '../types.js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://ddfsfemggwjtryosdgya.supabase.co';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRkZnNmZW1nZ3dqdHJ5b3NkZ3lhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDIwNDQ5ODIsImV4cCI6MjA1NzYyMDk4Mn0.uHw5_j7Q4E8j5Fh0aWvjYl4K1D9_9H1z6Q6S9lE0I6U';
 
-// Custom bulletproof fetch to prevent any "Failed to execute json on Response" or empty stream parsing errors
+/**
+ * Bulletproof fetch wrapper to safeguard against empty responses and stream interruptions
+ */
 const safeSupabaseFetch: typeof fetch = async (input, init) => {
   try {
     const response = await fetch(input, init);
@@ -33,15 +35,15 @@ const safeSupabaseFetch: typeof fetch = async (input, init) => {
 
     return safeRes;
   } catch (err: any) {
-    console.warn('Supabase network fetch warning:', err);
-    return new Response(JSON.stringify({ error: err?.message || 'Network error', data: null }), {
+    console.warn('Supabase fetch network fallback:', err);
+    return new Response(JSON.stringify({ error: err?.message || 'Network request failed', data: null }), {
       status: 200,
       headers: { 'content-type': 'application/json' },
     });
   }
 };
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
@@ -68,10 +70,39 @@ export function getStorageImageUrl(filePath: string): string {
   return data?.publicUrl || filePath;
 }
 
-/**
- * Direct Supabase Client Service
- * Eliminates all localhost /api dependencies for Cloudflare Pages / Workers static SPA hosting.
- */
+// Safe JSON parse helper
+export function safeJsonParse<T>(val: any, fallback: T): T {
+  if (val === null || val === undefined || val === '') return fallback;
+  if (typeof val === 'object') return val as T;
+  if (typeof val !== 'string') return fallback;
+  const trimmed = val.trim();
+  if (!trimmed || trimmed === 'undefined' || trimmed === 'null') return fallback;
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+// Local storage caching helpers
+function getLocal<T>(key: string, fallback: T): T {
+  if (typeof window === 'undefined' || !window.localStorage) return fallback;
+  try {
+    const val = localStorage.getItem('rp_' + key);
+    return safeJsonParse<T>(val, fallback);
+  } catch {
+    return fallback;
+  }
+}
+
+function setLocal<T>(key: string, data: T): void {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    localStorage.setItem('rp_' + key, JSON.stringify(data));
+  } catch (e) {
+    console.warn('LocalStorage save failed:', e);
+  }
+}
 
 // Initial Seed Properties
 const SEED_PROPERTIES: Property[] = [
@@ -192,150 +223,166 @@ const SEED_AGENTS: User[] = [
   }
 ];
 
-// Safe JSON parse helper to completely eliminate "Unexpected end of JSON input" errors
-function safeJsonParse<T>(val: any, fallback: T): T {
-  if (val === null || val === undefined || val === '') return fallback;
-  if (typeof val === 'object') return val as T;
-  if (typeof val !== 'string') return fallback;
-  const trimmed = val.trim();
-  if (!trimmed || trimmed === 'undefined' || trimmed === 'null') return fallback;
-  try {
-    return JSON.parse(trimmed) as T;
-  } catch (e) {
-    console.warn('safeJsonParse fallback on invalid payload:', val);
-    return fallback;
-  }
-}
-
-// Local storage caching helpers
-function getLocal<T>(key: string, fallback: T): T {
-  if (typeof window === 'undefined' || !window.localStorage) return fallback;
-  try {
-    const val = localStorage.getItem('rp_' + key);
-    return safeJsonParse<T>(val, fallback);
-  } catch {
-    return fallback;
-  }
-}
-
-function setLocal<T>(key: string, data: T): void {
-  if (typeof window === 'undefined' || !window.localStorage) return;
-  try {
-    localStorage.setItem('rp_' + key, JSON.stringify(data));
-  } catch (e) {
-    console.warn('LocalStorage save failed:', e);
-  }
-}
-
 export const supabaseService = {
-  // --- AUTHENTICATION ---
+  // --- AUTHENTICATION VIA OFFICIAL SUPABASE AUTH ---
   auth: {
+    /**
+     * Sign in via official Supabase Auth
+     */
     async login(email: string, password?: string): Promise<{ success: boolean; user?: User; token?: string; error?: string }> {
       try {
         const cleanEmail = (email || '').trim().toLowerCase();
         
-        // 1. Instant Default administrative credentials
-        if (
-          (cleanEmail === 'admin@admin.com' || cleanEmail === 'admin@rentalpune.com' || cleanEmail === 'admin') &&
-          (!password || password === 'admin123' || password === 'admin')
-        ) {
-          const userObj: User = {
-            id: 1,
-            name: 'Main Admin',
-            email: 'admin@admin.com',
-            role: 'MAIN_ADMIN'
-          };
-          const token = 'rp_admin_token_' + Date.now();
-          setLocal('current_user', userObj);
-          return { success: true, user: userObj, token };
+        if (!cleanEmail || !password) {
+          return { success: false, error: 'Email and password are required' };
         }
 
-        // 2. Try Supabase Auth
-        if (password) {
+        // 1. Direct Supabase Auth email/password login
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password: password
+        });
+
+        if (error) {
+          return { success: false, error: error.message };
+        }
+
+        if (data?.user && data?.session) {
+          // Check role from profiles table or user metadata
+          let role: 'MAIN_ADMIN' | 'ADMIN' | 'AGENT' = 'MAIN_ADMIN';
+          let name = data.user.user_metadata?.name || data.user.email?.split('@')[0] || 'Administrator';
+
           try {
-            const { data, error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password });
-            if (!error && data?.user && data?.session) {
-              const userObj: User = {
-                id: 1,
-                name: data.user.user_metadata?.name || data.user.email?.split('@')[0] || 'Administrator',
-                email: data.user.email || cleanEmail,
-                role: 'MAIN_ADMIN'
-              };
-              setLocal('current_user', userObj);
-              return { success: true, user: userObj, token: data.session.access_token };
+            const { data: profile } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', data.user.id)
+              .maybeSingle();
+
+            if (profile) {
+              role = (profile.role as any) || 'ADMIN';
+              name = profile.name || name;
             }
           } catch (e) {
-            console.warn('Supabase Auth error:', e);
+            console.warn('Profile fetch note:', e);
           }
+
+          const userObj: User = {
+            id: 1,
+            name: name,
+            email: data.user.email || cleanEmail,
+            role: role
+          };
+
+          setLocal('current_user', userObj);
+          return { success: true, user: userObj, token: data.session.access_token };
         }
 
-        // 3. Check custom users table in Supabase
-        try {
-          const { data: dbUser, error: userErr } = await supabase
-            .from('users')
-            .select('*')
-            .eq('email', cleanEmail)
-            .maybeSingle();
-
-          if (!userErr && dbUser) {
-            const userObj: User = {
-              id: Number(dbUser.id),
-              name: dbUser.name || 'Admin User',
-              email: dbUser.email,
-              role: dbUser.role || 'AGENT',
-              permissions: dbUser.permissions
-            };
-            setLocal('current_user', userObj);
-            return { success: true, user: userObj, token: 'rp_token_' + Date.now() };
-          }
-        } catch (e) {
-          console.warn('Users table query failed:', e);
-        }
-
-        // 4. Check seed agents
-        const localAgents = getLocal<User[]>('agents', SEED_AGENTS);
-        const matchedAgent = localAgents.find(a => a.email.toLowerCase() === cleanEmail);
-        if (matchedAgent) {
-          setLocal('current_user', matchedAgent);
-          return { success: true, user: matchedAgent, token: 'rp_agent_token_' + matchedAgent.id };
-        }
-
-        return { success: false, error: 'Invalid email or password. Default: admin@admin.com / admin123' };
+        return { success: false, error: 'No active session returned from Supabase Auth' };
       } catch (err: any) {
-        return { success: false, error: err?.message || 'Login failed' };
+        return { success: false, error: err?.message || 'Authentication error' };
       }
     },
 
+    /**
+     * Sign up a new Admin or Agent in Supabase Auth
+     */
+    async signUp(email: string, password: string, name: string, role: 'MAIN_ADMIN' | 'ADMIN' | 'AGENT' = 'ADMIN'): Promise<{ success: boolean; user?: User; token?: string; error?: string }> {
+      try {
+        const cleanEmail = (email || '').trim().toLowerCase();
+
+        const { data, error } = await supabase.auth.signUp({
+          email: cleanEmail,
+          password: password,
+          options: {
+            data: {
+              name: name,
+              role: role
+            }
+          }
+        });
+
+        if (error) {
+          return { success: false, error: error.message };
+        }
+
+        if (data?.user) {
+          const userObj: User = {
+            id: 1,
+            name: name,
+            email: data.user.email || cleanEmail,
+            role: role
+          };
+
+          if (data.session) {
+            setLocal('current_user', userObj);
+            return { success: true, user: userObj, token: data.session.access_token };
+          }
+
+          return { success: true, user: userObj, error: 'Account created! If email confirmation is enabled in your Supabase project, please check your inbox.' };
+        }
+
+        return { success: false, error: 'Failed to create user in Supabase Auth' };
+      } catch (err: any) {
+        return { success: false, error: err?.message || 'Sign up failed' };
+      }
+    },
+
+    /**
+     * Logout from Supabase Auth
+     */
+    async logout(): Promise<void> {
+      try {
+        await supabase.auth.signOut();
+      } catch (e) {
+        console.warn('Supabase logout error:', e);
+      }
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('token');
+        localStorage.removeItem('rp_current_user');
+      }
+    },
+
+    /**
+     * Get currently authenticated user from Supabase session
+     */
     async getMe(token?: string): Promise<User | null> {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
+          let role: 'MAIN_ADMIN' | 'ADMIN' | 'AGENT' = 'MAIN_ADMIN';
+          let name = session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Administrator';
+
+          try {
+            const { data: profile } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', session.user.id)
+              .maybeSingle();
+
+            if (profile) {
+              role = (profile.role as any) || 'ADMIN';
+              name = profile.name || name;
+            }
+          } catch {}
+
           const userObj: User = {
             id: 1,
-            name: session.user.user_metadata?.name || 'Administrator',
+            name: name,
             email: session.user.email || 'admin@admin.com',
-            role: 'MAIN_ADMIN'
+            role: role
           };
           setLocal('current_user', userObj);
           return userObj;
         }
       } catch {}
       
-      const local = getLocal<User | null>('current_user', null);
-      if (local) return local;
-
-      const fallback: User = {
-        id: 1,
-        name: 'Main Admin',
-        email: 'admin@admin.com',
-        role: 'MAIN_ADMIN'
-      };
-      setLocal('current_user', fallback);
-      return fallback;
+      const cached = getLocal<User | null>('current_user', null);
+      return cached;
     }
   },
 
-  // --- AGENTS ---
+  // --- AGENTS & TEAM MANAGEMENT ---
   agents: {
     async getAll(): Promise<User[]> {
       try {
@@ -367,7 +414,7 @@ export const supabaseService = {
       return all.find(a => a.id === id) || null;
     },
 
-    async create(agent: { name: string; email: string; password?: string; role?: string }): Promise<User> {
+    async create(agent: { name: string; email: string; role?: string }): Promise<User> {
       try {
         const { data, error } = await supabase
           .from('users')
@@ -408,7 +455,7 @@ export const supabaseService = {
       return newAgent;
     },
 
-    async update(id: number, updates: Partial<User> & { password?: string }): Promise<User> {
+    async update(id: number, updates: Partial<User>): Promise<User> {
       try {
         await supabase
           .from('users')
@@ -628,8 +675,9 @@ export const supabaseService = {
             email: lead.email,
             phone: lead.phone,
             status: lead.status || 'New',
-            source: lead.source || 'Website',
+            source: lead.source || 'Website Concierge',
             property_id: lead.property_id,
+            property_title: lead.property_title,
             assigned_agent_id: lead.assigned_agent_id,
             notes: lead.notes
           }])
@@ -651,8 +699,9 @@ export const supabaseService = {
         email: lead.email || '',
         phone: lead.phone || '',
         status: lead.status || 'New',
-        source: lead.source || 'Website',
+        source: lead.source || 'Website Concierge',
         property_id: lead.property_id,
+        property_title: lead.property_title,
         created_at: new Date().toISOString()
       };
       setLocal('leads', [newLead, ...all]);
@@ -775,25 +824,22 @@ export const supabaseService = {
       setLocal('visits', all.filter(v => !ids.includes(v.id)));
     },
 
-    async submitFeedback(visitId: number, feedback: any): Promise<VisitFeedback> {
-      const fbData: Partial<VisitFeedback> = {
+    async submitFeedback(visitId: number, feedbackData: any): Promise<VisitFeedback> {
+      return supabaseService.feedbacks.create({
         visit_id: visitId,
-        interest_level: feedback.interest_level || 'Warm',
-        customer_feedback: feedback.customer_feedback || '',
-        requirements: feedback.requirements || '',
-        budget: feedback.budget ? Number(feedback.budget) : undefined,
-        preferred_configuration: feedback.preferred_configuration || '',
-        timeline: feedback.timeline || '',
-        next_action: feedback.next_action || ''
-      };
-
-      const created = await supabaseService.feedbacks.create(fbData);
-      await this.update(visitId, { status: 'Completed' });
-      return created;
+        interest_level: feedbackData.interest_level || 'Warm',
+        customer_feedback: feedbackData.customer_feedback || feedbackData.feedback || '',
+        requirements: feedbackData.requirements || '',
+        budget: Number(feedbackData.budget) || undefined,
+        preferred_configuration: feedbackData.preferred_configuration || '',
+        timeline: feedbackData.timeline || '',
+        next_action: feedbackData.next_action || '',
+        photos: feedbackData.photos || ''
+      });
     }
   },
 
-  // --- VISIT FEEDBACK ---
+  // --- SITE VISIT FEEDBACK ---
   feedbacks: {
     async getAll(): Promise<VisitFeedback[]> {
       try {
@@ -810,7 +856,7 @@ export const supabaseService = {
             interest_level: f.interest_level || 'Warm',
             customer_feedback: f.customer_feedback || '',
             requirements: f.requirements,
-            budget: f.budget ? Number(f.budget) : undefined,
+            budget: Number(f.budget || 0),
             preferred_configuration: f.preferred_configuration,
             timeline: f.timeline,
             next_action: f.next_action,
@@ -829,7 +875,7 @@ export const supabaseService = {
           .insert([{
             visit_id: feedback.visit_id,
             interest_level: feedback.interest_level || 'Warm',
-            customer_feedback: feedback.customer_feedback,
+            customer_feedback: feedback.customer_feedback || '',
             requirements: feedback.requirements,
             budget: feedback.budget,
             preferred_configuration: feedback.preferred_configuration,
@@ -841,23 +887,28 @@ export const supabaseService = {
           .single();
 
         if (!error && data) {
-          const newFb = { id: Number(data.id), ...feedback } as VisitFeedback;
+          const newF = { id: Number(data.id), ...feedback } as VisitFeedback;
           const all = getLocal<VisitFeedback[]>('feedbacks', []);
-          setLocal('feedbacks', [newFb, ...all]);
-          return newFb;
+          setLocal('feedbacks', [newF, ...all]);
+          return newF;
         }
       } catch {}
 
       const all = getLocal<VisitFeedback[]>('feedbacks', []);
-      const newFb: VisitFeedback = {
+      const newF: VisitFeedback = {
         id: Date.now(),
         visit_id: feedback.visit_id || 0,
         interest_level: feedback.interest_level || 'Warm',
         customer_feedback: feedback.customer_feedback || '',
+        requirements: feedback.requirements,
+        budget: feedback.budget,
+        preferred_configuration: feedback.preferred_configuration,
+        timeline: feedback.timeline,
+        next_action: feedback.next_action,
         created_at: new Date().toISOString()
       };
-      setLocal('feedbacks', [newFb, ...all]);
-      return newFb;
+      setLocal('feedbacks', [newF, ...all]);
+      return newF;
     },
 
     async delete(id: number): Promise<void> {
@@ -878,9 +929,8 @@ export const supabaseService = {
           .select('*')
           .order('id', { ascending: false });
 
-        if (!error && data) {
-          setLocal('invoices', data);
-          return data.map((inv: any) => ({
+        if (!error && data && data.length > 0) {
+          const mapped: Invoice[] = data.map((inv: any) => ({
             id: Number(inv.id),
             invoice_number: inv.invoice_number,
             lead_id: inv.lead_id ? Number(inv.lead_id) : undefined,
@@ -919,15 +969,17 @@ export const supabaseService = {
             payment_instructions: inv.payment_instructions,
             created_at: inv.created_at
           }));
+          setLocal('invoices', mapped);
+          return mapped;
         }
       } catch {}
       return getLocal<Invoice[]>('invoices', []);
     },
 
-    async create(inv: Partial<Invoice>): Promise<Invoice> {
+    async create(invoice: Partial<Invoice>): Promise<Invoice> {
       const payload: any = {
-        ...inv,
-        items: typeof inv.items === 'object' ? JSON.stringify(inv.items) : inv.items
+        ...invoice,
+        items: JSON.stringify(invoice.items || [])
       };
 
       try {
@@ -938,7 +990,13 @@ export const supabaseService = {
           .single();
 
         if (!error && data) {
-          const newInv = { id: Number(data.id), ...inv } as Invoice;
+          const newInv: Invoice = {
+            id: Number(data.id),
+            ...invoice,
+            status: invoice.status || 'Pending',
+            client_name: invoice.client_name || '',
+            created_at: data.created_at
+          } as Invoice;
           const all = getLocal<Invoice[]>('invoices', []);
           setLocal('invoices', [newInv, ...all]);
           return newInv;
@@ -948,29 +1006,41 @@ export const supabaseService = {
       const all = getLocal<Invoice[]>('invoices', []);
       const newInv: Invoice = {
         id: Date.now(),
-        invoice_number: inv.invoice_number || `INV-${Date.now().toString().slice(-6)}`,
-        client_name: inv.client_name || '',
-        items: inv.items || [],
-        subtotal: inv.subtotal || 0,
-        tax: inv.tax || 0,
-        discount: inv.discount || 0,
-        total: inv.total || 0,
-        status: inv.status || 'Pending',
+        ...invoice,
+        status: invoice.status || 'Pending',
+        client_name: invoice.client_name || '',
         created_at: new Date().toISOString()
-      };
+      } as Invoice;
       setLocal('invoices', [newInv, ...all]);
       return newInv;
     },
 
+    async recordPayment(id: number, amount: number, paymentMode?: string, notes?: string): Promise<void> {
+      const all = await this.getAll();
+      const inv = all.find(i => i.id === id);
+      if (!inv) return;
+
+      const newPaid = (inv.amount_paid || 0) + amount;
+      const newBalance = Math.max(0, (inv.total || 0) - newPaid);
+      const newStatus = newBalance === 0 ? 'Paid' : (newPaid > 0 ? 'Partially Paid' : inv.status);
+
+      await this.update(id, {
+        amount_paid: newPaid,
+        balance_due: newBalance,
+        status: newStatus as any,
+        payment_mode: paymentMode || inv.payment_mode,
+        notes: notes ? `${inv.notes ? inv.notes + '\n' : ''}Payment recorded: ₹${amount}` : inv.notes
+      });
+    },
+
     async update(id: number, updates: Partial<Invoice>): Promise<void> {
       const payload: any = { ...updates };
-      if (updates.items && typeof updates.items === 'object') {
-        payload.items = JSON.stringify(updates.items);
-      }
+      if (updates.items) payload.items = JSON.stringify(updates.items);
 
       try {
         await supabase.from('invoices').update(payload).eq('id', id);
       } catch {}
+
       const all = getLocal<Invoice[]>('invoices', []);
       setLocal('invoices', all.map(i => i.id === id ? { ...i, ...updates } : i));
     },
@@ -981,48 +1051,37 @@ export const supabaseService = {
       } catch {}
       const all = getLocal<Invoice[]>('invoices', []);
       setLocal('invoices', all.filter(i => i.id !== id));
-    },
-
-    async recordPayment(id: number, amount: number, paymentMode?: string, notes?: string): Promise<void> {
-      const all = await this.getAll();
-      const inv = all.find(i => i.id === id);
-      if (inv) {
-        const currentPaid = Number(inv.amount_paid || 0);
-        const newPaid = currentPaid + amount;
-        const total = Number(inv.total || 0);
-        const newBalance = Math.max(0, total - newPaid);
-        const newStatus = newBalance === 0 ? 'Paid' : newPaid > 0 ? 'Partially Paid' : inv.status;
-        
-        await this.update(id, {
-          amount_paid: newPaid,
-          balance_due: newBalance,
-          status: newStatus,
-          payment_mode: paymentMode || inv.payment_mode,
-          notes: notes ? (inv.notes ? `${inv.notes}\n${notes}` : notes) : inv.notes
-        });
-      }
     }
   },
 
-  // --- FAQS ---
+  // --- HOME FAQS ---
   faqs: {
-    async getAll(includeInactive = false): Promise<FAQ[]> {
+    async getAll(): Promise<FAQ[]> {
       try {
-        let query = supabase.from('home_faqs').select('*').order('sort_order', { ascending: true });
-        if (!includeInactive) {
-          query = query.eq('is_active', 1);
-        }
-        const { data, error } = await query;
+        const { data, error } = await supabase
+          .from('home_faqs')
+          .select('*')
+          .order('sort_order', { ascending: true });
+
         if (!error && data && data.length > 0) {
-          setLocal('faqs', data);
-          return data;
+          const mapped: FAQ[] = data.map((f: any) => ({
+            id: Number(f.id),
+            question: f.question,
+            answer: f.answer,
+            category: f.category || 'General',
+            sort_order: Number(f.sort_order || 0),
+            is_active: Number(f.is_active !== undefined ? f.is_active : 1),
+            created_at: f.created_at
+          }));
+          setLocal('faqs', mapped);
+          return mapped;
         }
       } catch {}
       return getLocal<FAQ[]>('faqs', SEED_FAQS);
     },
 
     async getAllAdmin(): Promise<FAQ[]> {
-      return this.getAll(true);
+      return this.getAll();
     },
 
     async create(faq: Partial<FAQ>): Promise<FAQ> {
@@ -1034,13 +1093,21 @@ export const supabaseService = {
             answer: faq.answer,
             category: faq.category || 'General',
             sort_order: faq.sort_order || 0,
-            is_active: faq.is_active ?? 1
+            is_active: faq.is_active !== undefined ? faq.is_active : 1
           }])
           .select()
           .single();
 
         if (!error && data) {
-          const newFaq = data as FAQ;
+          const newFaq: FAQ = {
+            id: Number(data.id),
+            question: data.question,
+            answer: data.answer,
+            category: data.category,
+            sort_order: data.sort_order,
+            is_active: data.is_active,
+            created_at: data.created_at
+          };
           const all = getLocal<FAQ[]>('faqs', SEED_FAQS);
           setLocal('faqs', [...all, newFaq]);
           return newFaq;
@@ -1053,8 +1120,8 @@ export const supabaseService = {
         question: faq.question || '',
         answer: faq.answer || '',
         category: faq.category || 'General',
-        sort_order: faq.sort_order || all.length + 1,
-        is_active: 1,
+        sort_order: faq.sort_order || 0,
+        is_active: faq.is_active !== undefined ? faq.is_active : 1,
         created_at: new Date().toISOString()
       };
       setLocal('faqs', [...all, newFaq]);
@@ -1080,7 +1147,15 @@ export const supabaseService = {
     async resetDefaults(): Promise<FAQ[]> {
       try {
         await supabase.from('home_faqs').delete().neq('id', 0);
-        await supabase.from('home_faqs').insert(SEED_FAQS);
+        for (const f of SEED_FAQS) {
+          await supabase.from('home_faqs').insert([{
+            question: f.question,
+            answer: f.answer,
+            category: f.category,
+            sort_order: f.sort_order,
+            is_active: 1
+          }]);
+        }
       } catch {}
       setLocal('faqs', SEED_FAQS);
       return SEED_FAQS;
@@ -1097,166 +1172,207 @@ export const supabaseService = {
           .order('id', { ascending: false });
 
         if (!error && data) {
-          setLocal('owner_submissions', data);
-          return data;
+          const mapped = data.map((s: any) => ({
+            id: Number(s.id),
+            owner_name: s.owner_name,
+            owner_phone: s.owner_phone,
+            owner_email: s.owner_email,
+            owner_type: s.owner_type || 'OWNER',
+            property_title: s.property_title,
+            property_type: s.property_type || 'Apartment',
+            bhk_config: s.bhk_config || '2 BHK',
+            location: s.location,
+            address: s.address,
+            expected_rent: Number(s.expected_rent || 0),
+            security_deposit: Number(s.security_deposit || 0),
+            furnishing: s.furnishing || 'Semi-Furnished',
+            available_from: s.available_from,
+            preferred_tenants: s.preferred_tenants || 'Any',
+            amenities: safeJsonParse<string[]>(s.amenities, Array.isArray(s.amenities) ? s.amenities : []),
+            images: safeJsonParse<string[]>(s.images, Array.isArray(s.images) ? s.images : []),
+            notes: s.notes,
+            status: s.status || 'PENDING',
+            admin_notes: s.admin_notes,
+            created_at: s.created_at
+          }));
+          setLocal('submissions', mapped);
+          return mapped;
         }
       } catch {}
-      return getLocal<any[]>('owner_submissions', []);
+      return getLocal<any[]>('submissions', []);
     },
 
     async create(sub: any): Promise<any> {
+      const payload = {
+        owner_name: sub.owner_name,
+        owner_phone: sub.owner_phone,
+        owner_email: sub.owner_email,
+        owner_type: sub.owner_type || 'OWNER',
+        property_title: sub.property_title,
+        property_type: sub.property_type || 'Apartment',
+        bhk_config: sub.bhk_config || '2 BHK',
+        location: sub.location,
+        address: sub.address,
+        expected_rent: sub.expected_rent || 0,
+        security_deposit: sub.security_deposit || 0,
+        furnishing: sub.furnishing || 'Semi-Furnished',
+        available_from: sub.available_from,
+        preferred_tenants: sub.preferred_tenants || 'Any',
+        amenities: JSON.stringify(sub.amenities || []),
+        images: JSON.stringify(sub.images || []),
+        notes: sub.notes,
+        status: 'PENDING'
+      };
+
       try {
         const { data, error } = await supabase
           .from('owner_submissions')
-          .insert([sub])
+          .insert([payload])
           .select()
           .single();
 
         if (!error && data) {
-          const all = getLocal<any[]>('owner_submissions', []);
-          setLocal('owner_submissions', [data, ...all]);
-          return data;
+          const newSub = { id: Number(data.id), ...sub, status: 'PENDING', created_at: data.created_at };
+          const all = getLocal<any[]>('submissions', []);
+          setLocal('submissions', [newSub, ...all]);
+          return newSub;
         }
       } catch {}
 
-      const all = getLocal<any[]>('owner_submissions', []);
-      const newSub = { id: Date.now(), ...sub, created_at: new Date().toISOString() };
-      setLocal('owner_submissions', [newSub, ...all]);
+      const all = getLocal<any[]>('submissions', []);
+      const newSub = { id: Date.now(), ...sub, status: 'PENDING', created_at: new Date().toISOString() };
+      setLocal('submissions', [newSub, ...all]);
       return newSub;
     },
 
-    async updateStatus(id: number, status: string, adminNotes?: string): Promise<void> {
-      const payload: any = { status };
-      if (adminNotes !== undefined) payload.admin_notes = adminNotes;
-
+    async update(id: number, updates: any): Promise<void> {
       try {
-        await supabase.from('owner_submissions').update(payload).eq('id', id);
-      } catch (e) {
-        console.warn('Supabase update owner submission status error:', e);
-      }
-
-      const all = getLocal<any[]>('owner_submissions', []);
-      setLocal('owner_submissions', all.map(s => s.id === id ? { ...s, ...payload } : s));
+        await supabase.from('owner_submissions').update(updates).eq('id', id);
+      } catch {}
+      const all = getLocal<any[]>('submissions', []);
+      setLocal('submissions', all.map(s => s.id === id ? { ...s, ...updates } : s));
     },
 
-    async approveAndPublish(id: number): Promise<Property | null> {
+    async updateStatus(id: number, status: string, admin_notes?: string): Promise<void> {
+      return this.update(id, { status, admin_notes });
+    },
+
+    async approveAndPublish(id: number): Promise<any> {
+      return this.approve(id, true);
+    },
+
+    async approve(id: number, autoPublish = true): Promise<any> {
       const all = await this.getAll();
       const sub = all.find(s => s.id === id);
-      if (!sub) return null;
+      if (!sub) return;
 
-      await this.updateStatus(id, 'Approved', 'Approved and published to public portfolio');
+      if (autoPublish) {
+        await supabaseService.properties.create({
+          title: sub.property_title,
+          description: `Prime ${sub.bhk_config} luxury rental residence in ${sub.location}. Features ${sub.furnishing} interiors, superior cross-ventilation, and verified ownership.`,
+          price: sub.expected_rent || 50000,
+          type: sub.property_type || 'Apartment',
+          bedrooms: sub.bhk_config?.includes('3') ? 3 : (sub.bhk_config?.includes('4') ? 4 : 2),
+          bathrooms: sub.bhk_config?.includes('3') ? 3 : (sub.bhk_config?.includes('4') ? 4 : 2),
+          area: 1650,
+          location: sub.location || 'Pune',
+          status: 'PUBLISHED',
+          images: sub.images && sub.images.length > 0 ? sub.images : ['https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80'],
+          videos: [],
+          faqs: []
+        });
+      }
 
-      const newPropData: Omit<Property, 'id'> = {
-        title: sub.title || `${sub.bhk_config || 'Luxury'} Apartment in ${sub.location || 'Pune'}`,
-        description: sub.description || `Exquisite property in ${sub.location || 'Pune'}. Listed directly by verified owner.`,
-        price: Number(sub.expected_rent || sub.price || 100000),
-        type: sub.property_type || sub.bhk_config || '3 BHK',
-        bedrooms: sub.bedrooms ? Number(sub.bedrooms) : (sub.bhk_config?.includes('4') ? 4 : sub.bhk_config?.includes('3') ? 3 : sub.bhk_config?.includes('2') ? 2 : 3),
-        bathrooms: sub.bathrooms ? Number(sub.bathrooms) : 3,
-        area: Number(sub.builtup_area || sub.area || 2000),
-        location: sub.location || 'Pune',
-        status: 'PUBLISHED',
-        images: Array.isArray(sub.images) && sub.images.length > 0 ? sub.images : [
-          'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80'
-        ],
-        videos: [],
-        faqs: []
-      };
-
-      const created = await supabaseService.properties.create(newPropData);
-      return created;
+      await this.update(id, { status: 'APPROVED' });
     },
 
     async delete(id: number): Promise<void> {
       try {
         await supabase.from('owner_submissions').delete().eq('id', id);
       } catch {}
-      const all = getLocal<any[]>('owner_submissions', []);
-      setLocal('owner_submissions', all.filter(s => s.id !== id));
+      const all = getLocal<any[]>('submissions', []);
+      setLocal('submissions', all.filter(s => s.id !== id));
     },
 
     async bulkDelete(ids: number[]): Promise<void> {
       try {
         await supabase.from('owner_submissions').delete().in('id', ids);
       } catch {}
-      const all = getLocal<any[]>('owner_submissions', []);
-      setLocal('owner_submissions', all.filter(s => !ids.includes(s.id)));
+      const all = getLocal<any[]>('submissions', []);
+      setLocal('submissions', all.filter(s => !ids.includes(s.id)));
     }
   },
 
-  // --- SITE SETTINGS ---
+  // --- SETTINGS ---
   settings: {
     async get(): Promise<Settings> {
-      const defaultSettings: Settings = {
-        website_name: 'Rental Pune',
-        company_name: 'Rental Pune Luxury Real Estate',
-        phone: '+91 98230 12345',
-        email: 'concierge@rentalpune.com',
-        address: 'Level 4, Executive Plaza, North Main Road, Koregaon Park, Pune 411001',
-        hero_heading: 'Luxury Real Estate & Premium Rentals in Pune',
-        hero_subheading: 'Curated residences, sky penthouses, and private estates across Koregaon Park, Kalyani Nagar & Boat Club Road.',
-        whatsapp_number: '919823012345',
-        whatsapp_message: 'Hello Rental Pune Concierge, I would like to inquire about luxury rentals in Pune.',
-        bank_name: 'HDFC Bank',
-        account_holder: 'Rental Pune Luxury Living LLP',
-        account_number: '50200088991122',
-        ifsc_code: 'HDFC0000039',
-        branch_name: 'Koregaon Park Branch',
-        account_type: 'Current Account'
-      };
-
       try {
-        const { data, error } = await supabase.from('settings').select('*');
+        const { data, error } = await supabase
+          .from('settings')
+          .select('*');
+
         if (!error && data && data.length > 0) {
-          const mapped: Settings = { ...defaultSettings };
+          const settingsObj: Settings = {};
           data.forEach((row: any) => {
-            if (row.key && row.value !== undefined) {
-              mapped[row.key] = row.value;
-            }
+            if (row.key) settingsObj[row.key] = row.value;
           });
-          setLocal('settings', mapped);
-          return mapped;
+          setLocal('settings', settingsObj);
+          return settingsObj;
         }
       } catch {}
-      return getLocal<Settings>('settings', defaultSettings);
+
+      return getLocal<Settings>('settings', {
+        website_name: 'Rental Pune',
+        company_name: 'Rental Pune Luxury Real Estate Pvt. Ltd.',
+        phone: '+91 98220 12345',
+        email: 'concierge@rentalpune.com',
+        address: 'Level 5, ICC Trade Tower, Senapati Bapat Road, Pune, Maharashtra 411016',
+        hero_heading: 'Curated Luxury Residences in Prime Pune',
+        hero_subheading: 'Handpicked penthouses, riverside apartments, and signature villas in Pune\'s most exclusive enclaves.',
+        whatsapp_number: '+919822012345',
+        whatsapp_message: 'Hello Rental Pune, I am looking for a luxury rental property in Pune.'
+      });
     },
 
-    async update(newSettings: Record<string, string>): Promise<Settings> {
+    async update(updates: Record<string, string>): Promise<Settings> {
       try {
-        for (const [key, value] of Object.entries(newSettings)) {
+        const entries = Object.entries(updates);
+        for (const [key, value] of entries) {
           await supabase
             .from('settings')
             .upsert({ key, value }, { onConflict: 'key' });
         }
       } catch (e) {
-        console.warn('Supabase settings update error:', e);
+        console.warn('Supabase update settings error:', e);
       }
 
-      const current = await this.get();
-      const updated = { ...current, ...newSettings };
-      setLocal('settings', updated);
-      return updated;
+      const existing = await this.get();
+      const merged = { ...existing, ...updates };
+      setLocal('settings', merged);
+      return merged;
     }
   },
 
-  // --- DASHBOARD STATS ---
+  // --- DASHBOARD METRICS ---
   dashboard: {
     async getStats(): Promise<any> {
-      const properties = await supabaseService.properties.getAll();
-      const leads = await supabaseService.leads.getAll();
-      const visits = await supabaseService.visits.getAll();
-      const feedbacks = await supabaseService.feedbacks.getAll();
-      const invoices = await supabaseService.invoices.getAll();
-      const submissions = await supabaseService.ownerSubmissions.getAll();
-      const agents = await supabaseService.agents.getAll();
+      const [properties, leads, visits, feedbacks, invoices, submissions, agents] = await Promise.all([
+        supabaseService.properties.getAll(),
+        supabaseService.leads.getAll(),
+        supabaseService.visits.getAll(),
+        supabaseService.feedbacks.getAll(),
+        supabaseService.invoices.getAll(),
+        supabaseService.ownerSubmissions.getAll(),
+        supabaseService.agents.getAll()
+      ]);
 
       const hotLeads = feedbacks.filter(f => f.interest_level === 'Hot').length;
       const warmLeads = feedbacks.filter(f => f.interest_level === 'Warm').length;
       const coldLeads = feedbacks.filter(f => f.interest_level === 'Cold').length;
 
-      const totalInvoiced = invoices.reduce((sum, i) => sum + (Number(i.total) || 0), 0);
-      const totalCollected = invoices.reduce((sum, i) => sum + (Number(i.amount_paid) || 0), 0);
-      const totalDue = invoices.reduce((sum, i) => sum + (Number(i.balance_due) || 0), 0);
+      const totalInvoiced = invoices.reduce((sum, inv) => sum + (Number(inv.total) || 0), 0);
+      const totalCollected = invoices.reduce((sum, inv) => sum + (Number(inv.amount_paid) || 0), 0);
+      const totalDue = invoices.reduce((sum, inv) => sum + (Number(inv.balance_due) || 0), 0);
 
       const totalPortfolioValue = properties.reduce((sum, p) => sum + (Number(p.price) || 0), 0);
       const publishedProperties = properties.filter(p => p.status === 'PUBLISHED');

@@ -22,175 +22,203 @@ import { getWhatsAppUrl } from '../../utils/whatsapp.js';
 import { supabaseService, supabase, isSupabaseConfigured } from '../../services/supabaseService.js';
 
 const SUPABASE_SCHEMA_SQL = `-- Rental Pune PostgreSQL / Supabase Schema
+-- Run this in your Supabase SQL Editor (https://supabase.com/dashboard/project/_/sql)
 
-CREATE TABLE IF NOT EXISTS users (
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  email TEXT UNIQUE NOT NULL,
+  role TEXT NOT NULL DEFAULT 'ADMIN' CHECK (role IN ('MAIN_ADMIN', 'ADMIN', 'AGENT')),
+  permissions TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.users (
   id BIGSERIAL PRIMARY KEY,
   name TEXT NOT NULL,
   email TEXT UNIQUE NOT NULL,
-  password_hash TEXT,
-  role TEXT DEFAULT 'AGENT',
+  role TEXT NOT NULL DEFAULT 'AGENT' CHECK (role IN ('MAIN_ADMIN', 'ADMIN', 'AGENT')),
+  permissions TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS properties (
+CREATE TABLE IF NOT EXISTS public.properties (
   id BIGSERIAL PRIMARY KEY,
   title TEXT NOT NULL,
   description TEXT,
-  price NUMERIC NOT NULL,
-  security_deposit NUMERIC,
-  location TEXT NOT NULL,
-  address TEXT,
-  property_type TEXT NOT NULL,
-  bhk_config TEXT NOT NULL,
-  furnishing TEXT,
-  available_from DATE,
-  preferred_tenants TEXT,
-  parking_type TEXT,
-  floor_number INTEGER,
-  total_floors INTEGER,
-  builtup_area NUMERIC,
-  carpet_area NUMERIC,
-  society_name TEXT,
-  gated_security INTEGER DEFAULT 1,
-  maintenance_charges NUMERIC,
-  featured INTEGER DEFAULT 0,
-  verified INTEGER DEFAULT 0,
-  hot_deal INTEGER DEFAULT 0,
-  exclusive INTEGER DEFAULT 0,
-  status TEXT DEFAULT 'Available',
-  images TEXT,
-  video_url TEXT,
-  amenities TEXT,
-  owner_name TEXT,
-  owner_phone TEXT,
-  owner_email TEXT,
-  agent_id BIGINT,
-  seo_title TEXT,
-  seo_description TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  price NUMERIC NOT NULL DEFAULT 0,
+  type TEXT NOT NULL DEFAULT 'Apartment',
+  bedrooms INT NOT NULL DEFAULT 2,
+  bathrooms INT NOT NULL DEFAULT 2,
+  area NUMERIC NOT NULL DEFAULT 1000,
+  location TEXT NOT NULL DEFAULT 'Pune',
+  status TEXT NOT NULL DEFAULT 'PUBLISHED',
+  images JSONB DEFAULT '[]'::jsonb,
+  videos JSONB DEFAULT '[]'::jsonb,
+  faqs JSONB DEFAULT '[]'::jsonb,
+  amenities JSONB DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS leads (
+CREATE TABLE IF NOT EXISTS public.leads (
   id BIGSERIAL PRIMARY KEY,
   name TEXT NOT NULL,
   email TEXT,
   phone TEXT NOT NULL,
-  property_id BIGINT,
-  status TEXT DEFAULT 'New',
-  source TEXT DEFAULT 'Website',
+  status TEXT NOT NULL DEFAULT 'New',
+  source TEXT DEFAULT 'Website Concierge',
+  property_id BIGINT REFERENCES public.properties(id) ON DELETE SET NULL,
+  property_title TEXT,
   assigned_agent_id BIGINT,
   notes TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS visits (
+CREATE TABLE IF NOT EXISTS public.site_visits (
   id BIGSERIAL PRIMARY KEY,
-  lead_id BIGINT,
-  property_id BIGINT,
+  lead_id BIGINT REFERENCES public.leads(id) ON DELETE SET NULL,
+  property_id BIGINT REFERENCES public.properties(id) ON DELETE SET NULL,
   agent_id BIGINT,
-  visit_date DATE NOT NULL,
-  visit_time TEXT NOT NULL,
-  status TEXT DEFAULT 'Scheduled',
+  visit_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  visit_time TEXT NOT NULL DEFAULT '11:00 AM',
+  status TEXT NOT NULL DEFAULT 'Scheduled',
   notes TEXT,
-  feedback_notes TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS visit_feedbacks (
+CREATE TABLE IF NOT EXISTS public.site_visit_feedback (
   id BIGSERIAL PRIMARY KEY,
-  visit_id BIGINT UNIQUE,
-  lead_name TEXT,
-  lead_phone TEXT,
-  lead_email TEXT,
-  property_title TEXT,
-  property_price NUMERIC,
-  agent_name TEXT,
-  agent_email TEXT,
-  visit_date DATE,
-  visit_time TEXT,
-  interest_level TEXT NOT NULL,
-  budget NUMERIC,
+  visit_id BIGINT UNIQUE REFERENCES public.site_visits(id) ON DELETE CASCADE,
+  interest_level TEXT NOT NULL DEFAULT 'Warm',
   customer_feedback TEXT NOT NULL,
   requirements TEXT,
-  timeline TEXT,
+  budget NUMERIC,
   preferred_configuration TEXT,
+  timeline TEXT,
   next_action TEXT,
+  photos TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS invoices (
+CREATE TABLE IF NOT EXISTS public.invoices (
   id BIGSERIAL PRIMARY KEY,
   invoice_number TEXT UNIQUE NOT NULL,
-  property_id BIGINT,
-  property_title TEXT,
-  lead_id BIGINT,
+  lead_id BIGINT REFERENCES public.leads(id) ON DELETE SET NULL,
+  property_id BIGINT REFERENCES public.properties(id) ON DELETE SET NULL,
   client_name TEXT NOT NULL,
   client_email TEXT,
   client_phone TEXT,
   client_address TEXT,
-  company_name TEXT,
-  company_address TEXT,
-  company_gst TEXT,
-  company_pan TEXT,
-  account_holder TEXT,
+  client_pan TEXT,
+  client_gstin TEXT,
+  property_title TEXT,
+  property_location TEXT,
+  items JSONB DEFAULT '[]'::jsonb,
+  subtotal NUMERIC NOT NULL DEFAULT 0,
+  tax_type TEXT DEFAULT 'GST_18',
+  tax_rate NUMERIC DEFAULT 18,
+  tax NUMERIC NOT NULL DEFAULT 0,
+  discount NUMERIC NOT NULL DEFAULT 0,
+  total NUMERIC NOT NULL DEFAULT 0,
+  amount_paid NUMERIC NOT NULL DEFAULT 0,
+  balance_due NUMERIC NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'Pending',
+  payment_mode TEXT DEFAULT 'Bank Transfer / NEFT / RTGS',
+  issue_date DATE DEFAULT CURRENT_DATE,
+  due_date DATE DEFAULT (CURRENT_DATE + INTERVAL '15 days'),
+  terms TEXT,
   bank_name TEXT,
+  account_holder TEXT,
   account_number TEXT,
   ifsc_code TEXT,
+  branch_name TEXT,
+  account_type TEXT,
   upi_id TEXT,
-  items TEXT NOT NULL,
-  subtotal NUMERIC NOT NULL,
-  tax NUMERIC NOT NULL,
-  total NUMERIC NOT NULL,
-  amount_paid NUMERIC DEFAULT 0,
-  balance_due NUMERIC DEFAULT 0,
-  status TEXT DEFAULT 'Draft',
-  issue_date DATE NOT NULL,
-  due_date DATE,
-  payment_mode TEXT,
+  upi_qr_url TEXT,
+  payment_instructions TEXT,
   notes TEXT,
-  terms TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS owner_submissions (
+CREATE TABLE IF NOT EXISTS public.home_faqs (
+  id BIGSERIAL PRIMARY KEY,
+  question TEXT NOT NULL,
+  answer TEXT NOT NULL,
+  category TEXT DEFAULT 'General',
+  sort_order INT DEFAULT 0,
+  is_active INT DEFAULT 1,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.owner_submissions (
   id BIGSERIAL PRIMARY KEY,
   owner_name TEXT NOT NULL,
   owner_phone TEXT NOT NULL,
   owner_email TEXT,
   owner_type TEXT DEFAULT 'OWNER',
   property_title TEXT NOT NULL,
-  property_type TEXT NOT NULL,
-  bhk_config TEXT NOT NULL,
+  property_type TEXT DEFAULT 'Apartment',
+  bhk_config TEXT DEFAULT '2 BHK',
   location TEXT NOT NULL,
   address TEXT,
-  expected_rent NUMERIC,
-  security_deposit NUMERIC,
-  furnishing TEXT,
-  available_from DATE,
-  preferred_tenants TEXT,
-  amenities TEXT,
-  images TEXT,
+  expected_rent NUMERIC DEFAULT 0,
+  security_deposit NUMERIC DEFAULT 0,
+  furnishing TEXT DEFAULT 'Semi-Furnished',
+  available_from TEXT,
+  preferred_tenants TEXT DEFAULT 'Any',
+  amenities JSONB DEFAULT '[]'::jsonb,
+  images JSONB DEFAULT '[]'::jsonb,
   notes TEXT,
-  status TEXT DEFAULT 'PENDING',
+  status TEXT NOT NULL DEFAULT 'PENDING',
   admin_notes TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS faqs (
-  id BIGSERIAL PRIMARY KEY,
-  question TEXT NOT NULL,
-  answer TEXT NOT NULL,
-  category TEXT DEFAULT 'Renting Process',
-  sort_order INTEGER DEFAULT 1,
-  is_active INTEGER DEFAULT 1,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS settings (
+CREATE TABLE IF NOT EXISTS public.settings (
   id BIGSERIAL PRIMARY KEY,
   key TEXT UNIQUE NOT NULL,
-  value TEXT NOT NULL
+  value TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- RLS
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.properties ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.leads ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.site_visits ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.site_visit_feedback ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.invoices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.home_faqs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.owner_submissions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.settings ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Public read properties" ON public.properties FOR SELECT USING (true);
+CREATE POLICY "Public insert leads" ON public.leads FOR INSERT WITH CHECK (true);
+CREATE POLICY "Public read faqs" ON public.home_faqs FOR SELECT USING (true);
+CREATE POLICY "Public insert owner submissions" ON public.owner_submissions FOR INSERT WITH CHECK (true);
+CREATE POLICY "Public read settings" ON public.settings FOR SELECT USING (true);
+CREATE POLICY "Admin write properties" ON public.properties FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Admin full leads" ON public.leads FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Admin full visits" ON public.site_visits FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Admin full feedback" ON public.site_visit_feedback FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Admin full invoices" ON public.invoices FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Admin full faqs" ON public.home_faqs FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Admin full submissions" ON public.owner_submissions FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Admin write settings" ON public.settings FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Admin full users" ON public.users FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Admin full profiles" ON public.profiles FOR ALL USING (auth.role() = 'authenticated');
+
+-- Storage
+INSERT INTO storage.buckets (id, name, public) VALUES ('property-images', 'property-images', true) ON CONFLICT (id) DO NOTHING;
+CREATE POLICY "Public Read Storage" ON storage.objects FOR SELECT USING (bucket_id = 'property-images');
+CREATE POLICY "Auth Upload Storage" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'property-images');
 `;
 
 export default function Settings() {
