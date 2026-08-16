@@ -15,6 +15,7 @@ import AdminLayout from './components/layout/AdminLayout.js';
 // Public
 import Home from './pages/public/Home.js';
 import ListProperty from './pages/public/ListProperty.js';
+import ThankYou from './pages/public/ThankYou.js';
 import Login from './pages/auth/Login.js';
 
 // Admin
@@ -125,6 +126,7 @@ export default function App() {
         <Route path="/" element={<PublicLayout />}>
           <Route index element={<Home />} />
           <Route path="list-property" element={<ListProperty />} />
+          <Route path="thank-you" element={<ThankYou />} />
         </Route>
         
         {/* Authentication Routes */}

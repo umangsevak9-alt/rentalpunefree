@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../../store/index.js';
 import { Property } from '../../types.js';
 import { 
@@ -36,6 +36,7 @@ import SharePropertyModal from '../../components/common/SharePropertyModal.js';
 import HomeFaqSection from '../../components/home/HomeFaqSection.js';
 
 export default function Home() {
+  const navigate = useNavigate();
   const { settings } = useAppStore();
   const [properties, setProperties] = useState<Property[]>([]);
   const [wishlist, setWishlist] = useState<number[]>([]);
@@ -47,6 +48,7 @@ export default function Home() {
 
   // Modals
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
+  const [referredProperty, setReferredProperty] = useState<Property | null>(null);
   const [sharingProperty, setSharingProperty] = useState<Property | null>(null);
   const [activeMediaIndex, setActiveMediaIndex] = useState(0);
   const [activeMediaTab, setActiveMediaTab] = useState<'photos' | 'videos'>('photos');
@@ -201,37 +203,85 @@ export default function Home() {
     return locMatch && bhkMatch && priceMatch;
   });
 
-  const handleLeadSubmit = async (e: React.FormEvent) => {
+  const isValidIndianPhone = (phone: string): boolean => {
+    const clean = phone.replace(/[\s\-\(\)\+]/g, '');
+    if (clean.length === 10) {
+      return /^[6-9]\d{9}$/.test(clean);
+    }
+    if (clean.length === 12 && clean.startsWith('91')) {
+      return /^[6-9]\d{9}$/.test(clean.substring(2));
+    }
+    if (clean.length === 11 && clean.startsWith('0')) {
+      return /^[6-9]\d{9}$/.test(clean.substring(1));
+    }
+    return false;
+  };
+
+  const handleLeadSubmit = async (e: React.FormEvent): Promise<boolean> => {
     e.preventDefault();
     setIsSubmitting(true);
     setFormStatus('');
+
+    const trimmedName = leadForm.name.trim();
+    const trimmedPhone = leadForm.phone.trim();
+    const trimmedEmail = leadForm.email.trim();
+    const trimmedNotes = leadForm.notes.trim();
+
+    // Validations
+    if (!trimmedName) {
+      setFormStatus('Name is required.');
+      setIsSubmitting(false);
+      return false;
+    }
+
+    if (!trimmedPhone) {
+      setFormStatus('Phone number is required.');
+      setIsSubmitting(false);
+      return false;
+    }
+
+    if (!isValidIndianPhone(trimmedPhone)) {
+      setFormStatus('Please enter a valid 10-digit Indian phone number.');
+      setIsSubmitting(false);
+      return false;
+    }
+
+    if (trimmedEmail) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(trimmedEmail)) {
+        setFormStatus('Please enter a valid email address.');
+        setIsSubmitting(false);
+        return false;
+      }
+    }
 
     try {
       const res = await fetch('/api/leads', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: leadForm.name,
-          email: leadForm.email,
-          phone: leadForm.phone,
-          property_id: selectedProperty ? Number(selectedProperty.id) : null,
-          notes: `[Booking Request] Location: ${leadForm.preferredLocation} | Preferred Date: ${leadForm.visitDate} ${leadForm.visitTime} | Notes: ${leadForm.notes}`
+          name: trimmedName,
+          email: trimmedEmail || null,
+          phone: trimmedPhone,
+          property_id: selectedProperty ? Number(selectedProperty.id) : (referredProperty ? Number(referredProperty.id) : null),
+          notes: `[Booking Request] Location: ${leadForm.preferredLocation} | Preferred Date: ${leadForm.visitDate} ${leadForm.visitTime} | Notes: ${trimmedNotes}`
         })
       });
 
       const data = await res.json().catch(() => ({}));
 
-      if (res.ok || res.status === 201 || data.success) {
-        setShowThankYou(true);
-        setFormStatus('Thank you! Your enquiry has been received. Our team will contact you in 2 hours.');
+      if (res.ok && data.success) {
         setLeadForm({ name: '', email: '', phone: '', visitDate: '', visitTime: '11:00', notes: '', preferredLocation: 'Baner' });
+        setReferredProperty(null);
+        navigate('/thank-you');
+        return true;
       } else {
         setFormStatus(data.error || 'Failed to submit enquiry. Please check your details.');
+        return false;
       }
-    } catch (err) {
-      // Fallback success for preview
-      setShowThankYou(true);
-      setFormStatus('Thank you! Your enquiry has been received. Our team will contact you in 2 hours.');
+    } catch (err: any) {
+      setFormStatus('Unable to submit your enquiry right now. Please check your connection and try again.');
+      return false;
     } finally {
       setIsSubmitting(false);
     }
@@ -292,7 +342,11 @@ export default function Home() {
 
               {/* Book a Visit Button */}
               <button 
-                onClick={() => setIsVisitModalOpen(true)}
+                onClick={() => {
+                  setReferredProperty(null);
+                  setFormStatus('');
+                  setIsVisitModalOpen(true);
+                }}
                 className="inline-flex items-center space-x-2 px-7 py-3.5 bg-transparent hover:bg-white/10 text-white font-bold text-xs sm:text-sm uppercase tracking-wider rounded-lg border border-[#d4a359]/60 hover:border-[#d4a359] transition-all cursor-pointer"
               >
                 <Calendar className="w-4 h-4 text-[#d4a359]" />
@@ -858,9 +912,18 @@ export default function Home() {
               </div>
             </div>
 
+            {formStatus && (
+              <div className="mb-4 p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-semibold">
+                {formStatus}
+              </div>
+            )}
+
             <form onSubmit={async (e) => {
-              await handleLeadSubmit(e);
-              setIsVisitModalOpen(false);
+              e.preventDefault();
+              const success = await handleLeadSubmit(e);
+              if (success) {
+                setIsVisitModalOpen(false);
+              }
             }} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-neutral-300 mb-1">Full Name</label>
@@ -917,7 +980,7 @@ export default function Home() {
                 disabled={isSubmitting}
                 className="w-full py-3 bg-[#d4a359] hover:bg-[#e5b364] text-[#080f1a] font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md mt-2 cursor-pointer"
               >
-                Confirm Site Visit
+                {isSubmitting ? 'Confirming...' : 'Confirm Site Visit'}
               </button>
             </form>
           </div>
@@ -1037,7 +1100,9 @@ export default function Home() {
 
                 <button
                   onClick={() => {
+                    setReferredProperty(selectedProperty);
                     setSelectedProperty(null);
+                    setFormStatus('');
                     setIsVisitModalOpen(true);
                   }}
                   className="flex-1 w-full py-3 bg-[#d4a359] hover:bg-[#e5b364] text-[#080f1a] font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md text-center cursor-pointer"
