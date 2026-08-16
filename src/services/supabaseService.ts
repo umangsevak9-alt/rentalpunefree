@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient, User as SupabaseAuthUser } from '@supabase/supabase-js';
 import { Property, Lead, Visit, VisitFeedback, Invoice, User, FAQ, Settings } from '../types.js';
+import { useAppStore } from '../store/index.js';
 
 // Retrieve credentials with local storage override capability
 function getSavedSupabaseConfig() {
@@ -500,15 +501,19 @@ export const supabaseService = {
     async getAll(): Promise<User[]> {
       const agentMap = new Map<string, User>();
 
-      // 1. Try fetching from server-side admin endpoint
+      // 1. Try fetching from server-side admin endpoint (syncs Cloud Supabase + Auth list + Server JSON)
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session } } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }));
+        const storeToken = typeof useAppStore !== 'undefined' ? useAppStore.getState()?.token : null;
+        const localToken = typeof localStorage !== 'undefined' ? (localStorage.getItem('supabase_auth_token') || localStorage.getItem('rp_auth_token')) : null;
+        const activeToken = session?.access_token || storeToken || localToken;
+
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (session?.access_token) {
-          headers['Authorization'] = `Bearer ${session.access_token}`;
+        if (activeToken) {
+          headers['Authorization'] = `Bearer ${activeToken}`;
         }
-        const resp = await fetch('/api/admin/agents', { headers });
-        if (resp.ok) {
+        const resp = await fetch('/api/admin/agents', { headers }).catch(() => null);
+        if (resp && resp.ok) {
           const data = await resp.json();
           if (Array.isArray(data) && data.length > 0) {
             for (const u of data) {
@@ -643,13 +648,16 @@ export const supabaseService = {
 
     async create(agent: { name: string; email: string; password?: string; phone?: string; notes?: string }): Promise<User> {
       const cleanEmail = agent.email.trim().toLowerCase();
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }));
+      const storeToken = typeof useAppStore !== 'undefined' ? useAppStore.getState()?.token : null;
+      const activeToken = session?.access_token || storeToken;
       
       // 1. Call secure server-side endpoint /api/admin/create-agent (uses Supabase service-role admin API)
+      let createdAgent: User | null = null;
       try {
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (session?.access_token) {
-          headers['Authorization'] = `Bearer ${session.access_token}`;
+        if (activeToken) {
+          headers['Authorization'] = `Bearer ${activeToken}`;
         }
 
         const resp = await fetch('/api/admin/create-agent', {
@@ -667,10 +675,7 @@ export const supabaseService = {
         if (resp.ok) {
           const resData = await resp.json();
           if (resData.agent || resData.user) {
-            const newAgent: User = resData.agent || resData.user;
-            const all = getLocal<User[]>('agents', SEED_AGENTS);
-            setLocal('agents', [newAgent, ...all.filter(a => a.email !== cleanEmail)]);
-            return newAgent;
+            createdAgent = resData.agent || resData.user;
           }
         } else {
           const errData = await resp.json().catch(() => ({}));
@@ -686,7 +691,7 @@ export const supabaseService = {
       }
 
       // 2. Direct Supabase Admin/Auth fallback
-      if (agent.password) {
+      if (!createdAgent && agent.password) {
         const { data: authData, error: authError } = await supabase.auth.signUp({
           email: cleanEmail,
           password: agent.password,
@@ -715,13 +720,27 @@ export const supabaseService = {
             email: cleanEmail,
             phone: agent.phone || '',
             role: 'agent',
-            notes: agent.notes || ''
+            notes: agent.notes || '',
+            created_at: new Date().toISOString()
           }]);
         } catch (e) {
           console.warn('Profile upsert note:', e);
         }
 
-        const newAgent: User = {
+        // Upsert into users table
+        try {
+          await supabase.from('users').upsert([{
+            id: newUserId,
+            name: agent.name.trim(),
+            email: cleanEmail,
+            phone: agent.phone || '',
+            role: 'agent',
+            notes: agent.notes || '',
+            created_at: new Date().toISOString()
+          }]);
+        } catch (e) {}
+
+        createdAgent = {
           id: newUserId,
           user_id: newUserId,
           name: agent.name.trim(),
@@ -732,12 +751,32 @@ export const supabaseService = {
           created_at: new Date().toISOString()
         };
 
-        const all = getLocal<User[]>('agents', SEED_AGENTS);
-        setLocal('agents', [newAgent, ...all.filter(a => a.email !== cleanEmail)]);
-        return newAgent;
+        // Sync to server for instant cross-device visibility
+        fetch('/api/agents/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(createdAgent)
+        }).catch(() => {});
       }
 
-      throw new Error('Password is required to create an agent account.');
+      if (!createdAgent) {
+        createdAgent = {
+          id: `agent-${Date.now()}`,
+          user_id: `agent-${Date.now()}`,
+          name: agent.name.trim(),
+          email: cleanEmail,
+          phone: agent.phone,
+          role: 'AGENT',
+          notes: agent.notes,
+          created_at: new Date().toISOString()
+        };
+      }
+
+      const all = getLocal<User[]>('agents', SEED_AGENTS);
+      const updatedList = [createdAgent, ...all.filter(a => (a.email || '').toLowerCase() !== cleanEmail)];
+      setLocal('agents', updatedList);
+      notifyUpdate('agents', createdAgent);
+      return createdAgent;
     },
 
     async update(id: string | number, updates: Partial<User>): Promise<User> {

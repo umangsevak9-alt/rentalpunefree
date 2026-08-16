@@ -445,6 +445,21 @@ export async function createAuthAgentUser(agentData: {
       console.warn('Profiles upsert note:', profErr);
     }
 
+    // 4. Upsert into Supabase users table
+    try {
+      await supabase.from('users').upsert([{
+        id: authUser.id,
+        name: agentData.name,
+        email: cleanEmail,
+        phone: agentData.phone || '',
+        role: 'agent',
+        notes: agentData.notes || '',
+        created_at: authUser.created_at || new Date().toISOString()
+      }]);
+    } catch (uErr) {
+      console.warn('Users upsert note:', uErr);
+    }
+
     return {
       success: true,
       user: {

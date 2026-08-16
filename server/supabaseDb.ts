@@ -1152,6 +1152,34 @@ export const supabaseDb = {
       console.warn('Users getAgents warning:', e);
     }
 
+    // 4. Fetch from Supabase Auth Admin listUsers
+    try {
+      const supabase = getClient();
+      const { data: authList, error: authListError } = await supabase.auth.admin.listUsers();
+      if (!authListError && authList?.users && Array.isArray(authList.users)) {
+        for (const u of authList.users) {
+          const r = String(u.user_metadata?.role || '').toLowerCase();
+          if (r === 'agent' || r === 'field_agent' || (!r.includes('admin') && u.email)) {
+            const key = String(u.email || u.id || '').toLowerCase();
+            if (key) {
+              const existing = map.get(key) || {};
+              map.set(key, {
+                id: u.id || existing.id,
+                user_id: u.id || existing.user_id,
+                name: u.user_metadata?.name || existing.name || (u.email ? u.email.split('@')[0] : 'Agent'),
+                email: u.email || existing.email || '',
+                phone: u.user_metadata?.phone || existing.phone || '',
+                role: 'AGENT',
+                notes: u.user_metadata?.notes || existing.notes || '',
+                permissions: existing.permissions || '',
+                created_at: u.created_at || existing.created_at || new Date().toISOString()
+              });
+            }
+          }
+        }
+      }
+    } catch (e) {}
+
     const result = Array.from(map.values());
     if (result.length > 0) {
       saveJsonFile(AGENTS_FILE, result);
