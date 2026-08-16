@@ -34,6 +34,7 @@ import {
 import { getWhatsAppUrl } from '../../utils/whatsapp.js';
 import SharePropertyModal from '../../components/common/SharePropertyModal.js';
 import HomeFaqSection from '../../components/home/HomeFaqSection.js';
+import { supabaseService } from '../../services/supabaseService.js';
 
 export default function Home() {
   const navigate = useNavigate();
@@ -203,18 +204,9 @@ export default function Home() {
     return locMatch && bhkMatch && priceMatch;
   });
 
-  const isValidIndianPhone = (phone: string): boolean => {
+  const isValidPhone = (phone: string): boolean => {
     const clean = phone.replace(/[\s\-\(\)\+]/g, '');
-    if (clean.length === 10) {
-      return /^[6-9]\d{9}$/.test(clean);
-    }
-    if (clean.length === 12 && clean.startsWith('91')) {
-      return /^[6-9]\d{9}$/.test(clean.substring(2));
-    }
-    if (clean.length === 11 && clean.startsWith('0')) {
-      return /^[6-9]\d{9}$/.test(clean.substring(1));
-    }
-    return false;
+    return clean.length >= 7 && clean.length <= 15 && /^\d+$/.test(clean);
   };
 
   const handleLeadSubmit = async (e: React.FormEvent): Promise<boolean> => {
@@ -240,8 +232,8 @@ export default function Home() {
       return false;
     }
 
-    if (!isValidIndianPhone(trimmedPhone)) {
-      setFormStatus('Please enter a valid 10-digit Indian phone number.');
+    if (!isValidPhone(trimmedPhone)) {
+      setFormStatus('Please enter a valid phone number (at least 10 digits).');
       setIsSubmitting(false);
       return false;
     }
@@ -255,35 +247,60 @@ export default function Home() {
       }
     }
 
+    const leadPayload = {
+      name: trimmedName,
+      email: trimmedEmail || undefined,
+      phone: trimmedPhone,
+      property_id: selectedProperty ? Number(selectedProperty.id) : (referredProperty ? Number(referredProperty.id) : undefined),
+      notes: `[Booking Request] Location: ${leadForm.preferredLocation || 'Pune'} | Preferred Date: ${leadForm.visitDate || 'Flexible'} ${leadForm.visitTime || ''} | Notes: ${trimmedNotes || 'None'}`
+    };
+
+    let submittedSuccessfully = false;
+
+    // 1. Primary: Submit to backend API endpoint
     try {
       const res = await fetch('/api/leads', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: trimmedName,
-          email: trimmedEmail || null,
-          phone: trimmedPhone,
-          property_id: selectedProperty ? Number(selectedProperty.id) : (referredProperty ? Number(referredProperty.id) : null),
-          notes: `[Booking Request] Location: ${leadForm.preferredLocation} | Preferred Date: ${leadForm.visitDate} ${leadForm.visitTime} | Notes: ${trimmedNotes}`
-        })
+        body: JSON.stringify(leadPayload)
       });
 
       const data = await res.json().catch(() => ({}));
-
       if (res.ok && data.success) {
-        setLeadForm({ name: '', email: '', phone: '', visitDate: '', visitTime: '11:00', notes: '', preferredLocation: 'Baner' });
-        setReferredProperty(null);
-        navigate('/thank-you');
-        return true;
-      } else {
-        setFormStatus(data.error || 'Failed to submit enquiry. Please check your details.');
-        return false;
+        submittedSuccessfully = true;
       }
-    } catch (err: any) {
-      setFormStatus('Unable to submit your enquiry right now. Please check your connection and try again.');
-      return false;
-    } finally {
+    } catch (apiErr) {
+      console.warn('API lead submission fallback triggered:', apiErr);
+    }
+
+    // 2. Secondary fallback: Direct Supabase client insert if API is unreachable
+    if (!submittedSuccessfully) {
+      try {
+        await supabaseService.leads.create({
+          name: trimmedName,
+          email: trimmedEmail || undefined,
+          phone: trimmedPhone,
+          property_id: leadPayload.property_id,
+          notes: leadPayload.notes,
+          source: 'Website Concierge'
+        });
+        submittedSuccessfully = true;
+      } catch (fallbackErr: any) {
+        console.error('Supabase fallback lead creation failed:', fallbackErr);
+      }
+    }
+
+    if (submittedSuccessfully) {
+      setLeadForm({ name: '', email: '', phone: '', visitDate: '', visitTime: '11:00', notes: '', preferredLocation: 'Baner' });
+      setReferredProperty(null);
+      setIsVisitModalOpen(false);
+      navigate('/thank-you');
       setIsSubmitting(false);
+      return true;
+    } else {
+      setFormStatus('Failed to submit enquiry. Please check your details and try again.');
+      setIsSubmitting(false);
+      return false;
     }
   };
 
