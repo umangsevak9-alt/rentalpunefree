@@ -3,6 +3,7 @@ import { useAppStore } from '../../store/index.js';
 import { Property } from '../../types.js';
 import { convertImageToWebP, formatBytes } from '../../utils/mediaCompressor.js';
 import { formatINR } from '../../utils/currency.js';
+import { supabaseService, supabase } from '../../services/supabaseService.js';
 import { 
   Plus, 
   Edit2, 
@@ -81,23 +82,59 @@ export default function Properties() {
   const photoFileInputRef = useRef<HTMLInputElement>(null);
   const videoFileInputRef = useRef<HTMLInputElement>(null);
 
-  const fetchProperties = async () => {
-    setLoading(true);
+  const fetchProperties = async (showLoading = true) => {
+    if (showLoading) setLoading(true);
     try {
-      const res = await fetch('/api/properties');
-      if (res.ok) {
-        const data = await res.json();
+      const data = await supabaseService.properties.getAll();
+      if (Array.isArray(data) && data.length > 0) {
         setProperties(data);
+      } else {
+        const res = await fetch('/api/properties');
+        if (res.ok) {
+          const apiData = await res.json();
+          setProperties(apiData);
+        }
       }
     } catch (err) {
       console.error('Error fetching properties:', err);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchProperties();
+    fetchProperties(true);
+
+    const handleUpdate = () => {
+      fetchProperties(false);
+    };
+    window.addEventListener('properties_updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+
+    const interval = setInterval(() => {
+      fetchProperties(false);
+    }, 3000);
+
+    let channel: any = null;
+    try {
+      channel = supabase
+        .channel('properties-realtime')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'properties' }, () => {
+          fetchProperties(false);
+        })
+        .subscribe();
+    } catch (e) {
+      console.warn('Realtime subscription note:', e);
+    }
+
+    return () => {
+      window.removeEventListener('properties_updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+      clearInterval(interval);
+      if (channel) {
+        supabase.removeChannel(channel).catch(() => {});
+      }
+    };
   }, []);
 
   const openAddModal = () => {

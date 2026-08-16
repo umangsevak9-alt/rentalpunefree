@@ -110,6 +110,13 @@ export default function Visits() {
   useEffect(() => {
     fetchData(true);
 
+    const handleUpdate = () => {
+      fetchData(false);
+    };
+    window.addEventListener('visits_updated', handleUpdate);
+    window.addEventListener('feedbacks_updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+
     // Supabase Realtime channel for site visits and feedback
     const channel = supabase
       .channel('visits_feedback_realtime_channel')
@@ -125,12 +132,15 @@ export default function Visits() {
       )
       .subscribe();
 
-    // Auto-polling interval every 5 seconds
+    // Auto-polling interval every 3 seconds
     const interval = setInterval(() => {
       fetchData(false);
-    }, 5000);
+    }, 3000);
 
     return () => {
+      window.removeEventListener('visits_updated', handleUpdate);
+      window.removeEventListener('feedbacks_updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
       supabase.removeChannel(channel);
       clearInterval(interval);
     };

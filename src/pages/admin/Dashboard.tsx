@@ -108,18 +108,43 @@ export default function Dashboard() {
     }
   };
 
-  // Initial fetch
+  // Initial fetch & event listeners
   useEffect(() => {
     fetchDashboardStats();
+
+    const handleUpdate = () => {
+      fetchDashboardStats(false);
+    };
+    window.addEventListener('rp_data_updated', handleUpdate);
+    window.addEventListener('agents_updated', handleUpdate);
+    window.addEventListener('leads_updated', handleUpdate);
+    window.addEventListener('visits_updated', handleUpdate);
+    window.addEventListener('feedbacks_updated', handleUpdate);
+    window.addEventListener('invoices_updated', handleUpdate);
+    window.addEventListener('owner_submissions_updated', handleUpdate);
+    window.addEventListener('properties_updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+
+    return () => {
+      window.removeEventListener('rp_data_updated', handleUpdate);
+      window.removeEventListener('agents_updated', handleUpdate);
+      window.removeEventListener('leads_updated', handleUpdate);
+      window.removeEventListener('visits_updated', handleUpdate);
+      window.removeEventListener('feedbacks_updated', handleUpdate);
+      window.removeEventListener('invoices_updated', handleUpdate);
+      window.removeEventListener('owner_submissions_updated', handleUpdate);
+      window.removeEventListener('properties_updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+    };
   }, [token, user]);
 
-  // Live polling interval every 8 seconds if autoRefresh is enabled
+  // Live polling interval every 3 seconds if autoRefresh is enabled
   useEffect(() => {
     if (!autoRefresh) return;
 
     const interval = setInterval(() => {
-      fetchDashboardStats();
-    }, 8000);
+      fetchDashboardStats(false);
+    }, 3000);
 
     return () => clearInterval(interval);
   }, [autoRefresh, token, user]);

@@ -93,6 +93,13 @@ export default function Feedback() {
   useEffect(() => {
     fetchFeedbacks(true);
 
+    const handleUpdate = () => {
+      fetchFeedbacks(false);
+    };
+    window.addEventListener('feedbacks_updated', handleUpdate);
+    window.addEventListener('visits_updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+
     // Supabase Realtime channel subscription
     const channel = supabase
       .channel('feedbacks_realtime_channel')
@@ -103,12 +110,15 @@ export default function Feedback() {
       )
       .subscribe();
 
-    // Auto-polling interval every 5 seconds
+    // Auto-polling interval every 3 seconds
     const interval = setInterval(() => {
       fetchFeedbacks(false);
-    }, 5000);
+    }, 3000);
 
     return () => {
+      window.removeEventListener('feedbacks_updated', handleUpdate);
+      window.removeEventListener('visits_updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
       supabase.removeChannel(channel);
       clearInterval(interval);
     };

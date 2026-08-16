@@ -4,6 +4,83 @@ import { getSupabase } from './supabase.js';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const SUBMISSIONS_FILE = path.join(DATA_DIR, 'owner_submissions.json');
+const AGENTS_FILE = path.join(DATA_DIR, 'agents.json');
+const LEADS_FILE = path.join(DATA_DIR, 'leads.json');
+const VISITS_FILE = path.join(DATA_DIR, 'visits.json');
+const FEEDBACKS_FILE = path.join(DATA_DIR, 'feedbacks.json');
+const INVOICES_FILE = path.join(DATA_DIR, 'invoices.json');
+const PROPERTIES_FILE = path.join(DATA_DIR, 'properties.json');
+
+const DEFAULT_AGENTS = [
+  {
+    id: 1,
+    user_id: '1',
+    name: 'Vikram Joshi',
+    email: 'vikram.joshi@rentalpune.com',
+    phone: '+91 98221 44556',
+    role: 'AGENT',
+    notes: 'Koregaon Park & Kalyani Nagar Luxury Rental Specialist',
+    created_at: new Date(Date.now() - 3600000 * 48).toISOString()
+  },
+  {
+    id: 2,
+    user_id: '2',
+    name: 'Pooja Kulkarni',
+    email: 'pooja.kulkarni@rentalpune.com',
+    phone: '+91 98222 77889',
+    role: 'AGENT',
+    notes: 'Boat Club Road, Bund Garden & Camp Area Specialist',
+    created_at: new Date(Date.now() - 3600000 * 36).toISOString()
+  },
+  {
+    id: 3,
+    user_id: '3',
+    name: 'Rahul Deshmukh',
+    email: 'rahul.deshmukh@rentalpune.com',
+    phone: '+91 98223 11223',
+    role: 'AGENT',
+    notes: 'Baner, Balewadi & Hinjewadi Phase 1-3 Specialist',
+    created_at: new Date(Date.now() - 3600000 * 24).toISOString()
+  }
+];
+
+function ensureDataDir(): void {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+  } catch (e) {
+    console.warn('[supabaseDb] Error creating data directory:', e);
+  }
+}
+
+function loadJsonFile<T>(filePath: string, fallback: T): T {
+  try {
+    ensureDataDir();
+    if (!fs.existsSync(filePath)) {
+      fs.writeFileSync(filePath, JSON.stringify(fallback, null, 2), 'utf-8');
+      return fallback;
+    }
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed as unknown as T;
+    }
+    return parsed || fallback;
+  } catch (err) {
+    console.warn(`[supabaseDb] Error reading ${filePath}:`, err);
+    return fallback;
+  }
+}
+
+function saveJsonFile<T>(filePath: string, data: T): void {
+  try {
+    ensureDataDir();
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn(`[supabaseDb] Error saving ${filePath}:`, err);
+  }
+}
 
 const DEFAULT_OWNER_SUBMISSIONS = [
   {
@@ -85,35 +162,11 @@ const DEFAULT_OWNER_SUBMISSIONS = [
 ];
 
 function loadSubmissionsFromFile(): any[] {
-  try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-    if (!fs.existsSync(SUBMISSIONS_FILE)) {
-      fs.writeFileSync(SUBMISSIONS_FILE, JSON.stringify(DEFAULT_OWNER_SUBMISSIONS, null, 2), 'utf-8');
-      return DEFAULT_OWNER_SUBMISSIONS;
-    }
-    const raw = fs.readFileSync(SUBMISSIONS_FILE, 'utf-8');
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed;
-    }
-    return DEFAULT_OWNER_SUBMISSIONS;
-  } catch (err) {
-    console.warn('[supabaseDb] Error loading submissions from file:', err);
-    return DEFAULT_OWNER_SUBMISSIONS;
-  }
+  return loadJsonFile<any[]>(SUBMISSIONS_FILE, DEFAULT_OWNER_SUBMISSIONS);
 }
 
 function saveSubmissionsToFile(list: any[]): void {
-  try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-    fs.writeFileSync(SUBMISSIONS_FILE, JSON.stringify(list, null, 2), 'utf-8');
-  } catch (err) {
-    console.warn('[supabaseDb] Error saving submissions to file:', err);
-  }
+  saveJsonFile(SUBMISSIONS_FILE, list);
 }
 
 /**
@@ -1018,28 +1071,50 @@ export const supabaseDb = {
 
   // --- AGENTS (PROFILES / USERS TABLE) ---
   async getAgents(): Promise<any[]> {
-    const supabase = getClient();
+    const fileAgents = loadJsonFile<any[]>(AGENTS_FILE, DEFAULT_AGENTS);
     const map = new Map<string, any>();
 
-    // 1. Fetch from profiles table
+    // 1. Seed with local file-backed agents
+    for (const a of fileAgents) {
+      const key = String(a.email || a.id || a.user_id || '').toLowerCase();
+      if (key) {
+        map.set(key, {
+          id: a.id || a.user_id,
+          user_id: a.user_id || a.id,
+          name: a.name || 'Agent',
+          email: a.email || '',
+          phone: a.phone || '',
+          role: 'AGENT',
+          notes: a.notes || '',
+          permissions: a.permissions || '',
+          created_at: a.created_at || new Date().toISOString()
+        });
+      }
+    }
+
+    // 2. Fetch from Supabase profiles table
     try {
+      const supabase = getClient();
       const { data, error } = await supabase.from('profiles').select('*').order('name', { ascending: true });
       if (!error && Array.isArray(data)) {
         for (const p of data) {
           const r = String(p.role || '').toLowerCase();
           if (r === 'agent' || r === 'field_agent' || r === 'sub_admin' || (!r.includes('admin') && p.email)) {
-            const key = (p.email || p.id || '').toLowerCase();
-            map.set(key, {
-              id: p.id || p.user_id,
-              user_id: p.user_id || p.id,
-              name: p.name || 'Agent',
-              email: p.email || '',
-              phone: p.phone || '',
-              role: 'AGENT',
-              notes: p.notes || '',
-              permissions: p.permissions || '',
-              created_at: p.created_at
-            });
+            const key = String(p.email || p.id || p.user_id || '').toLowerCase();
+            if (key) {
+              const existing = map.get(key) || {};
+              map.set(key, {
+                id: p.id || p.user_id || existing.id,
+                user_id: p.user_id || p.id || existing.user_id,
+                name: p.name || existing.name || 'Agent',
+                email: p.email || existing.email || '',
+                phone: p.phone || existing.phone || '',
+                role: 'AGENT',
+                notes: p.notes || existing.notes || '',
+                permissions: p.permissions || existing.permissions || '',
+                created_at: p.created_at || existing.created_at || new Date().toISOString()
+              });
+            }
           }
         }
       }
@@ -1047,25 +1122,27 @@ export const supabaseDb = {
       console.warn('Profiles getAgents warning:', e);
     }
 
-    // 2. Fetch from users table
+    // 3. Fetch from Supabase users table
     try {
+      const supabase = getClient();
       const { data, error } = await supabase.from('users').select('*').order('name', { ascending: true });
       if (!error && Array.isArray(data)) {
         for (const u of data) {
           const r = String(u.role || '').toLowerCase();
           if (r === 'agent' || r === 'field_agent' || r === 'sub_admin' || (!r.includes('admin') && u.email)) {
-            const key = (u.email || u.id || '').toLowerCase();
-            if (!map.has(key)) {
+            const key = String(u.email || u.id || '').toLowerCase();
+            if (key) {
+              const existing = map.get(key) || {};
               map.set(key, {
-                id: u.id,
-                user_id: u.id,
-                name: u.name || 'Agent',
-                email: u.email || '',
-                phone: u.phone || '',
+                id: u.id || existing.id,
+                user_id: u.id || existing.user_id,
+                name: u.name || existing.name || 'Agent',
+                email: u.email || existing.email || '',
+                phone: u.phone || existing.phone || '',
                 role: 'AGENT',
-                notes: u.notes || '',
-                permissions: u.permissions || '',
-                created_at: u.created_at
+                notes: u.notes || existing.notes || '',
+                permissions: u.permissions || existing.permissions || '',
+                created_at: u.created_at || existing.created_at || new Date().toISOString()
               });
             }
           }
@@ -1075,11 +1152,60 @@ export const supabaseDb = {
       console.warn('Users getAgents warning:', e);
     }
 
-    return Array.from(map.values());
+    const result = Array.from(map.values());
+    if (result.length > 0) {
+      saveJsonFile(AGENTS_FILE, result);
+    }
+    return result;
+  },
+
+  async recordAgentLogin(userData: { id?: string | number; email: string; name?: string; phone?: string; role?: string; notes?: string }): Promise<void> {
+    if (!userData || !userData.email) return;
+    const cleanEmail = userData.email.trim().toLowerCase();
+    const role = String(userData.role || '').toLowerCase();
+    
+    // If it's an agent or non-admin user logging in, guarantee it's in the agent directory
+    const currentAgents = loadJsonFile<any[]>(AGENTS_FILE, DEFAULT_AGENTS);
+    const existingIndex = currentAgents.findIndex(a => (a.email || '').toLowerCase() === cleanEmail);
+    
+    const updatedAgent = {
+      id: userData.id || (existingIndex >= 0 ? currentAgents[existingIndex].id : `agent-${Date.now()}`),
+      user_id: userData.id || (existingIndex >= 0 ? currentAgents[existingIndex].user_id : `agent-${Date.now()}`),
+      name: userData.name || (existingIndex >= 0 ? currentAgents[existingIndex].name : cleanEmail.split('@')[0]),
+      email: cleanEmail,
+      phone: userData.phone || (existingIndex >= 0 ? currentAgents[existingIndex].phone : ''),
+      role: 'AGENT',
+      notes: userData.notes || (existingIndex >= 0 ? currentAgents[existingIndex].notes : 'Registered field agent'),
+      created_at: existingIndex >= 0 ? currentAgents[existingIndex].created_at : new Date().toISOString(),
+      last_login: new Date().toISOString()
+    };
+
+    if (existingIndex >= 0) {
+      currentAgents[existingIndex] = { ...currentAgents[existingIndex], ...updatedAgent };
+    } else {
+      currentAgents.unshift(updatedAgent);
+    }
+    saveJsonFile(AGENTS_FILE, currentAgents);
+
+    // Upsert into Supabase profiles
+    try {
+      const supabase = getClient();
+      await supabase.from('profiles').upsert([{
+        id: updatedAgent.id,
+        user_id: updatedAgent.user_id,
+        name: updatedAgent.name,
+        email: updatedAgent.email,
+        phone: updatedAgent.phone,
+        role: 'agent',
+        notes: updatedAgent.notes,
+        created_at: updatedAgent.created_at
+      }]);
+    } catch (e) {
+      console.warn('[supabaseDb] recordAgentLogin profile upsert note:', e);
+    }
   },
 
   async updateAgent(id: any, agent: any): Promise<boolean> {
-    const supabase = getClient();
     const payload = {
       name: agent.name,
       email: agent.email,
@@ -1087,34 +1213,45 @@ export const supabaseDb = {
       notes: agent.notes || '',
       updated_at: new Date().toISOString()
     };
+
+    // Update in local file store
+    const currentAgents = loadJsonFile<any[]>(AGENTS_FILE, DEFAULT_AGENTS);
+    const updated = currentAgents.map(a => 
+      String(a.id) === String(id) || String(a.user_id) === String(id) ? { ...a, ...payload } : a
+    );
+    saveJsonFile(AGENTS_FILE, updated);
     
     try {
-      const { error } = await supabase.from('profiles').update(payload).eq('id', id);
-      if (!error) return true;
+      const supabase = getClient();
+      await supabase.from('profiles').update(payload).or(`id.eq.${id},user_id.eq.${id}`);
     } catch {}
 
     try {
-      const { error } = await supabase.from('users').update(payload).eq('id', id);
-      if (!error) return true;
+      const supabase = getClient();
+      await supabase.from('users').update(payload).eq('id', id);
     } catch {}
 
     return true;
   },
 
   async deleteAgent(id: any): Promise<boolean> {
-    const supabase = getClient();
-    // 1. Delete profiles entry if exists
+    // Delete from file store
+    const currentAgents = loadJsonFile<any[]>(AGENTS_FILE, DEFAULT_AGENTS);
+    const filtered = currentAgents.filter(a => String(a.id) !== String(id) && String(a.user_id) !== String(id));
+    saveJsonFile(AGENTS_FILE, filtered);
+
     try {
-      await supabase.from('profiles').delete().eq('id', id);
+      const supabase = getClient();
+      await supabase.from('profiles').delete().or(`id.eq.${id},user_id.eq.${id}`);
     } catch {}
 
-    // 2. Delete users entry if exists
     try {
+      const supabase = getClient();
       await supabase.from('users').delete().eq('id', id);
     } catch {}
 
-    // 3. Also attempt Auth deletion if possible
     try {
+      const supabase = getClient();
       await supabase.auth.admin.deleteUser(id);
     } catch (e) {
       console.warn('Auth admin deleteUser skipped (missing admin privileges):', e);

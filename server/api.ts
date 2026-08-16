@@ -82,8 +82,9 @@ router.post('/auth/login', async (req, res) => {
       return res.status(500).json({ error: 'Supabase client is not configured' });
     }
 
+    const cleanEmail = (email || '').trim().toLowerCase();
     const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim().toLowerCase(),
+      email: cleanEmail,
       password
     });
 
@@ -91,17 +92,40 @@ router.post('/auth/login', async (req, res) => {
       return res.status(401).json({ error: error.message });
     }
 
+    const userObj = {
+      id: data.user?.id,
+      name: data.user?.user_metadata?.name || cleanEmail.split('@')[0],
+      email: data.user?.email || cleanEmail,
+      phone: data.user?.user_metadata?.phone || '',
+      role: data.user?.user_metadata?.role || 'AGENT'
+    };
+
+    // Auto-record agent login if non-admin or agent
+    try {
+      await supabaseDb.recordAgentLogin(userObj);
+    } catch (e) {
+      console.warn('recordAgentLogin warning:', e);
+    }
+
     res.json({ 
       token: data.session?.access_token, 
-      user: { 
-        id: data.user?.id, 
-        name: data.user?.user_metadata?.name || email.split('@')[0], 
-        email: data.user?.email, 
-        role: data.user?.user_metadata?.role || 'AGENT' 
-      } 
+      user: userObj 
     });
   } catch (error: any) {
     res.status(500).json({ error: error?.message || 'Server error' });
+  }
+});
+
+router.post('/agents/sync', async (req, res) => {
+  try {
+    const { id, email, name, phone, role, notes } = req.body;
+    if (email) {
+      await supabaseDb.recordAgentLogin({ id, email, name, phone, role, notes });
+      return res.json({ success: true });
+    }
+    res.status(400).json({ error: 'Email is required' });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || 'Failed to sync agent' });
   }
 });
 

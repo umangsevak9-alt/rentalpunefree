@@ -92,6 +92,17 @@ export function safeJsonParse<T>(val: any, fallback: T): T {
   }
 }
 
+export function notifyUpdate(key: string, data?: any): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const timestamp = Date.now().toString();
+    localStorage.setItem(`rp_${key}_updated_at`, timestamp);
+    localStorage.setItem(`rp_last_sync_all`, timestamp);
+    window.dispatchEvent(new CustomEvent(`${key}_updated`, { detail: data }));
+    window.dispatchEvent(new CustomEvent('rp_data_updated', { detail: { entity: key, data } }));
+  } catch (e) {}
+}
+
 // Local storage caching helpers
 function getLocal<T>(key: string, fallback: T): T {
   if (typeof window === 'undefined' || !window.localStorage) return fallback;
@@ -107,6 +118,7 @@ function setLocal<T>(key: string, data: T): void {
   if (typeof window === 'undefined' || !window.localStorage) return;
   try {
     localStorage.setItem('rp_' + key, JSON.stringify(data));
+    notifyUpdate(key, data);
   } catch (e) {
     console.warn('LocalStorage save failed:', e);
   }
@@ -386,6 +398,14 @@ export const supabaseService = {
 
         if (data?.user && data?.session) {
           const userObj = await this.fetchUserProfile(data.user);
+          
+          // Auto-sync agent login into agents directory
+          if (userObj) {
+            try {
+              supabaseService.agents.registerAgent(userObj);
+            } catch {}
+          }
+
           return { success: true, user: userObj, token: data.session.access_token, session: data.session };
         }
 
@@ -587,6 +607,38 @@ export const supabaseService = {
     async getById(id: string | number): Promise<User | null> {
       const all = await this.getAll();
       return all.find(a => String(a.id) === String(id) || String(a.user_id) === String(id)) || null;
+    },
+
+    async registerAgent(userData: any): Promise<void> {
+      if (!userData || !userData.email) return;
+      const cleanEmail = String(userData.email).trim().toLowerCase();
+      const current = getLocal<User[]>('agents', SEED_AGENTS);
+      const existingIdx = current.findIndex(a => (a.email || '').toLowerCase() === cleanEmail);
+      const updatedAgent: User = {
+        id: userData.id || (existingIdx >= 0 ? current[existingIdx].id : `agent-${Date.now()}`),
+        user_id: userData.user_id || userData.id || (existingIdx >= 0 ? current[existingIdx].user_id : `agent-${Date.now()}`),
+        name: userData.name || (existingIdx >= 0 ? current[existingIdx].name : cleanEmail.split('@')[0]),
+        email: cleanEmail,
+        phone: userData.phone || (existingIdx >= 0 ? current[existingIdx].phone : ''),
+        role: 'AGENT',
+        notes: userData.notes || (existingIdx >= 0 ? current[existingIdx].notes : 'Active field agent'),
+        created_at: existingIdx >= 0 ? current[existingIdx].created_at : new Date().toISOString()
+      };
+      
+      let updatedList = [...current];
+      if (existingIdx >= 0) {
+        updatedList[existingIdx] = { ...updatedList[existingIdx], ...updatedAgent };
+      } else {
+        updatedList.unshift(updatedAgent);
+      }
+      setLocal('agents', updatedList);
+      
+      // Async sync to server
+      fetch('/api/agents/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedAgent)
+      }).catch(() => {});
     },
 
     async create(agent: { name: string; email: string; password?: string; phone?: string; notes?: string }): Promise<User> {

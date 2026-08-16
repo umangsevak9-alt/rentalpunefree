@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAppStore } from '../../store/index.js';
 import { Invoice, InvoiceItem, Property, Lead } from '../../types.js';
 import { formatINR, numberToWordsINR } from '../../utils/currency.js';
-import { supabaseService } from '../../services/supabaseService.js';
+import { supabaseService, supabase } from '../../services/supabaseService.js';
 import {
   FileText,
   Plus,
@@ -130,8 +130,8 @@ export default function Invoices() {
   ]);
 
   // Load Invoices, Properties & Leads
-  const fetchData = async () => {
-    setLoading(true);
+  const fetchData = async (showLoading = true) => {
+    if (showLoading) setLoading(true);
     try {
       const [invData, propData, leadData] = await Promise.all([
         supabaseService.invoices.getAll(),
@@ -139,18 +139,49 @@ export default function Invoices() {
         supabaseService.leads.getAll()
       ]);
 
-      setInvoices(invData);
-      setProperties(propData);
-      setLeads(leadData);
+      if (Array.isArray(invData)) setInvoices(invData);
+      if (Array.isArray(propData)) setProperties(propData);
+      if (Array.isArray(leadData)) setLeads(leadData);
     } catch (err) {
       console.error('Error loading invoices data:', err);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchData();
+    fetchData(true);
+
+    const handleUpdate = () => {
+      fetchData(false);
+    };
+    window.addEventListener('invoices_updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+
+    const interval = setInterval(() => {
+      fetchData(false);
+    }, 3000);
+
+    let channel: any = null;
+    try {
+      channel = supabase
+        .channel('invoices-realtime')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'invoices' }, () => {
+          fetchData(false);
+        })
+        .subscribe();
+    } catch (e) {
+      console.warn('Realtime subscription note:', e);
+    }
+
+    return () => {
+      window.removeEventListener('invoices_updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+      clearInterval(interval);
+      if (channel) {
+        supabase.removeChannel(channel).catch(() => {});
+      }
+    };
   }, [token, user]);
 
   // Calculations for Form
@@ -499,7 +530,7 @@ export default function Invoices() {
 
         <div className="flex items-center space-x-3">
           <button
-            onClick={fetchData}
+            onClick={() => fetchData(true)}
             title="Refresh Invoices"
             className="p-2.5 rounded-xl bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-white hover:border-neutral-700 transition-colors"
           >

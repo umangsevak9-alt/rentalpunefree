@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAppStore } from '../../store/index.js';
 import { User } from '../../types.js';
-import { supabaseService } from '../../services/supabaseService.js';
+import { supabaseService, supabase } from '../../services/supabaseService.js';
 import { 
   Users, 
   Plus, 
@@ -16,7 +16,8 @@ import {
   Search, 
   KeyRound,
   ShieldCheck,
-  UserX
+  UserX,
+  RefreshCw
 } from 'lucide-react';
 
 export default function Agents() {
@@ -37,20 +38,59 @@ export default function Agents() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const fetchAgents = async () => {
-    setLoading(true);
+  const fetchAgents = async (showLoading = true) => {
+    if (showLoading) setLoading(true);
     try {
       const data = await supabaseService.agents.getAll();
-      setAgents(data);
+      if (Array.isArray(data)) {
+        setAgents(data);
+      }
     } catch (err) {
       console.error('Error fetching agents:', err);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchAgents();
+    fetchAgents(true);
+
+    // 1. Instant window event & storage listener
+    const handleUpdate = () => {
+      fetchAgents(false);
+    };
+    window.addEventListener('agents_updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+
+    // 2. Real-time background sync polling every 3 seconds
+    const interval = setInterval(() => {
+      fetchAgents(false);
+    }, 3000);
+
+    // 3. Supabase Realtime channel subscription
+    let channel: any = null;
+    try {
+      channel = supabase
+        .channel('agents-realtime')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
+          fetchAgents(false);
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, () => {
+          fetchAgents(false);
+        })
+        .subscribe();
+    } catch (e) {
+      console.warn('Realtime subscription note:', e);
+    }
+
+    return () => {
+      window.removeEventListener('agents_updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+      clearInterval(interval);
+      if (channel) {
+        supabase.removeChannel(channel).catch(() => {});
+      }
+    };
   }, [token, currentUser]);
 
   const handleAddSubmit = async (e: React.FormEvent) => {
@@ -58,12 +98,28 @@ export default function Agents() {
     setErrorMessage('');
     setIsSubmitting(true);
 
+    // Optimistic UI insert
+    const tempAgent: User = {
+      id: `temp-${Date.now()}`,
+      name: formData.name,
+      email: formData.email.trim().toLowerCase(),
+      phone: formData.phone,
+      role: 'AGENT',
+      notes: formData.notes,
+      created_at: new Date().toISOString()
+    };
+    setAgents(prev => [tempAgent, ...prev]);
+
     try {
-      await supabaseService.agents.create(formData);
+      const created = await supabaseService.agents.create(formData);
       setIsAddModalOpen(false);
       setFormData({ name: '', email: '', password: '', phone: '', notes: '' });
-      fetchAgents();
+      if (created) {
+        setAgents(prev => [created, ...prev.filter(a => a.id !== tempAgent.id && a.email !== created.email)]);
+      }
+      fetchAgents(false);
     } catch (err: any) {
+      setAgents(prev => prev.filter(a => a.id !== tempAgent.id));
       setErrorMessage(err?.message || 'Error creating agent account in Supabase Auth.');
     } finally {
       setIsSubmitting(false);
@@ -88,12 +144,20 @@ export default function Agents() {
     setErrorMessage('');
     setIsSubmitting(true);
 
+    // Optimistic update
+    setAgents(prev => prev.map(a => 
+      String(a.id) === String(editingAgent.id) || String(a.user_id) === String(editingAgent.id)
+        ? { ...a, ...editFormData }
+        : a
+    ));
+
     try {
       await supabaseService.agents.update(editingAgent.id, editFormData);
       setEditingAgent(null);
-      fetchAgents();
+      fetchAgents(false);
     } catch (err: any) {
       setErrorMessage(err?.message || 'Error updating agent.');
+      fetchAgents(false);
     } finally {
       setIsSubmitting(false);
     }
@@ -104,12 +168,17 @@ export default function Agents() {
     setErrorMessage('');
     setIsDeleting(true);
 
+    const agentToDeleteId = deleteConfirmAgent.id;
+    // Optimistic removal
+    setAgents(prev => prev.filter(a => String(a.id) !== String(agentToDeleteId) && String(a.user_id) !== String(agentToDeleteId)));
+
     try {
-      await supabaseService.agents.delete(deleteConfirmAgent.id);
+      await supabaseService.agents.delete(agentToDeleteId);
       setDeleteConfirmAgent(null);
-      fetchAgents();
+      fetchAgents(false);
     } catch (err: any) {
       setErrorMessage(err?.message || 'Error deleting agent.');
+      fetchAgents(false);
     } finally {
       setIsDeleting(false);
     }

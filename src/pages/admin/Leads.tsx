@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAppStore } from '../../store/index.js';
 import { Lead, Property, User } from '../../types.js';
-import { supabaseService } from '../../services/supabaseService.js';
+import { supabaseService, supabase } from '../../services/supabaseService.js';
 import { 
   Users, 
   Search, 
@@ -64,8 +64,8 @@ export default function Leads() {
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const fetchData = async () => {
-    setLoading(true);
+  const fetchData = async (showLoading = true) => {
+    if (showLoading) setLoading(true);
     setErrorMsg(null);
     try {
       const [leadsData, propsData, agentsData] = await Promise.all([
@@ -74,19 +74,50 @@ export default function Leads() {
         supabaseService.agents.getAll()
       ]);
 
-      setLeads(leadsData || []);
-      setProperties(propsData || []);
-      setAgents(agentsData || []);
+      if (Array.isArray(leadsData)) setLeads(leadsData);
+      if (Array.isArray(propsData)) setProperties(propsData);
+      if (Array.isArray(agentsData)) setAgents(agentsData);
     } catch (err: any) {
       console.error('Error fetching leads data:', err);
-      setErrorMsg('Failed to load leads. Please check your connection.');
+      if (showLoading) setErrorMsg('Failed to load leads. Please check your connection.');
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchData();
+    fetchData(true);
+
+    const handleUpdate = () => {
+      fetchData(false);
+    };
+    window.addEventListener('leads_updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+
+    const interval = setInterval(() => {
+      fetchData(false);
+    }, 3000);
+
+    let channel: any = null;
+    try {
+      channel = supabase
+        .channel('leads-realtime')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => {
+          fetchData(false);
+        })
+        .subscribe();
+    } catch (e) {
+      console.warn('Realtime subscription note:', e);
+    }
+
+    return () => {
+      window.removeEventListener('leads_updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+      clearInterval(interval);
+      if (channel) {
+        supabase.removeChannel(channel).catch(() => {});
+      }
+    };
   }, [token, user]);
 
   const openEditModal = (lead: Lead) => {
@@ -108,23 +139,27 @@ export default function Leads() {
     if (!editingLead) return;
     setIsSubmitting(true);
 
-    try {
-      await supabaseService.leads.update(editingLead.id, {
-        name: formData.name,
-        email: formData.email,
-        phone: formData.phone,
-        status: formData.status,
-        source: formData.source,
-        assigned_agent_id: formData.assigned_agent_id ? (isNaN(Number(formData.assigned_agent_id)) ? (formData.assigned_agent_id as any) : Number(formData.assigned_agent_id)) : undefined,
-        property_id: formData.property_id ? Number(formData.property_id) : undefined,
-        notes: formData.notes
-      });
+    const updatedLeadData = {
+      name: formData.name,
+      email: formData.email,
+      phone: formData.phone,
+      status: formData.status,
+      source: formData.source,
+      assigned_agent_id: formData.assigned_agent_id ? (isNaN(Number(formData.assigned_agent_id)) ? (formData.assigned_agent_id as any) : Number(formData.assigned_agent_id)) : undefined,
+      property_id: formData.property_id ? Number(formData.property_id) : undefined,
+      notes: formData.notes
+    };
 
+    // Optimistic update
+    setLeads(prev => prev.map(l => l.id === editingLead.id ? { ...l, ...updatedLeadData } : l));
+
+    try {
+      await supabaseService.leads.update(editingLead.id, updatedLeadData);
       setEditingLead(null);
-      await fetchData();
+      fetchData(false);
     } catch (err) {
       console.error('Error updating lead:', err);
-      alert('Error updating lead');
+      fetchData(false);
     } finally {
       setIsSubmitting(false);
     }
@@ -134,14 +169,18 @@ export default function Leads() {
     if (!deleteConfirmLead) return;
     setIsDeleting(true);
 
+    const leadId = deleteConfirmLead.id;
+    // Optimistic removal
+    setLeads(prev => prev.filter(l => l.id !== leadId));
+    setSelectedIds(prev => prev.filter(id => id !== leadId));
+
     try {
-      await supabaseService.leads.delete(deleteConfirmLead.id);
-      setSelectedIds(prev => prev.filter(id => id !== deleteConfirmLead.id));
+      await supabaseService.leads.delete(leadId);
       setDeleteConfirmLead(null);
-      await fetchData();
+      fetchData(false);
     } catch (err) {
       console.error('Error deleting lead:', err);
-      alert('Error deleting lead');
+      fetchData(false);
     } finally {
       setIsDeleting(false);
     }
@@ -151,16 +190,21 @@ export default function Leads() {
   const handleBulkDelete = async () => {
     if (selectedIds.length === 0) return;
     setIsBulkDeleting(true);
+
+    const idsToDelete = [...selectedIds];
+    // Optimistic removal
+    setLeads(prev => prev.filter(l => !idsToDelete.includes(l.id)));
+    setSelectedIds([]);
+    setShowBulkDeleteModal(false);
+
     try {
-      await supabaseService.leads.bulkDelete(selectedIds);
-      setBulkActionMessage(`Successfully deleted ${selectedIds.length} leads.`);
+      await supabaseService.leads.bulkDelete(idsToDelete);
+      setBulkActionMessage(`Successfully deleted ${idsToDelete.length} leads.`);
       setTimeout(() => setBulkActionMessage(null), 4000);
-      setSelectedIds([]);
-      setShowBulkDeleteModal(false);
-      await fetchData();
+      fetchData(false);
     } catch (err) {
-      console.error('Error in bulk deleting leads:', err);
-      alert('Network error while performing bulk delete');
+      console.error('Error bulk deleting leads:', err);
+      fetchData(false);
     } finally {
       setIsBulkDeleting(false);
     }
