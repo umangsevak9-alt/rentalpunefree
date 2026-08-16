@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAppStore } from '../../store/index.js';
 import { User } from '../../types.js';
+import { supabaseService } from '../../services/supabaseService.js';
 import { 
   Users, 
   Plus, 
@@ -30,8 +31,8 @@ export default function Agents() {
   const [deleteConfirmAgent, setDeleteConfirmAgent] = useState<User | null>(null);
   
   // Forms
-  const [formData, setFormData] = useState({ name: '', email: '', password: '' });
-  const [editFormData, setEditFormData] = useState({ name: '', email: '', password: '' });
+  const [formData, setFormData] = useState({ name: '', email: '', password: '', phone: '', notes: '' });
+  const [editFormData, setEditFormData] = useState({ name: '', email: '', password: '', phone: '', notes: '' });
   const [errorMessage, setErrorMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -39,13 +40,8 @@ export default function Agents() {
   const fetchAgents = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/agents', { 
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setAgents(data);
-      }
+      const data = await supabaseService.agents.getAll();
+      setAgents(data);
     } catch (err) {
       console.error('Error fetching agents:', err);
     } finally {
@@ -63,26 +59,12 @@ export default function Agents() {
     setIsSubmitting(true);
 
     try {
-      const res = await fetch('/api/agents', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}` 
-        },
-        body: JSON.stringify(formData)
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        setErrorMessage(data.error || 'Failed to create agent account.');
-        return;
-      }
-
+      await supabaseService.agents.create(formData);
       setIsAddModalOpen(false);
-      setFormData({ name: '', email: '', password: '' });
+      setFormData({ name: '', email: '', password: '', phone: '', notes: '' });
       fetchAgents();
     } catch (err: any) {
-      setErrorMessage(err?.message || 'Server error creating agent.');
+      setErrorMessage(err?.message || 'Error creating agent account in Supabase Auth.');
     } finally {
       setIsSubmitting(false);
     }
@@ -93,7 +75,9 @@ export default function Agents() {
     setEditFormData({
       name: agent.name || '',
       email: agent.email || '',
-      password: '' // empty means keep existing password
+      password: '', // empty means keep existing password
+      phone: agent.phone || '',
+      notes: agent.notes || ''
     });
     setErrorMessage('');
   };
@@ -105,25 +89,11 @@ export default function Agents() {
     setIsSubmitting(true);
 
     try {
-      const res = await fetch(`/api/agents/${editingAgent.id}`, {
-        method: 'PUT',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}` 
-        },
-        body: JSON.stringify(editFormData)
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        setErrorMessage(data.error || 'Failed to update agent.');
-        return;
-      }
-
+      await supabaseService.agents.update(editingAgent.id, editFormData);
       setEditingAgent(null);
       fetchAgents();
     } catch (err: any) {
-      setErrorMessage(err?.message || 'Server error updating agent.');
+      setErrorMessage(err?.message || 'Error updating agent.');
     } finally {
       setIsSubmitting(false);
     }
@@ -135,23 +105,11 @@ export default function Agents() {
     setIsDeleting(true);
 
     try {
-      const res = await fetch(`/api/agents/${deleteConfirmAgent.id}`, {
-        method: 'DELETE',
-        headers: { 
-          'Authorization': `Bearer ${token}` 
-        }
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        setErrorMessage(data.error || 'Failed to delete agent.');
-        return;
-      }
-
+      await supabaseService.agents.delete(deleteConfirmAgent.id);
       setDeleteConfirmAgent(null);
       fetchAgents();
     } catch (err: any) {
-      setErrorMessage(err?.message || 'Server error deleting agent.');
+      setErrorMessage(err?.message || 'Error deleting agent.');
     } finally {
       setIsDeleting(false);
     }
@@ -223,9 +181,9 @@ export default function Agents() {
             <thead>
               <tr className="bg-black border-b border-neutral-800 text-xs font-bold uppercase tracking-wider text-neutral-400">
                 <th className="px-6 py-4">Agent Identity</th>
-                <th className="px-6 py-4">Email / Login ID</th>
+                <th className="px-6 py-4">Contact Info</th>
                 <th className="px-6 py-4">Role & Access</th>
-                <th className="px-6 py-4">Registered Date</th>
+                <th className="px-6 py-4">Profile Notes</th>
                 <th className="px-6 py-4 text-right">Actions</th>
               </tr>
             </thead>
@@ -253,27 +211,41 @@ export default function Agents() {
                         </div>
                         <div>
                           <h3 className="font-bold text-white text-base">{agent.name}</h3>
-                          <span className="text-xs text-neutral-500">Agent UID #{agent.id}</span>
+                          <span className="text-xs text-neutral-500 font-mono">
+                            {agent.user_id ? `${agent.user_id.substring(0, 8)}...` : `ID #${agent.id}`}
+                          </span>
                         </div>
                       </div>
                     </td>
 
                     <td className="px-6 py-4">
-                      <div className="flex items-center text-neutral-300 font-mono text-xs">
-                        <Mail className="w-3.5 h-3.5 mr-1.5 text-neutral-500" />
-                        <span>{agent.email}</span>
+                      <div className="space-y-1">
+                        <div className="flex items-center text-neutral-300 font-mono text-xs">
+                          <Mail className="w-3.5 h-3.5 mr-1.5 text-neutral-500" />
+                          <span>{agent.email}</span>
+                        </div>
+                        {agent.phone && (
+                          <div className="text-xs text-neutral-400 font-mono">
+                            📞 {agent.phone}
+                          </div>
+                        )}
                       </div>
                     </td>
 
                     <td className="px-6 py-4">
-                      <span className="inline-flex items-center px-2.5 py-1 bg-red-950/60 text-red-400 border border-red-800/60 rounded-full text-xs font-bold">
-                        <KeyRound className="w-3 h-3 mr-1" />
-                        {agent.role}
-                      </span>
+                      <div className="space-y-1">
+                        <span className="inline-flex items-center px-2.5 py-0.5 bg-red-950/60 text-red-400 border border-red-800/60 rounded-full text-xs font-bold">
+                          <KeyRound className="w-3 h-3 mr-1" />
+                          {agent.role || 'AGENT'}
+                        </span>
+                        <div className="text-[10px] text-neutral-400">
+                          Supabase Auth Active
+                        </div>
+                      </div>
                     </td>
 
-                    <td className="px-6 py-4 text-xs text-neutral-400">
-                      {agent.created_at ? new Date(agent.created_at).toLocaleDateString() : 'Active'}
+                    <td className="px-6 py-4 text-xs text-neutral-400 max-w-xs truncate">
+                      {agent.notes || <span className="text-neutral-600 italic">No notes</span>}
                     </td>
 
                     <td className="px-6 py-4 text-right">
@@ -310,15 +282,15 @@ export default function Agents() {
       {/* ADD AGENT MODAL */}
       {isAddModalOpen && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
-          <div className="bg-neutral-950 border border-neutral-800 text-white rounded-3xl max-w-md w-full p-6 md:p-8 shadow-2xl relative space-y-5 animate-in fade-in zoom-in duration-150">
+          <div className="bg-neutral-950 border border-neutral-800 text-white rounded-3xl max-w-md w-full p-6 md:p-8 shadow-2xl relative space-y-5 animate-in fade-in zoom-in duration-150 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
               <div>
-                <h3 className="text-xl font-bold text-white">Create Agent Login</h3>
-                <p className="text-xs text-neutral-400">Provision credentials for field staff to log in and submit site visit reviews.</p>
+                <h3 className="text-xl font-bold text-white">Create Agent Account</h3>
+                <p className="text-xs text-neutral-400">Creates a Supabase Auth user and links an agent profile.</p>
               </div>
               <button 
                 onClick={() => setIsAddModalOpen(false)}
-                className="p-1.5 rounded-full bg-neutral-900 text-neutral-400 hover:text-white"
+                className="p-1.5 rounded-full bg-neutral-900 text-neutral-400 hover:text-white cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -333,38 +305,62 @@ export default function Agents() {
 
             <form onSubmit={handleAddSubmit} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400 mb-1">Full Name *</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400 mb-1">Agent Full Name *</label>
                 <input
                   required
                   type="text"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="e.g. David Miller"
+                  placeholder="e.g. Rahul Sharma"
                   className="w-full px-3.5 py-2.5 bg-black border border-neutral-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-red-600"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400 mb-1">Email Address (Login ID) *</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400 mb-1">Agent Email (Login ID) *</label>
                 <input
                   required
                   type="email"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  placeholder="agent@company.com"
+                  placeholder="agent@rentalpunerealty.com"
                   className="w-full px-3.5 py-2.5 bg-black border border-neutral-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-red-600"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400 mb-1">Password *</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400 mb-1">Phone Number</label>
+                <input
+                  type="tel"
+                  value={formData.phone}
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  placeholder="+91 98765 43210"
+                  className="w-full px-3.5 py-2.5 bg-black border border-neutral-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-red-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400 mb-1">Agent Password *</label>
                 <input
                   required
                   type="password"
+                  minLength={6}
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  placeholder="Enter strong password"
+                  placeholder="Min 6 characters"
                   className="w-full px-3.5 py-2.5 bg-black border border-neutral-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-red-600"
+                />
+                <p className="text-[11px] text-neutral-500 mt-1">Managed securely via Supabase Auth. Never stored in plaintext.</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400 mb-1">Profile Info / Assigned Area</label>
+                <textarea
+                  rows={2}
+                  value={formData.notes}
+                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                  placeholder="e.g. Baner, Balewadi & Hinjewadi specialist"
+                  className="w-full px-3.5 py-2 bg-black border border-neutral-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-red-600"
                 />
               </div>
 
@@ -372,7 +368,7 @@ export default function Agents() {
                 <button
                   type="button"
                   onClick={() => setIsAddModalOpen(false)}
-                  className="px-4 py-2 bg-neutral-900 text-neutral-300 hover:text-white rounded-xl text-xs font-bold"
+                  className="px-4 py-2 bg-neutral-900 text-neutral-300 hover:text-white rounded-xl text-xs font-bold cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -380,7 +376,7 @@ export default function Agents() {
                   id="btn-save-agent"
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md shadow-red-600/30 flex items-center space-x-1.5"
+                  className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md shadow-red-600/30 flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
                 >
                   <Check className="w-4 h-4" />
                   <span>{isSubmitting ? 'Creating...' : 'Create Agent Account'}</span>
@@ -394,15 +390,15 @@ export default function Agents() {
       {/* EDIT AGENT MODAL */}
       {editingAgent && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
-          <div className="bg-neutral-950 border border-neutral-800 text-white rounded-3xl max-w-md w-full p-6 md:p-8 shadow-2xl relative space-y-5 animate-in fade-in zoom-in duration-150">
+          <div className="bg-neutral-950 border border-neutral-800 text-white rounded-3xl max-w-md w-full p-6 md:p-8 shadow-2xl relative space-y-5 animate-in fade-in zoom-in duration-150 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
               <div>
-                <h3 className="text-xl font-bold text-white">Edit Agent Account</h3>
-                <p className="text-xs text-neutral-400">Update agent profile or reset password.</p>
+                <h3 className="text-xl font-bold text-white">Edit Agent Profile</h3>
+                <p className="text-xs text-neutral-400">Update Supabase profile data or reset credentials.</p>
               </div>
               <button 
                 onClick={() => setEditingAgent(null)}
-                className="p-1.5 rounded-full bg-neutral-900 text-neutral-400 hover:text-white"
+                className="p-1.5 rounded-full bg-neutral-900 text-neutral-400 hover:text-white cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -439,6 +435,17 @@ export default function Agents() {
               </div>
 
               <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400 mb-1">Phone Number</label>
+                <input
+                  type="tel"
+                  value={editFormData.phone}
+                  onChange={(e) => setEditFormData({ ...editFormData, phone: e.target.value })}
+                  placeholder="+91 98765 43210"
+                  className="w-full px-3.5 py-2.5 bg-black border border-neutral-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-red-600"
+                />
+              </div>
+
+              <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400 mb-1">
                   Reset Password <span className="text-neutral-500 font-normal">(Leave blank to keep unchanged)</span>
                 </label>
@@ -451,11 +458,21 @@ export default function Agents() {
                 />
               </div>
 
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400 mb-1">Profile Info / Notes</label>
+                <textarea
+                  rows={2}
+                  value={editFormData.notes}
+                  onChange={(e) => setEditFormData({ ...editFormData, notes: e.target.value })}
+                  className="w-full px-3.5 py-2 bg-black border border-neutral-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-red-600"
+                />
+              </div>
+
               <div className="flex items-center justify-end space-x-3 pt-4 border-t border-neutral-800">
                 <button
                   type="button"
                   onClick={() => setEditingAgent(null)}
-                  className="px-4 py-2 bg-neutral-900 text-neutral-300 hover:text-white rounded-xl text-xs font-bold"
+                  className="px-4 py-2 bg-neutral-900 text-neutral-300 hover:text-white rounded-xl text-xs font-bold cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -463,7 +480,7 @@ export default function Agents() {
                   id="btn-update-agent"
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md shadow-red-600/30 flex items-center space-x-1.5"
+                  className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md shadow-red-600/30 flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
                 >
                   <Check className="w-4 h-4" />
                   <span>{isSubmitting ? 'Saving...' : 'Update Agent'}</span>

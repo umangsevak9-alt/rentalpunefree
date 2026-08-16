@@ -67,12 +67,56 @@ export function isSupabaseConnected(): boolean {
 export const SUPABASE_SCHEMA_SQL = `-- Rental Pune Supabase Database Schema
 -- Paste and run this SQL script in your Supabase SQL Editor (https://supabase.com/dashboard)
 
+-- 1. Profiles table linked to Supabase Auth UUID
+CREATE TABLE IF NOT EXISTS profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL,
+  phone TEXT,
+  role TEXT NOT NULL DEFAULT 'agent',
+  notes TEXT,
+  avatar_url TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Trigger to automatically populate profile when a user signs up via Supabase Auth
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger AS $$
+BEGIN
+  INSERT INTO public.profiles (id, user_id, name, email, phone, role)
+  VALUES (
+    NEW.id,
+    NEW.id,
+    COALESCE(NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1)),
+    NEW.email,
+    NEW.raw_user_meta_data->>'phone',
+    COALESCE(NEW.raw_user_meta_data->>'role', 'agent')
+  )
+  ON CONFLICT (id) DO UPDATE SET
+    name = EXCLUDED.name,
+    email = EXCLUDED.email,
+    phone = COALESCE(EXCLUDED.phone, profiles.phone),
+    role = COALESCE(EXCLUDED.role, profiles.role),
+    updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
 CREATE TABLE IF NOT EXISTS users (
   id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
   name TEXT NOT NULL,
   email TEXT UNIQUE NOT NULL,
-  password TEXT NOT NULL,
+  password TEXT,
   role TEXT DEFAULT 'AGENT',
+  phone TEXT,
+  notes TEXT,
   permissions TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -217,6 +261,7 @@ CREATE TABLE IF NOT EXISTS owner_submissions (
 );
 
 -- Enable RLS and public access policies
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE properties ENABLE ROW LEVEL SECURITY;
 ALTER TABLE settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE home_faqs ENABLE ROW LEVEL SECURITY;
@@ -226,20 +271,122 @@ ALTER TABLE site_visit_feedback ENABLE ROW LEVEL SECURITY;
 ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE owner_submissions ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY IF NOT EXISTS "Allow anon read properties" ON properties FOR SELECT USING (true);
-CREATE POLICY IF NOT EXISTS "Allow anon read settings" ON settings FOR SELECT USING (true);
-CREATE POLICY IF NOT EXISTS "Allow anon read home_faqs" ON home_faqs FOR SELECT USING (true);
-CREATE POLICY IF NOT EXISTS "Allow anon write leads" ON leads FOR INSERT WITH CHECK (true);
-CREATE POLICY IF NOT EXISTS "Allow anon write owner_submissions" ON owner_submissions FOR INSERT WITH CHECK (true);
-CREATE POLICY IF NOT EXISTS "Allow full access for authenticated/anon" ON properties FOR ALL USING (true);
-CREATE POLICY IF NOT EXISTS "Allow full access for settings" ON settings FOR ALL USING (true);
-CREATE POLICY IF NOT EXISTS "Allow full access for home_faqs" ON home_faqs FOR ALL USING (true);
-CREATE POLICY IF NOT EXISTS "Allow full access for leads" ON leads FOR ALL USING (true);
-CREATE POLICY IF NOT EXISTS "Allow full access for site_visits" ON site_visits FOR ALL USING (true);
-CREATE POLICY IF NOT EXISTS "Allow full access for site_visit_feedback" ON site_visit_feedback FOR ALL USING (true);
-CREATE POLICY IF NOT EXISTS "Allow full access for invoices" ON invoices FOR ALL USING (true);
-CREATE POLICY IF NOT EXISTS "Allow full access for owner_submissions" ON owner_submissions FOR ALL USING (true);
+CREATE POLICY "Allow public read profiles" ON profiles FOR SELECT USING (true);
+CREATE POLICY "Allow authenticated update own profile" ON profiles FOR UPDATE USING (auth.uid() = id);
+CREATE POLICY "Allow full access for authenticated/anon" ON properties FOR ALL USING (true);
+CREATE POLICY "Allow full access for settings" ON settings FOR ALL USING (true);
+CREATE POLICY "Allow full access for home_faqs" ON home_faqs FOR ALL USING (true);
+CREATE POLICY "Allow full access for leads" ON leads FOR ALL USING (true);
+CREATE POLICY "Allow full access for site_visits" ON site_visits FOR ALL USING (true);
+CREATE POLICY "Allow full access for site_visit_feedback" ON site_visit_feedback FOR ALL USING (true);
+CREATE POLICY "Allow full access for invoices" ON invoices FOR ALL USING (true);
+CREATE POLICY "Allow full access for owner_submissions" ON owner_submissions FOR ALL USING (true);
 `;
+
+export async function createAuthAgentUser(agentData: {
+  name: string;
+  email: string;
+  password?: string;
+  phone?: string;
+  notes?: string;
+}): Promise<{ success: boolean; user?: any; error?: string }> {
+  const supabase = getSupabase();
+  if (!supabase) {
+    return { success: false, error: 'Supabase client not initialized' };
+  }
+
+  const cleanEmail = agentData.email.trim().toLowerCase();
+  const cleanPassword = agentData.password || 'PuneRental@2025';
+
+  try {
+    // 1. Try Supabase Admin Auth API (requires service role key or admin capabilities)
+    let authUser: any = null;
+    try {
+      const { data: adminData, error: adminError } = await supabase.auth.admin.createUser({
+        email: cleanEmail,
+        password: cleanPassword,
+        email_confirm: true,
+        user_metadata: {
+          name: agentData.name,
+          phone: agentData.phone || '',
+          role: 'agent',
+          notes: agentData.notes || ''
+        }
+      });
+
+      if (!adminError && adminData?.user) {
+        authUser = adminData.user;
+      } else if (adminError && !adminError.message.includes('not authorized') && !adminError.message.includes('Forbidden')) {
+        // Specific error like user already exists
+        if (adminError.message.toLowerCase().includes('already registered')) {
+          return { success: false, error: 'An account with this email already exists in Supabase.' };
+        }
+      }
+    } catch (adminErr) {
+      console.warn('Admin API not available, trying regular signup:', adminErr);
+    }
+
+    // 2. Fallback to regular signUp if admin API was not available
+    if (!authUser) {
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+        email: cleanEmail,
+        password: cleanPassword,
+        options: {
+          data: {
+            name: agentData.name,
+            phone: agentData.phone || '',
+            role: 'agent',
+            notes: agentData.notes || ''
+          }
+        }
+      });
+
+      if (signUpError) {
+        return { success: false, error: signUpError.message };
+      }
+
+      if (signUpData?.user) {
+        authUser = signUpData.user;
+      }
+    }
+
+    if (!authUser) {
+      return { success: false, error: 'Could not create user in Supabase Auth' };
+    }
+
+    // 3. Upsert into Supabase profiles table
+    try {
+      await supabase.from('profiles').upsert([{
+        id: authUser.id,
+        user_id: authUser.id,
+        name: agentData.name,
+        email: cleanEmail,
+        phone: agentData.phone || '',
+        role: 'agent',
+        notes: agentData.notes || '',
+        created_at: authUser.created_at || new Date().toISOString()
+      }]);
+    } catch (profErr) {
+      console.warn('Profiles upsert note:', profErr);
+    }
+
+    return {
+      success: true,
+      user: {
+        id: authUser.id,
+        user_id: authUser.id,
+        name: agentData.name,
+        email: cleanEmail,
+        phone: agentData.phone || '',
+        role: 'AGENT',
+        notes: agentData.notes || '',
+        created_at: authUser.created_at || new Date().toISOString()
+      }
+    };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to create agent' };
+  }
+}
 
 export async function syncAllDataToSupabase(): Promise<{ success: boolean; synced: Record<string, number>; errors: string[] }> {
   const supabase = getSupabase();

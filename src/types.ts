@@ -1,9 +1,13 @@
 export type User = {
-  id: number;
+  id: string | number;
+  user_id?: string;
   name: string;
   email: string;
-  role: 'MAIN_ADMIN' | 'ADMIN' | 'AGENT';
+  phone?: string;
+  role: 'MAIN_ADMIN' | 'ADMIN' | 'AGENT' | 'agent' | 'admin';
   permissions?: string;
+  notes?: string;
+  avatar_url?: string;
   created_at?: string;
 };
 

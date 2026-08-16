@@ -24,45 +24,6 @@ const initialConfig = getSavedSupabaseConfig();
 export let supabaseUrl = initialConfig.url;
 export let supabaseAnonKey = initialConfig.key;
 
-/**
- * Bulletproof fetch wrapper to safeguard against empty responses and stream interruptions
- */
-const safeSupabaseFetch: typeof fetch = async (input, init) => {
-  try {
-    const response = await fetch(input, init);
-    const text = await response.text();
-    const cleanText = text && text.trim() ? text : '{}';
-
-    const safeHeaders = new Headers(response.headers);
-    if (!safeHeaders.get('content-type')) {
-      safeHeaders.set('content-type', 'application/json');
-    }
-
-    const safeRes = new Response(cleanText, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: safeHeaders,
-    });
-
-    safeRes.json = async () => {
-      try {
-        if (!cleanText || cleanText === '{}') return {};
-        return JSON.parse(cleanText);
-      } catch {
-        return {};
-      }
-    };
-
-    return safeRes;
-  } catch (err: any) {
-    console.warn('Supabase fetch network fallback:', err);
-    return new Response(JSON.stringify({ error: err?.message || 'Network request failed', data: null }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    });
-  }
-};
-
 export function createSupabaseInstance(url: string, key: string): SupabaseClient {
   return createClient(url, key, {
     auth: {
@@ -70,9 +31,6 @@ export function createSupabaseInstance(url: string, key: string): SupabaseClient
       autoRefreshToken: true,
       detectSessionInUrl: true,
       storage: typeof window !== 'undefined' ? window.localStorage : undefined,
-    },
-    global: {
-      fetch: safeSupabaseFetch
     }
   });
 }
@@ -280,29 +238,48 @@ export const supabaseService = {
      * Fetch user profile metadata & role from profiles table
      */
     async fetchUserProfile(supabaseUser: SupabaseAuthUser): Promise<User> {
-      let role: 'MAIN_ADMIN' | 'ADMIN' | 'AGENT' = 'MAIN_ADMIN';
-      let name = supabaseUser.user_metadata?.name || supabaseUser.email?.split('@')[0] || 'Administrator';
+      let role: 'MAIN_ADMIN' | 'ADMIN' | 'AGENT' = 'ADMIN';
+      let name = supabaseUser.user_metadata?.name || supabaseUser.email?.split('@')[0] || 'User';
+      let phone = supabaseUser.user_metadata?.phone || '';
+      let notes = supabaseUser.user_metadata?.notes || '';
+
+      const metaRole = String(supabaseUser.user_metadata?.role || '').toLowerCase();
+      if (metaRole === 'agent' || metaRole === 'field_agent') {
+        role = 'AGENT';
+      }
 
       try {
         const { data: profile } = await supabase
           .from('profiles')
           .select('*')
-          .eq('id', supabaseUser.id)
+          .or(`id.eq.${supabaseUser.id},user_id.eq.${supabaseUser.id}`)
           .maybeSingle();
 
         if (profile) {
-          role = (profile.role as any) || 'ADMIN';
+          const pRole = String(profile.role || '').toLowerCase();
+          if (pRole === 'agent' || pRole === 'field_agent') {
+            role = 'AGENT';
+          } else if (pRole === 'main_admin') {
+            role = 'MAIN_ADMIN';
+          } else {
+            role = 'ADMIN';
+          }
           name = profile.name || name;
+          phone = profile.phone || phone;
+          notes = profile.notes || notes;
         }
       } catch (e) {
         console.warn('Profile fetch note:', e);
       }
 
       return {
-        id: 1,
+        id: supabaseUser.id,
+        user_id: supabaseUser.id,
         name: name,
         email: supabaseUser.email || '',
-        role: role
+        phone: phone,
+        role: role,
+        notes: notes
       };
     },
 
@@ -341,7 +318,7 @@ export const supabaseService = {
     /**
      * Sign up a new Admin or Agent in Supabase Auth
      */
-    async signUp(email: string, password: string, name: string, role: 'MAIN_ADMIN' | 'ADMIN' | 'AGENT' = 'ADMIN'): Promise<{ success: boolean; user?: User; token?: string; session?: any; error?: string }> {
+    async signUp(email: string, password: string, name: string, role: 'MAIN_ADMIN' | 'ADMIN' | 'AGENT' = 'ADMIN', phone?: string): Promise<{ success: boolean; user?: User; token?: string; session?: any; error?: string }> {
       try {
         const cleanEmail = (email || '').trim().toLowerCase();
 
@@ -351,7 +328,8 @@ export const supabaseService = {
           options: {
             data: {
               name: name,
-              role: role
+              role: role.toLowerCase(),
+              phone: phone || ''
             }
           }
         });
@@ -361,6 +339,20 @@ export const supabaseService = {
         }
 
         if (data?.user) {
+          // Upsert into profiles table
+          try {
+            await supabase.from('profiles').upsert([{
+              id: data.user.id,
+              user_id: data.user.id,
+              name: name,
+              email: cleanEmail,
+              phone: phone || '',
+              role: role.toLowerCase()
+            }]);
+          } catch (e) {
+            console.warn('Profiles upsert on signup note:', e);
+          }
+
           const userObj = await this.fetchUserProfile(data.user);
 
           if (data.session) {
@@ -407,103 +399,223 @@ export const supabaseService = {
   agents: {
     async getAll(): Promise<User[]> {
       try {
-        const { data, error } = await supabase
-          .from('users')
+        // 1. Try querying Supabase profiles table directly
+        const { data: profiles, error } = await supabase
+          .from('profiles')
           .select('*')
-          .order('id', { ascending: false });
+          .order('created_at', { ascending: false });
 
-        if (!error && data && data.length > 0) {
-          const mapped: User[] = data.map((u: any) => ({
-            id: Number(u.id),
-            name: u.name,
-            email: u.email,
-            role: u.role || 'AGENT',
-            permissions: u.permissions,
-            created_at: u.created_at
-          }));
-          setLocal('agents', mapped);
-          return mapped;
+        if (!error && profiles && profiles.length > 0) {
+          const mapped: User[] = profiles
+            .filter((p: any) => {
+              const r = String(p.role || '').toLowerCase();
+              return r === 'agent' || r === 'field_agent';
+            })
+            .map((p: any) => ({
+              id: p.id || p.user_id,
+              user_id: p.user_id || p.id,
+              name: p.name || 'Agent',
+              email: p.email || '',
+              phone: p.phone || '',
+              role: 'AGENT' as const,
+              notes: p.notes,
+              permissions: p.permissions,
+              created_at: p.created_at
+            }));
+
+          if (mapped.length > 0) {
+            setLocal('agents', mapped);
+            return mapped;
+          }
         }
       } catch (e) {
-        console.warn('Supabase agents fetch error:', e);
+        console.warn('Supabase profiles fetch error:', e);
       }
+
+      // 2. Try fetching from server-side admin endpoint
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (session?.access_token) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
+        const resp = await fetch('/api/admin/agents', { headers });
+        if (resp.ok) {
+          const data = await resp.json();
+          if (Array.isArray(data) && data.length > 0) {
+            const mapped: User[] = data.map((u: any) => ({
+              id: u.id || u.user_id,
+              user_id: u.user_id || u.id,
+              name: u.name,
+              email: u.email,
+              phone: u.phone,
+              role: 'AGENT' as const,
+              notes: u.notes,
+              created_at: u.created_at
+            }));
+            setLocal('agents', mapped);
+            return mapped;
+          }
+        }
+      } catch {}
+
       return getLocal<User[]>('agents', SEED_AGENTS);
     },
 
-    async getById(id: number): Promise<User | null> {
+    async getById(id: string | number): Promise<User | null> {
       const all = await this.getAll();
-      return all.find(a => a.id === id) || null;
+      return all.find(a => String(a.id) === String(id) || String(a.user_id) === String(id)) || null;
     },
 
-    async create(agent: { name: string; email: string; role?: string }): Promise<User> {
+    async create(agent: { name: string; email: string; password?: string; phone?: string; notes?: string }): Promise<User> {
+      const cleanEmail = agent.email.trim().toLowerCase();
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      // 1. Call secure server-side endpoint /api/admin/create-agent (uses Supabase service-role admin API)
       try {
-        const { data, error } = await supabase
-          .from('users')
-          .insert([{
-            name: agent.name,
-            email: agent.email,
-            role: agent.role || 'AGENT'
-          }])
-          .select()
-          .single();
-
-        if (!error && data) {
-          const newAgent: User = {
-            id: Number(data.id),
-            name: data.name,
-            email: data.email,
-            role: data.role || 'AGENT',
-            created_at: data.created_at
-          };
-          const all = getLocal<User[]>('agents', SEED_AGENTS);
-          setLocal('agents', [newAgent, ...all]);
-          return newAgent;
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (session?.access_token) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
         }
-      } catch (e) {
-        console.warn('Supabase create agent error:', e);
+
+        const resp = await fetch('/api/admin/create-agent', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            name: agent.name.trim(),
+            email: cleanEmail,
+            password: agent.password,
+            phone: agent.phone || '',
+            notes: agent.notes || ''
+          })
+        });
+
+        if (resp.ok) {
+          const resData = await resp.json();
+          if (resData.agent || resData.user) {
+            const newAgent: User = resData.agent || resData.user;
+            const all = getLocal<User[]>('agents', SEED_AGENTS);
+            setLocal('agents', [newAgent, ...all.filter(a => a.email !== cleanEmail)]);
+            return newAgent;
+          }
+        } else {
+          const errData = await resp.json().catch(() => ({}));
+          if (errData.error) {
+            throw new Error(errData.error);
+          }
+        }
+      } catch (err: any) {
+        if (err.message && !err.message.includes('Failed to fetch') && !err.message.includes('fetch')) {
+          throw err;
+        }
+        console.warn('Server create-agent endpoint fallback:', err);
       }
 
-      const all = getLocal<User[]>('agents', SEED_AGENTS);
-      const newId = all.length > 0 ? Math.max(...all.map(a => a.id)) + 1 : 1;
-      const newAgent: User = {
-        id: newId,
-        name: agent.name,
-        email: agent.email,
-        role: (agent.role as any) || 'AGENT',
-        created_at: new Date().toISOString()
-      };
-      setLocal('agents', [newAgent, ...all]);
-      return newAgent;
+      // 2. Direct Supabase Admin/Auth fallback
+      if (agent.password) {
+        const { data: authData, error: authError } = await supabase.auth.signUp({
+          email: cleanEmail,
+          password: agent.password,
+          options: {
+            data: {
+              name: agent.name.trim(),
+              phone: agent.phone || '',
+              role: 'agent',
+              notes: agent.notes || ''
+            }
+          }
+        });
+
+        if (authError) {
+          throw new Error(authError.message);
+        }
+
+        const newUserId = authData.user?.id || `agent-${Date.now()}`;
+        
+        // Upsert into profiles table
+        try {
+          await supabase.from('profiles').upsert([{
+            id: newUserId,
+            user_id: newUserId,
+            name: agent.name.trim(),
+            email: cleanEmail,
+            phone: agent.phone || '',
+            role: 'agent',
+            notes: agent.notes || ''
+          }]);
+        } catch (e) {
+          console.warn('Profile upsert note:', e);
+        }
+
+        const newAgent: User = {
+          id: newUserId,
+          user_id: newUserId,
+          name: agent.name.trim(),
+          email: cleanEmail,
+          phone: agent.phone,
+          role: 'AGENT',
+          notes: agent.notes,
+          created_at: new Date().toISOString()
+        };
+
+        const all = getLocal<User[]>('agents', SEED_AGENTS);
+        setLocal('agents', [newAgent, ...all.filter(a => a.email !== cleanEmail)]);
+        return newAgent;
+      }
+
+      throw new Error('Password is required to create an agent account.');
     },
 
-    async update(id: number, updates: Partial<User>): Promise<User> {
+    async update(id: string | number, updates: Partial<User>): Promise<User> {
       try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (session?.access_token) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
+        await fetch(`/api/admin/agents/${id}`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify(updates)
+        }).catch(() => {});
+
         await supabase
-          .from('users')
+          .from('profiles')
           .update({
             name: updates.name,
             email: updates.email,
-            role: updates.role
+            phone: updates.phone,
+            notes: updates.notes
           })
-          .eq('id', id);
+          .or(`id.eq.${id},user_id.eq.${id}`);
       } catch (e) {
         console.warn('Supabase update agent error:', e);
       }
 
       const all = getLocal<User[]>('agents', SEED_AGENTS);
-      const updated = all.map(a => a.id === id ? { ...a, ...updates } : a);
+      const updated = all.map(a => String(a.id) === String(id) || String(a.user_id) === String(id) ? { ...a, ...updates } : a);
       setLocal('agents', updated);
-      return updated.find(a => a.id === id)!;
+      return updated.find(a => String(a.id) === String(id) || String(a.user_id) === String(id)) || (updates as User);
     },
 
-    async delete(id: number): Promise<void> {
+    async delete(id: string | number): Promise<void> {
       try {
-        await supabase.from('users').delete().eq('id', id);
+        const { data: { session } } = await supabase.auth.getSession();
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (session?.access_token) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
+        await fetch(`/api/admin/agents/${id}`, {
+          method: 'DELETE',
+          headers
+        }).catch(() => {});
+
+        await supabase.from('profiles').delete().or(`id.eq.${id},user_id.eq.${id}`);
       } catch (e) {
         console.warn('Supabase delete agent error:', e);
       }
       const all = getLocal<User[]>('agents', SEED_AGENTS);
-      setLocal('agents', all.filter(a => a.id !== id));
+      setLocal('agents', all.filter(a => String(a.id) !== String(id) && String(a.user_id) !== String(id)));
     }
   },
 
