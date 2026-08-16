@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   Building2, 
   CheckCircle2, 
@@ -17,10 +18,14 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '../../store/index.js';
 import { getWhatsAppUrl } from '../../utils/whatsapp.js';
+import { supabaseService } from '../../services/supabaseService.js';
 
 export default function ListProperty() {
+  const navigate = useNavigate();
   const { settings } = useAppStore();
-  const whatsAppUrl = getWhatsAppUrl(settings);
+  const whatsAppUrl = getWhatsAppUrl(settings, {
+    customMessage: 'Hi Rental Pune, I am interested in listing my property for rent.'
+  });
 
   const [form, setForm] = useState({
     owner_name: '',
@@ -109,7 +114,12 @@ export default function ListProperty() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.owner_name || !form.owner_phone || !form.property_title || !form.location) {
+    const trimmedName = form.owner_name.trim();
+    const trimmedPhone = form.owner_phone.trim();
+    const trimmedTitle = form.property_title.trim();
+    const trimmedLocation = form.location.trim();
+
+    if (!trimmedName || !trimmedPhone || !trimmedTitle || !trimmedLocation) {
       setErrorMsg('Please fill in your Name, Phone Number, Property Title, and Location.');
       return;
     }
@@ -117,24 +127,58 @@ export default function ListProperty() {
     setSubmitting(true);
     setErrorMsg('');
 
+    const submissionPayload = {
+      ...form,
+      owner_name: trimmedName,
+      owner_phone: trimmedPhone,
+      property_title: trimmedTitle,
+      location: trimmedLocation,
+      expected_rent: form.expected_rent ? Number(form.expected_rent) : undefined,
+      security_deposit: form.security_deposit ? Number(form.security_deposit) : undefined
+    };
+
+    let submittedSuccessfully = false;
+
+    // 1. Primary: Server API POST
     try {
       const res = await fetch('/api/owner-submissions', {
         method: 'POST',
-        headers: { 'Content-[#d4a359]': 'application/json', 'Content-Type': 'application/json' },
-        body: JSON.stringify(form)
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(submissionPayload)
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to submit property listing');
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        submittedSuccessfully = true;
       }
-
-      setSubmitted(true);
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Something went wrong. Please try again.');
-    } finally {
-      setSubmitting(false);
+      console.warn('API owner submission fallback triggered:', err);
     }
+
+    // 2. Secondary fallback: Direct Supabase client insert
+    if (!submittedSuccessfully) {
+      try {
+        await supabaseService.ownerSubmissions.create(submissionPayload);
+        submittedSuccessfully = true;
+      } catch (fallbackErr: any) {
+        console.error('Direct Supabase owner submission failed:', fallbackErr);
+      }
+    }
+
+    if (submittedSuccessfully) {
+      setSubmitted(true);
+      // Navigate to Thank You page with owner context
+      navigate('/thank-you?type=owner', { 
+        state: { 
+          type: 'owner',
+          propertyTitle: trimmedTitle,
+          ownerName: trimmedName
+        } 
+      });
+    } else {
+      setErrorMsg('Something went wrong submitting your property details. Please try again.');
+    }
+    setSubmitting(false);
   };
 
   return (

@@ -1,15 +1,25 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
-import { CheckCircle2, ArrowLeft, MessageCircle, Phone, Clock } from 'lucide-react';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
+import { CheckCircle2, ArrowLeft, MessageCircle, Phone, Clock, Building2, ShieldCheck } from 'lucide-react';
 import { useAppStore } from '../../store/index.js';
 import { getWhatsAppUrl } from '../../utils/whatsapp.js';
 
 export default function ThankYou() {
   const { settings } = useAppStore();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+
+  const isOwnerSubmission = searchParams.get('type') === 'owner' || location.state?.type === 'owner';
+  const ownerName = location.state?.ownerName;
+  const propertyTitle = location.state?.propertyTitle;
+
   const phone = settings.phone || '+91 98765 43210';
   const cleanPhone = phone.replace(/[^0-9+]/g, '');
+
   const whatsAppUrl = getWhatsAppUrl(settings, { 
-    customMessage: 'Hi Rental Pune, I just submitted an enquiry on your website and would like to proceed with finding a luxury rental.' 
+    customMessage: isOwnerSubmission 
+      ? `Hi Rental Pune, I just listed my property "${propertyTitle || 'residence'}" on your website and would like to connect with your onboarding manager.`
+      : 'Hi Rental Pune, I just submitted an enquiry on your website and would like to proceed with finding a luxury rental.' 
   });
 
   return (
@@ -22,33 +32,48 @@ export default function ThankYou() {
 
         {/* Success Icon */}
         <div className="relative mx-auto w-16 h-16 rounded-full bg-[#d4a359]/15 border border-[#d4a359]/30 flex items-center justify-center text-[#d4a359] animate-bounce">
-          <CheckCircle2 className="w-10 h-10" />
+          {isOwnerSubmission ? <Building2 className="w-9 h-9" /> : <CheckCircle2 className="w-10 h-10" />}
         </div>
 
         {/* Headings */}
         <div className="space-y-2">
           <span className="text-[#d4a359] text-xs font-bold uppercase tracking-[0.2em] block">
-            Enquiry Received
+            {isOwnerSubmission ? 'Listing Submitted Successfully' : 'Enquiry Received'}
           </span>
           <h1 className="text-3xl sm:text-4xl font-bold font-serif text-white tracking-tight">
-            Thank You!
+            Thank You{ownerName ? `, ${ownerName}` : ''}!
           </h1>
         </div>
 
         <p className="text-sm sm:text-base text-neutral-300 leading-relaxed max-w-md mx-auto">
-          Your enquiry has been received successfully. Our team of luxury rental advisors will contact you within <strong className="text-white">2 hours</strong>.
+          {isOwnerSubmission ? (
+            <>
+              Your property details for <strong className="text-white">{propertyTitle || 'your Pune residence'}</strong> have been received. Our dedicated property onboarding team will review your submission and contact you within <strong className="text-[#d4a359]">2 hours</strong>.
+            </>
+          ) : (
+            <>
+              Your enquiry has been received successfully. Our team of luxury rental advisors will contact you within <strong className="text-[#d4a359]">2 hours</strong>.
+            </>
+          )}
         </p>
 
         {/* Reassurance points */}
         <div className="bg-[#080f1a] border border-white/5 rounded-2xl p-4 text-left space-y-3 max-w-sm mx-auto text-xs text-neutral-400">
           <div className="flex items-center space-x-3">
             <Clock className="w-4 h-4 text-[#d4a359] flex-shrink-0" />
-            <span>Guaranteed call-back in 2 hours (9 AM - 8 PM).</span>
+            <span>Guaranteed callback in 2 hours (9 AM - 8 PM IST).</span>
           </div>
-          <div className="flex items-center space-x-3">
-            <Phone className="w-4 h-4 text-[#d4a359] flex-shrink-0" />
-            <span>Please keep your phone available for our connection.</span>
-          </div>
+          {isOwnerSubmission ? (
+            <div className="flex items-center space-x-3">
+              <ShieldCheck className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+              <span>Zero upfront fees & verified tenant matching.</span>
+            </div>
+          ) : (
+            <div className="flex items-center space-x-3">
+              <Phone className="w-4 h-4 text-[#d4a359] flex-shrink-0" />
+              <span>Please keep your phone available for our connection.</span>
+            </div>
+          )}
         </div>
 
         {/* CTA Buttons */}
@@ -78,3 +103,4 @@ export default function ThankYou() {
     </div>
   );
 }
+

@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '../../store/index.js';
 import { getWhatsAppUrl } from '../../utils/whatsapp.js';
+import { supabaseService } from '../../services/supabaseService.js';
 
 export interface OwnerSubmission {
   id: number;
@@ -81,15 +82,29 @@ export default function OwnerSubmissions() {
   const fetchSubmissions = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/owner-submissions', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setSubmissions(data || []);
+      // 1. Try Supabase service directly or API
+      const data = await supabaseService.ownerSubmissions.getAll();
+      if (Array.isArray(data) && data.length > 0) {
+        setSubmissions(data);
+      } else {
+        const res = await fetch('/api/owner-submissions', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const apiData = await res.json();
+          setSubmissions(apiData || []);
+        } else {
+          setSubmissions(data || []);
+        }
       }
     } catch (e) {
       console.error('Error fetching submissions:', e);
+      try {
+        const fallbackData = await supabaseService.ownerSubmissions.getAll();
+        setSubmissions(fallbackData || []);
+      } catch (err) {
+        setSubmissions([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -101,45 +116,29 @@ export default function OwnerSubmissions() {
 
   const handleUpdateStatus = async (id: number, status: string, adminNotes?: string) => {
     try {
-      const res = await fetch(`/api/owner-submissions/${id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ status, admin_notes: adminNotes })
-      });
-
-      if (res.ok) {
-        setActionMessage(`Status updated to ${status}`);
-        setTimeout(() => setActionMessage(''), 3000);
-        fetchSubmissions();
-        if (selectedSub && selectedSub.id === id) {
-          setSelectedSub({ ...selectedSub, status: status as any, admin_notes: adminNotes || selectedSub.admin_notes });
-        }
+      await supabaseService.ownerSubmissions.update(id, { status, admin_notes: adminNotes });
+      setActionMessage(`Status updated to ${status}`);
+      setTimeout(() => setActionMessage(''), 3000);
+      await fetchSubmissions();
+      if (selectedSub && selectedSub.id === id) {
+        setSelectedSub({ ...selectedSub, status: status as any, admin_notes: adminNotes || selectedSub.admin_notes });
       }
     } catch (e) {
       console.error('Failed to update status:', e);
+      alert('Error updating status');
     }
   };
 
   const handleApproveAndPublish = async (id: number) => {
     setApprovingId(id);
     try {
-      const res = await fetch(`/api/owner-submissions/${id}/approve`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setActionMessage(data.message || 'Property approved and published to website!');
-        setTimeout(() => setActionMessage(''), 4000);
-        fetchSubmissions();
-        if (selectedSub) setSelectedSub(null);
-      } else {
-        alert(data.error || 'Failed to approve submission');
-      }
+      await supabaseService.ownerSubmissions.approveAndPublish(id);
+      setActionMessage('Property approved and published to website!');
+      setTimeout(() => setActionMessage(''), 4000);
+      await fetchSubmissions();
+      if (selectedSub) setSelectedSub(null);
     } catch (e) {
+      console.error('Error approving submission:', e);
       alert('Error approving property submission');
     } finally {
       setApprovingId(null);
@@ -149,24 +148,16 @@ export default function OwnerSubmissions() {
   const executeDelete = async (id: number) => {
     setIsDeleting(true);
     try {
-      const res = await fetch(`/api/owner-submissions/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        setActionMessage('Property submission deleted successfully');
-        setTimeout(() => setActionMessage(''), 3000);
-        setSelectedIds(prev => prev.filter(item => item !== id));
-        fetchSubmissions();
-        if (selectedSub && selectedSub.id === id) setSelectedSub(null);
-        setDeleteConfirmSub(null);
-      } else {
-        const data = await res.json();
-        alert(data.error || 'Failed to delete submission');
-      }
+      await supabaseService.ownerSubmissions.delete(id);
+      setActionMessage('Property submission deleted successfully');
+      setTimeout(() => setActionMessage(''), 3000);
+      setSelectedIds(prev => prev.filter(item => item !== id));
+      await fetchSubmissions();
+      if (selectedSub && selectedSub.id === id) setSelectedSub(null);
+      setDeleteConfirmSub(null);
     } catch (e) {
       console.error('Error deleting submission:', e);
-      alert('Network error while deleting submission');
+      alert('Error deleting submission');
     } finally {
       setIsDeleting(false);
     }
@@ -177,29 +168,15 @@ export default function OwnerSubmissions() {
     if (selectedIds.length === 0) return;
     setIsBulkDeleting(true);
     try {
-      const res = await fetch('/api/owner-submissions/bulk-delete', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ ids: selectedIds })
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        setActionMessage(data.message || `Successfully deleted ${selectedIds.length} listings.`);
-        setTimeout(() => setActionMessage(''), 4000);
-        setSelectedIds([]);
-        setShowBulkDeleteModal(false);
-        fetchSubmissions();
-      } else {
-        const data = await res.json();
-        alert(data.error || 'Failed to bulk delete submissions');
-      }
+      await supabaseService.ownerSubmissions.bulkDelete(selectedIds);
+      setActionMessage(`Successfully deleted ${selectedIds.length} listings.`);
+      setTimeout(() => setActionMessage(''), 4000);
+      setSelectedIds([]);
+      setShowBulkDeleteModal(false);
+      await fetchSubmissions();
     } catch (err) {
       console.error('Error in bulk delete:', err);
-      alert('Network error while performing bulk delete');
+      alert('Error while performing bulk delete');
     } finally {
       setIsBulkDeleting(false);
     }

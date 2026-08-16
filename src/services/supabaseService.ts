@@ -1345,6 +1345,7 @@ export const supabaseService = {
   // --- OWNER SUBMISSIONS ---
   ownerSubmissions: {
     async getAll(): Promise<any[]> {
+      const local = getLocal<any[]>('submissions', []);
       try {
         const { data, error } = await supabase
           .from('owner_submissions')
@@ -1375,11 +1376,21 @@ export const supabaseService = {
             admin_notes: s.admin_notes,
             created_at: s.created_at
           }));
-          setLocal('submissions', mapped);
-          return mapped;
+
+          // Merge Supabase entries with any local-only entries that haven't synced yet
+          const combined = [...mapped];
+          for (const item of local) {
+            if (!combined.some(c => c.id === item.id || (c.owner_phone === item.owner_phone && c.property_title === item.property_title))) {
+              combined.push(item);
+            }
+          }
+          setLocal('submissions', combined);
+          return combined;
         }
-      } catch {}
-      return getLocal<any[]>('submissions', []);
+      } catch (err) {
+        console.warn('Supabase owner_submissions fetch error:', err);
+      }
+      return local;
     },
 
     async create(sub: any): Promise<any> {
