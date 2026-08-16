@@ -3,34 +3,39 @@ async uploadImage(
   filename?: string
 ): Promise<{ url: string; savedPercent?: number }> {
   try {
+    const mimeType = fileOrBlob.type || 'image/jpeg';
+
     const extension =
-      fileOrBlob.type === 'image/png'
+      mimeType === 'image/png'
         ? 'png'
-        : fileOrBlob.type === 'image/jpeg'
-        ? 'jpg'
-        : fileOrBlob.type === 'image/webp'
+        : mimeType === 'image/webp'
         ? 'webp'
+        : mimeType === 'image/gif'
+        ? 'gif'
         : 'jpg';
 
     const uniqueName =
-      `${Date.now()}_${Math.random().toString(36).slice(2, 10)}.${extension}`;
+      `property_${Date.now()}_${Math.random()
+        .toString(36)
+        .slice(2, 10)}.${extension}`;
 
     const filePath = `properties/${uniqueName}`;
 
     const { data, error } = await supabase.storage
       .from(BUCKET_NAME)
       .upload(filePath, fileOrBlob, {
-        contentType: fileOrBlob.type || `image/${extension}`,
+        contentType: mimeType,
+        cacheControl: '3600',
         upsert: false
       });
 
     if (error) {
-      console.error('Storage upload failed:', error);
+      console.error('Image upload failed:', error);
       throw error;
     }
 
     if (!data?.path) {
-      throw new Error('Storage upload succeeded but no file path was returned');
+      throw new Error('Image uploaded but file path is missing');
     }
 
     const { data: publicData } = supabase.storage
@@ -38,17 +43,25 @@ async uploadImage(
       .getPublicUrl(data.path);
 
     if (!publicData?.publicUrl) {
-      throw new Error('Could not generate public image URL');
+      throw new Error('Could not create public image URL');
     }
 
+    // Add cache-busting parameter so the browser does not
+    // keep showing an old/deleted image.
+    const imageUrl =
+      `${publicData.publicUrl}?v=${Date.now()}`;
+
+    console.log('Image uploaded:', imageUrl);
+
     return {
-      url: publicData.publicUrl,
+      url: imageUrl,
       savedPercent: 45
     };
-  } catch (e) {
-    console.error('Supabase storage upload error:', e);
 
-    // Only use Data URL as temporary fallback.
+  } catch (error) {
+    console.error('Supabase image upload error:', error);
+
+    // Fallback to Data URL
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
 
@@ -59,11 +72,13 @@ async uploadImage(
             savedPercent: 30
           });
         } else {
-          reject(new Error('Could not convert image to Data URL'));
+          reject(new Error('Could not read image'));
         }
       };
 
-      reader.onerror = () => reject(reader.error);
+      reader.onerror = () => {
+        reject(reader.error || new Error('Could not read image file'));
+      };
 
       reader.readAsDataURL(fileOrBlob);
     });
