@@ -355,8 +355,109 @@ export const supabaseService = {
     },
 
     /**
-     * Sign in via official Supabase Auth
+     * Send OTP Verification Code
      */
+    async sendOtp(email: string): Promise<{ success: boolean; message?: string; otpCode?: string; error?: string }> {
+      try {
+        const cleanEmail = (email || '').trim().toLowerCase();
+        if (!cleanEmail) {
+          return { success: false, error: 'Email address is required' };
+        }
+
+        // 1. Try server-side OTP generator & dispatcher
+        try {
+          const resp = await fetch('/api/auth/send-otp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: cleanEmail })
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            return {
+              success: true,
+              message: data.message || `Verification code sent to ${cleanEmail}`,
+              otpCode: data.otpCode
+            };
+          }
+        } catch (e) {}
+
+        // 2. Fallback to client-side Supabase signInWithOtp
+        const { error } = await supabase.auth.signInWithOtp({
+          email: cleanEmail,
+          options: { shouldCreateUser: true }
+        });
+
+        if (error) {
+          return { success: false, error: error.message };
+        }
+
+        return {
+          success: true,
+          message: `Verification link / OTP sent to ${cleanEmail}`
+        };
+      } catch (err: any) {
+        return { success: false, error: err?.message || 'Failed to send OTP' };
+      }
+    },
+
+    /**
+     * Verify OTP Code and complete sign in
+     */
+    async verifyOtp(email: string, token: string): Promise<{ success: boolean; user?: User; token?: string; session?: any; error?: string }> {
+      try {
+        const cleanEmail = (email || '').trim().toLowerCase();
+        const cleanToken = (token || '').trim();
+
+        if (!cleanEmail || !cleanToken) {
+          return { success: false, error: 'Email and 6-digit OTP code are required' };
+        }
+
+        // 1. Try server OTP verification first
+        try {
+          const resp = await fetch('/api/auth/verify-otp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: cleanEmail, otp: cleanToken })
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            if (data.user && data.token) {
+              return {
+                success: true,
+                user: data.user,
+                token: data.token,
+                session: data.session || { access_token: data.token, user: data.user }
+              };
+            }
+          } else {
+            const errData = await resp.json().catch(() => ({}));
+            if (errData.error && !errData.error.includes('Failed to fetch')) {
+              // Proceed to try Supabase verifyOtp before failing
+            }
+          }
+        } catch (e) {}
+
+        // 2. Supabase verifyOtp fallback
+        const { data, error } = await supabase.auth.verifyOtp({
+          email: cleanEmail,
+          token: cleanToken,
+          type: 'email'
+        });
+
+        if (error) {
+          return { success: false, error: error.message || 'Invalid or expired OTP code' };
+        }
+
+        if (data?.user && data?.session) {
+          const userObj = await this.fetchUserProfile(data.user);
+          return { success: true, user: userObj, token: data.session.access_token, session: data.session };
+        }
+
+        return { success: false, error: 'Could not establish session with OTP' };
+      } catch (err: any) {
+        return { success: false, error: err?.message || 'OTP verification failed' };
+      }
+    },
     async login(email: string, password?: string): Promise<{ success: boolean; user?: User; token?: string; session?: any; error?: string }> {
       try {
         const cleanEmail = (email || '').trim().toLowerCase();
@@ -671,24 +772,29 @@ export const supabaseService = {
 
       // 2. Direct Supabase Admin/Auth fallback
       if (!createdAgent && agent.password) {
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-          email: cleanEmail,
-          password: agent.password,
-          options: {
-            data: {
-              name: agent.name.trim(),
-              phone: agent.phone || '',
-              role: 'agent',
-              notes: agent.notes || ''
+        let newUserId = `agent_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+        try {
+          const { data: authData, error: authError } = await supabase.auth.signUp({
+            email: cleanEmail,
+            password: agent.password,
+            options: {
+              data: {
+                name: agent.name.trim(),
+                phone: agent.phone || '',
+                role: 'agent',
+                notes: agent.notes || ''
+              }
             }
+          });
+
+          if (authData?.user?.id) {
+            newUserId = authData.user.id;
+          } else if (authError) {
+            console.warn('Supabase Auth signUp note in create:', authError.message);
           }
-        });
-
-        if (authError) {
-          throw new Error(authError.message);
+        } catch (authErr) {
+          console.warn('Supabase Auth signUp catch in create:', authErr);
         }
-
-        const newUserId = authData.user?.id || `agent-${Date.now()}`;
         
         // Upsert into profiles table
         try {

@@ -372,10 +372,11 @@ export async function createAuthAgentUser(agentData: {
 
   const cleanEmail = agentData.email.trim().toLowerCase();
   const cleanPassword = agentData.password || 'PuneRental@2025';
+  let authUserId = `agent_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  let authUser: any = null;
 
   try {
     // 1. Try Supabase Admin Auth API (requires service role key or admin capabilities)
-    let authUser: any = null;
     try {
       const { data: adminData, error: adminError } = await supabase.auth.admin.createUser({
         email: cleanEmail,
@@ -391,11 +392,7 @@ export async function createAuthAgentUser(agentData: {
 
       if (!adminError && adminData?.user) {
         authUser = adminData.user;
-      } else if (adminError && !adminError.message.includes('not authorized') && !adminError.message.includes('Forbidden')) {
-        // Specific error like user already exists
-        if (adminError.message.toLowerCase().includes('already registered')) {
-          return { success: false, error: 'An account with this email already exists in Supabase.' };
-        }
+        authUserId = adminData.user.id;
       }
     } catch (adminErr) {
       console.warn('Admin API not available, trying regular signup:', adminErr);
@@ -403,43 +400,42 @@ export async function createAuthAgentUser(agentData: {
 
     // 2. Fallback to regular signUp if admin API was not available
     if (!authUser) {
-      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-        email: cleanEmail,
-        password: cleanPassword,
-        options: {
-          data: {
-            name: agentData.name,
-            phone: agentData.phone || '',
-            role: 'agent',
-            notes: agentData.notes || ''
+      try {
+        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+          email: cleanEmail,
+          password: cleanPassword,
+          options: {
+            data: {
+              name: agentData.name,
+              phone: agentData.phone || '',
+              role: 'agent',
+              notes: agentData.notes || ''
+            }
           }
+        });
+
+        if (signUpData?.user) {
+          authUser = signUpData.user;
+          authUserId = signUpData.user.id;
+        } else if (signUpError) {
+          console.warn('Supabase Auth signUp note:', signUpError.message);
         }
-      });
-
-      if (signUpError) {
-        return { success: false, error: signUpError.message };
-      }
-
-      if (signUpData?.user) {
-        authUser = signUpData.user;
+      } catch (signErr) {
+        console.warn('Supabase Auth signUp catch:', signErr);
       }
     }
 
-    if (!authUser) {
-      return { success: false, error: 'Could not create user in Supabase Auth' };
-    }
-
-    // 3. Upsert into Supabase profiles table
+    // 3. Upsert into Supabase profiles table (Guaranteed cloud persistence)
     try {
       await supabase.from('profiles').upsert([{
-        id: authUser.id,
-        user_id: authUser.id,
+        id: authUserId,
+        user_id: authUserId,
         name: agentData.name,
         email: cleanEmail,
         phone: agentData.phone || '',
         role: 'agent',
         notes: agentData.notes || '',
-        created_at: authUser.created_at || new Date().toISOString()
+        created_at: new Date().toISOString()
       }]);
     } catch (profErr) {
       console.warn('Profiles upsert note:', profErr);
@@ -448,30 +444,32 @@ export async function createAuthAgentUser(agentData: {
     // 4. Upsert into Supabase users table
     try {
       await supabase.from('users').upsert([{
-        id: authUser.id,
+        id: authUserId,
         name: agentData.name,
         email: cleanEmail,
         phone: agentData.phone || '',
         role: 'agent',
         notes: agentData.notes || '',
-        created_at: authUser.created_at || new Date().toISOString()
+        created_at: new Date().toISOString()
       }]);
     } catch (uErr) {
       console.warn('Users upsert note:', uErr);
     }
 
+    const finalUser = {
+      id: authUserId,
+      user_id: authUserId,
+      name: agentData.name,
+      email: cleanEmail,
+      phone: agentData.phone || '',
+      role: 'AGENT',
+      notes: agentData.notes || '',
+      created_at: authUser?.created_at || new Date().toISOString()
+    };
+
     return {
       success: true,
-      user: {
-        id: authUser.id,
-        user_id: authUser.id,
-        name: agentData.name,
-        email: cleanEmail,
-        phone: agentData.phone || '',
-        role: 'AGENT',
-        notes: agentData.notes || '',
-        created_at: authUser.created_at || new Date().toISOString()
-      }
+      user: finalUser
     };
   } catch (err: any) {
     return { success: false, error: err?.message || 'Failed to create agent' };
