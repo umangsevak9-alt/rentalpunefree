@@ -773,29 +773,53 @@ export const supabaseService = {
   leads: {
     async getAll(): Promise<Lead[]> {
       try {
-        const { data, error } = await supabase
-          .from('leads')
-          .select('*')
-          .order('id', { ascending: false });
+        const [leadsRes, propsRes, agentsRes] = await Promise.allSettled([
+          supabase.from('leads').select('*').order('id', { ascending: false }),
+          supabase.from('properties').select('id, title'),
+          supabase.from('users').select('id, name')
+        ]);
 
-        if (!error && data) {
-          setLocal('leads', data);
-          return data.map((l: any) => ({
-            id: Number(l.id),
-            name: l.name,
-            email: l.email,
-            phone: l.phone,
-            status: l.status || 'New',
-            source: l.source,
-            property_id: l.property_id ? Number(l.property_id) : undefined,
-            property_title: l.property_title,
-            assigned_agent_id: l.assigned_agent_id ? Number(l.assigned_agent_id) : undefined,
-            assigned_agent_name: l.assigned_agent_name,
-            notes: l.notes,
-            created_at: l.created_at
-          }));
+        const leadsData = leadsRes.status === 'fulfilled' && !leadsRes.value.error ? leadsRes.value.data : null;
+        const properties = propsRes.status === 'fulfilled' && !propsRes.value.error ? (propsRes.value.data || []) : [];
+        const agents = agentsRes.status === 'fulfilled' && !agentsRes.value.error ? (agentsRes.value.data || []) : [];
+
+        if (leadsData && leadsData.length > 0) {
+          setLocal('leads', leadsData);
+          return leadsData.map((l: any) => {
+            const prop = properties.find((p: any) => String(p.id) === String(l.property_id));
+            const agent = agents.find((a: any) => String(a.id) === String(l.assigned_agent_id));
+            return {
+              id: Number(l.id),
+              name: l.name,
+              email: l.email,
+              phone: l.phone,
+              status: l.status || 'New',
+              source: l.source,
+              property_id: l.property_id ? Number(l.property_id) : undefined,
+              property_title: l.property_title || prop?.title || undefined,
+              assigned_agent_id: l.assigned_agent_id ? Number(l.assigned_agent_id) : undefined,
+              assigned_agent_name: l.assigned_agent_name || agent?.name || undefined,
+              notes: l.notes,
+              created_at: l.created_at
+            };
+          });
+        }
+      } catch (err) {
+        console.warn('supabaseService.leads.getAll error:', err);
+      }
+
+      // Fallback: try fetching from /api/leads if available
+      try {
+        const apiRes = await fetch('/api/leads');
+        if (apiRes.ok) {
+          const apiData = await apiRes.json();
+          if (Array.isArray(apiData) && apiData.length > 0) {
+            setLocal('leads', apiData);
+            return apiData;
+          }
         }
       } catch {}
+
       return getLocal<Lead[]>('leads', []);
     },
 
@@ -809,9 +833,8 @@ export const supabaseService = {
             phone: lead.phone,
             status: lead.status || 'New',
             source: lead.source || 'Website Concierge',
-            property_id: lead.property_id,
-            property_title: lead.property_title,
-            assigned_agent_id: lead.assigned_agent_id,
+            property_id: lead.property_id ? Number(lead.property_id) : null,
+            assigned_agent_id: lead.assigned_agent_id ? Number(lead.assigned_agent_id) : null,
             notes: lead.notes
           }])
           .select()
@@ -843,7 +866,16 @@ export const supabaseService = {
 
     async update(id: number, updates: Partial<Lead>): Promise<void> {
       try {
-        await supabase.from('leads').update(updates).eq('id', id);
+        await supabase.from('leads').update({
+          name: updates.name,
+          email: updates.email,
+          phone: updates.phone,
+          status: updates.status,
+          source: updates.source,
+          property_id: updates.property_id ? Number(updates.property_id) : null,
+          assigned_agent_id: updates.assigned_agent_id ? Number(updates.assigned_agent_id) : null,
+          notes: updates.notes
+        }).eq('id', id);
       } catch {}
       const all = getLocal<Lead[]>('leads', []);
       setLocal('leads', all.map(l => l.id === id ? { ...l, ...updates } : l));
@@ -851,6 +883,14 @@ export const supabaseService = {
 
     async delete(id: number): Promise<void> {
       try {
+        // Clean up visits/invoices related to this lead
+        const { data: visits } = await supabase.from('site_visits').select('id').eq('lead_id', id);
+        if (visits && visits.length > 0) {
+          const visitIds = visits.map((v: any) => v.id);
+          await supabase.from('site_visit_feedback').delete().in('visit_id', visitIds);
+          await supabase.from('site_visits').delete().eq('lead_id', id);
+        }
+        await supabase.from('invoices').delete().eq('lead_id', id);
         await supabase.from('leads').delete().eq('id', id);
       } catch {}
       const all = getLocal<Lead[]>('leads', []);
@@ -859,6 +899,13 @@ export const supabaseService = {
 
     async bulkDelete(ids: number[]): Promise<void> {
       try {
+        const { data: visits } = await supabase.from('site_visits').select('id').in('lead_id', ids);
+        if (visits && visits.length > 0) {
+          const visitIds = visits.map((v: any) => v.id);
+          await supabase.from('site_visit_feedback').delete().in('visit_id', visitIds);
+          await supabase.from('site_visits').delete().in('lead_id', ids);
+        }
+        await supabase.from('invoices').delete().in('lead_id', ids);
         await supabase.from('leads').delete().in('id', ids);
       } catch {}
       const all = getLocal<Lead[]>('leads', []);

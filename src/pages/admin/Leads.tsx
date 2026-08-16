@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAppStore } from '../../store/index.js';
 import { Lead, Property, User } from '../../types.js';
+import { supabaseService } from '../../services/supabaseService.js';
 import { 
   Users, 
   Search, 
@@ -23,7 +24,7 @@ import {
 } from 'lucide-react';
 
 export default function Leads() {
-  const { token } = useAppStore();
+  const { token, user } = useAppStore();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
   const [agents, setAgents] = useState<User[]>([]);
@@ -67,36 +68,18 @@ export default function Leads() {
     setLoading(true);
     setErrorMsg(null);
     try {
-      const [leadsRes, propsRes, agentsRes] = await Promise.all([
-        fetch('/api/leads', { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch('/api/properties'),
-        fetch('/api/agents', { headers: { 'Authorization': `Bearer ${token}` } })
+      const [leadsData, propsData, agentsData] = await Promise.all([
+        supabaseService.leads.getAll(),
+        supabaseService.properties.getAll(),
+        supabaseService.agents.getAll()
       ]);
 
-      if (leadsRes.ok) {
-        const data = await leadsRes.json();
-        if (Array.isArray(data)) {
-          setLeads(data);
-        } else {
-          setLeads([]);
-        }
-      } else {
-        const errData = await leadsRes.json().catch(() => ({}));
-        setErrorMsg(errData.error || 'Failed to fetch leads from server.');
-      }
-
-      if (propsRes.ok) {
-        const propsData = await propsRes.json().catch(() => []);
-        if (Array.isArray(propsData)) setProperties(propsData);
-      }
-
-      if (agentsRes.ok) {
-        const agentsData = await agentsRes.json().catch(() => []);
-        if (Array.isArray(agentsData)) setAgents(agentsData);
-      }
+      setLeads(leadsData || []);
+      setProperties(propsData || []);
+      setAgents(agentsData || []);
     } catch (err: any) {
       console.error('Error fetching leads data:', err);
-      setErrorMsg('Network error fetching leads.');
+      setErrorMsg('Failed to load leads. Please check your connection.');
     } finally {
       setLoading(false);
     }
@@ -126,30 +109,22 @@ export default function Leads() {
     setIsSubmitting(true);
 
     try {
-      const res = await fetch(`/api/leads/${editingLead.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          name: formData.name,
-          email: formData.email,
-          phone: formData.phone,
-          status: formData.status,
-          source: formData.source,
-          assigned_agent_id: formData.assigned_agent_id ? Number(formData.assigned_agent_id) : null,
-          property_id: formData.property_id ? Number(formData.property_id) : null,
-          notes: formData.notes
-        })
+      await supabaseService.leads.update(editingLead.id, {
+        name: formData.name,
+        email: formData.email,
+        phone: formData.phone,
+        status: formData.status,
+        source: formData.source,
+        assigned_agent_id: formData.assigned_agent_id ? Number(formData.assigned_agent_id) : undefined,
+        property_id: formData.property_id ? Number(formData.property_id) : undefined,
+        notes: formData.notes
       });
 
-      if (res.ok) {
-        setEditingLead(null);
-        fetchData();
-      }
+      setEditingLead(null);
+      await fetchData();
     } catch (err) {
       console.error('Error updating lead:', err);
+      alert('Error updating lead');
     } finally {
       setIsSubmitting(false);
     }
@@ -160,20 +135,13 @@ export default function Leads() {
     setIsDeleting(true);
 
     try {
-      const res = await fetch(`/api/leads/${deleteConfirmLead.id}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-
-      if (res.ok) {
-        setSelectedIds(prev => prev.filter(id => id !== deleteConfirmLead.id));
-        setDeleteConfirmLead(null);
-        fetchData();
-      }
+      await supabaseService.leads.delete(deleteConfirmLead.id);
+      setSelectedIds(prev => prev.filter(id => id !== deleteConfirmLead.id));
+      setDeleteConfirmLead(null);
+      await fetchData();
     } catch (err) {
       console.error('Error deleting lead:', err);
+      alert('Error deleting lead');
     } finally {
       setIsDeleting(false);
     }
@@ -184,26 +152,12 @@ export default function Leads() {
     if (selectedIds.length === 0) return;
     setIsBulkDeleting(true);
     try {
-      const res = await fetch('/api/leads/bulk-delete', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ ids: selectedIds })
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        setBulkActionMessage(data.message || `Successfully deleted ${selectedIds.length} leads.`);
-        setTimeout(() => setBulkActionMessage(null), 4000);
-        setSelectedIds([]);
-        setShowBulkDeleteModal(false);
-        fetchData();
-      } else {
-        const data = await res.json();
-        alert(data.error || 'Failed to bulk delete leads');
-      }
+      await supabaseService.leads.bulkDelete(selectedIds);
+      setBulkActionMessage(`Successfully deleted ${selectedIds.length} leads.`);
+      setTimeout(() => setBulkActionMessage(null), 4000);
+      setSelectedIds([]);
+      setShowBulkDeleteModal(false);
+      await fetchData();
     } catch (err) {
       console.error('Error in bulk deleting leads:', err);
       alert('Network error while performing bulk delete');
