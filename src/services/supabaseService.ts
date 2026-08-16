@@ -1,5 +1,5 @@
-import { supabase, BUCKET_NAME, isSupabaseConfigured } from '../lib/supabase';
-import { Property, Lead, Visit, VisitFeedback, Invoice, User, FAQ, Settings } from '../types';
+import { supabase, BUCKET_NAME, isSupabaseConfigured } from '../lib/supabase.js';
+import { Property, Lead, Visit, VisitFeedback, Invoice, User, FAQ, Settings } from '../types.js';
 
 export { supabase, BUCKET_NAME, isSupabaseConfigured };
 
