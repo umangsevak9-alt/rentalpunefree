@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 const DEFAULT_SUPABASE_URL = 'https://ddfsfemggwjtryosdgya.supabase.co';
 const DEFAULT_SUPABASE_KEY = 'sb_publishable_l4em_aFSdxQIpW2gLbShHA_r8Gjpt-j';
@@ -6,6 +7,9 @@ const DEFAULT_SUPABASE_KEY = 'sb_publishable_l4em_aFSdxQIpW2gLbShHA_r8Gjpt-j';
 let supabaseClient: SupabaseClient | null = null;
 let lastUsedUrl = '';
 let lastUsedKey = '';
+
+// Export request-scoped context storage
+export const supabaseStorage = new AsyncLocalStorage<{ token?: string }>();
 
 export function getSupabaseConfig() {
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL;
@@ -18,6 +22,25 @@ export function getSupabase(): SupabaseClient | null {
 
   if (!url || !key) {
     return null;
+  }
+
+  // Retrieve request-scoped token from AsyncLocalStorage
+  const store = supabaseStorage.getStore();
+  const token = store?.token;
+
+  if (token) {
+    // Return a request-scoped client with the active user's JWT token
+    return createClient(url, key, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    });
   }
 
   if (!supabaseClient || lastUsedUrl !== url || lastUsedKey !== key) {

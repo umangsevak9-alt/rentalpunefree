@@ -13,7 +13,8 @@ import {
   testSupabaseConnection, 
   getAutoSyncStatus,
   SUPABASE_SCHEMA_SQL,
-  createAuthAgentUser
+  createAuthAgentUser,
+  supabaseStorage
 } from './supabase.js';
 
 const router = Router();
@@ -136,7 +137,7 @@ const authenticate = async (req: any, res: any, next: any) => {
           name: user.user_metadata?.name || user.email?.split('@')[0],
           isSupabaseUser: true
         };
-        return next();
+        return supabaseStorage.run({ token }, () => next());
       }
     } catch (err) {
       // Continue to local JWT fallback
@@ -147,7 +148,7 @@ const authenticate = async (req: any, res: any, next: any) => {
   try {
     const decoded: any = jwt.verify(token, JWT_SECRET);
     req.user = decoded;
-    return next();
+    return supabaseStorage.run({ token }, () => next());
   } catch (err) {
     // If token was provided from frontend in development mode, allow proceeding
     return res.status(401).json({ error: 'Invalid or expired authentication session' });

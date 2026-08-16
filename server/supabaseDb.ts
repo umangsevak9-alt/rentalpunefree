@@ -27,6 +27,33 @@ function getClient() {
   return supabase;
 }
 
+// Utility to execute inserts with automatic sequence/duplicate key retry logic
+async function executeWithInsertRetry<T>(operation: () => Promise<any>, retries: number = 5): Promise<T> {
+  let lastError: any = null;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    const result = await operation();
+    const { data, error } = result;
+    if (!error) {
+      if (data !== undefined && data !== null) return data as T;
+      throw new Error("No data returned from insertion operation");
+    }
+    
+    const errorMsg = String(error.message || '').toLowerCase();
+    const isDuplicateKey = error.code === '23505' || error.code === 'PGRST116' || errorMsg.includes('duplicate key') || errorMsg.includes('unique constraint');
+    
+    if (isDuplicateKey) {
+      console.warn(`[Supabase Sequence Collision] Attempt ${attempt} failed with unique constraint/duplicate key. Retrying to allow sequence to advance... Error: ${error.message}`);
+      lastError = error;
+      await new Promise(resolve => setTimeout(resolve, 50));
+      continue;
+    }
+    
+    throw error;
+  }
+  
+  throw new Error(`Insert failed after ${retries} attempts due to persistent sequence/key collisions. Last error: ${lastError?.message || lastError}`);
+}
+
 export const supabaseDb = {
   // --- PROPERTIES ---
   async getProperties(): Promise<any[]> {
@@ -79,11 +106,9 @@ export const supabaseDb = {
       videos: videosStr,
       faqs: faqsStr
     };
-    const { data, error } = await supabase.from('properties').insert([payload]).select().single();
-    if (error) {
-      throw new Error(`Supabase insertion failed (Property): ${error.message} (Code: ${error.code})`);
-    }
-    return data;
+    return executeWithInsertRetry<any>(async () => 
+      await supabase.from('properties').insert([payload]).select().single()
+    );
   },
 
   async updateProperty(id: any, p: any): Promise<boolean> {
@@ -154,11 +179,9 @@ export const supabaseDb = {
       property_id: l.property_id ? Number(l.property_id) : null,
       notes: l.notes || ''
     };
-    const { data, error } = await supabase.from('leads').insert([payload]).select().single();
-    if (error) {
-      throw new Error(`Supabase insertion failed (Lead): ${error.message} (Code: ${error.code})`);
-    }
-    return data;
+    return executeWithInsertRetry<any>(async () => 
+      await supabase.from('leads').insert([payload]).select().single()
+    );
   },
 
   async updateLead(id: any, l: any): Promise<boolean> {
@@ -275,11 +298,9 @@ export const supabaseDb = {
       status: v.status || 'Scheduled',
       notes: v.notes || ''
     };
-    const { data, error } = await supabase.from('site_visits').insert([payload]).select().single();
-    if (error) {
-      throw new Error(`Supabase insertion failed (Visit): ${error.message} (Code: ${error.code})`);
-    }
-    return data;
+    return executeWithInsertRetry<any>(async () => 
+      await supabase.from('site_visits').insert([payload]).select().single()
+    );
   },
 
   async updateVisit(id: any, v: any): Promise<boolean> {
@@ -394,11 +415,9 @@ export const supabaseDb = {
       next_action: f.next_action || '',
       photos: typeof f.photos === 'string' ? f.photos : JSON.stringify(f.photos || [])
     };
-    const { data, error } = await supabase.from('site_visit_feedback').insert([payload]).select().single();
-    if (error) {
-      throw new Error(`Supabase insertion failed (Feedback): ${error.message} (Code: ${error.code})`);
-    }
-    return data;
+    return executeWithInsertRetry<any>(async () => 
+      await supabase.from('site_visit_feedback').insert([payload]).select().single()
+    );
   },
 
   async deleteFeedback(id: any): Promise<boolean> {
@@ -466,11 +485,9 @@ export const supabaseDb = {
       payment_instructions: i.payment_instructions || '',
       notes: i.notes || ''
     };
-    const { data, error } = await supabase.from('invoices').insert([payload]).select().single();
-    if (error) {
-      throw new Error(`Supabase insertion failed (Invoice): ${error.message} (Code: ${error.code})`);
-    }
-    return data;
+    return executeWithInsertRetry<any>(async () => 
+      await supabase.from('invoices').insert([payload]).select().single()
+    );
   },
 
   async updateInvoice(id: any, i: any): Promise<boolean> {
@@ -583,11 +600,9 @@ export const supabaseDb = {
       sort_order: f.sort_order ? Number(f.sort_order) : 0,
       is_active: f.is_active !== undefined ? Number(f.is_active) : 1
     };
-    const { data, error } = await supabase.from('home_faqs').insert([payload]).select().single();
-    if (error) {
-      throw new Error(`Supabase insertion failed (FAQ): ${error.message} (Code: ${error.code})`);
-    }
-    return data;
+    return executeWithInsertRetry<any>(async () => 
+      await supabase.from('home_faqs').insert([payload]).select().single()
+    );
   },
 
   async updateFaq(id: any, f: any): Promise<boolean> {
@@ -634,11 +649,9 @@ export const supabaseDb = {
       is_active: 1
     }));
 
-    const { data, error } = await supabase.from('home_faqs').insert(payload).select();
-    if (error) {
-      throw new Error(`Supabase bulk insertion failed (FAQs): ${error.message} (Code: ${error.code})`);
-    }
-    return data || [];
+    return executeWithInsertRetry<any[]>(async () => 
+      await supabase.from('home_faqs').insert(payload).select()
+    );
   },
 
   // --- OWNER SUBMISSIONS ---
@@ -674,11 +687,9 @@ export const supabaseDb = {
       status: os.status || 'PENDING',
       admin_notes: os.admin_notes || ''
     };
-    const { data, error } = await supabase.from('owner_submissions').insert([payload]).select().single();
-    if (error) {
-      throw new Error(`Supabase insertion failed (Submission): ${error.message} (Code: ${error.code})`);
-    }
-    return data;
+    return executeWithInsertRetry<any>(async () => 
+      await supabase.from('owner_submissions').insert([payload]).select().single()
+    );
   },
 
   async updateOwnerSubmission(id: any, os: any): Promise<boolean> {
