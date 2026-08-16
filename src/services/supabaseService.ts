@@ -1,7 +1,32 @@
-import { supabase, BUCKET_NAME, isSupabaseConfigured } from '../lib/supabase.js';
+import { createClient } from '@supabase/supabase-js';
 import { Property, Lead, Visit, VisitFeedback, Invoice, User, FAQ, Settings } from '../types.js';
 
-export { supabase, BUCKET_NAME, isSupabaseConfigured };
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://ddfsfemggwjtryosdgya.supabase.co';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRkZnNmZW1nZ3dqdHJ5b3NkZ3lhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDIwNDQ5ODIsImV4cCI6MjA1NzYyMDk4Mn0.uHw5_j7Q4E8j5Fh0aWvjYl4K1D9_9H1z6Q6S9lE0I6U';
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+    storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+  }
+});
+
+export const BUCKET_NAME = 'property-images';
+
+export const isSupabaseConfigured = Boolean(
+  supabaseUrl && supabaseAnonKey && !supabaseUrl.includes('placeholder')
+);
+
+export function getStorageImageUrl(filePath: string): string {
+  if (!filePath) return '';
+  if (filePath.startsWith('http://') || filePath.startsWith('https://') || filePath.startsWith('data:')) {
+    return filePath;
+  }
+  const { data } = supabase.storage.from(BUCKET_NAME).getPublicUrl(filePath);
+  return data?.publicUrl || filePath;
+}
 
 /**
  * Direct Supabase Client Service
