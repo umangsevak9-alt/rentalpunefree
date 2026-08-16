@@ -28,6 +28,7 @@ import {
   Plus
 } from 'lucide-react';
 import { formatINR, formatCompactINR } from '../../utils/currency.js';
+import { supabaseService } from '../../services/supabaseService.js';
 
 export default function Dashboard() {
   const { user, token } = useAppStore();
@@ -86,14 +87,20 @@ export default function Dashboard() {
     if (isManual) setRefreshing(true);
 
     try {
-      const res = await fetch('/api/dashboard/stats', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setStats(data);
-        setLastUpdated(new Date());
+      const data = await supabaseService.dashboard.getStats();
+      if (data) {
+        setStats((prev) => ({
+          ...prev,
+          ...data,
+          properties: { ...prev.properties, ...(data.properties || {}) },
+          leads: { ...prev.leads, ...(data.leads || {}) },
+          visits: { ...prev.visits, ...(data.visits || {}) },
+          agents: { ...prev.agents, ...(data.agents || {}) },
+          feedbacks: { ...prev.feedbacks, ...(data.feedbacks || data.feedback || {}) },
+          invoices: { ...prev.invoices, ...(data.invoices || {}) }
+        }));
       }
+      setLastUpdated(new Date());
     } catch (err) {
       console.error('Error fetching live dashboard metrics:', err);
     } finally {

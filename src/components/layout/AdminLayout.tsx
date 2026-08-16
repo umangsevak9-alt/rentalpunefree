@@ -85,11 +85,11 @@ export default function AdminLayout() {
         <div className="p-4 border-t border-white/10 bg-[#03060c]">
           <div className="flex items-center space-x-3 mb-4 px-2">
             <div className="w-9 h-9 rounded-xl bg-[#d4a359] flex items-center justify-center text-[#080f1a] font-serif font-extrabold uppercase shadow-sm">
-              {user?.name?.[0]}
+              {user?.name?.[0] || 'A'}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-white truncate">{user?.name}</p>
-              <p className="text-xs text-[#d4a359] font-semibold truncate">{user?.role}</p>
+              <p className="text-sm font-bold text-white truncate">{user?.name || 'Administrator'}</p>
+              <p className="text-xs text-[#d4a359] font-semibold truncate">{user?.role || 'ADMIN'}</p>
             </div>
           </div>
           <button
