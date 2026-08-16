@@ -3,15 +3,13 @@ import path from 'path';
 import fs from 'fs';
 import cors from 'cors';
 import { createServer as createViteServer } from 'vite';
-import { initDb } from './server/db.js';
-import { startContinuousAutoSync } from './server/supabase.js';
 import apiRouter from './server/api.js';
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Ensure uploads directory exists
+  // Ensure uploads directory exists for legacy local routing compatibility if needed
   const uploadsDir = path.join(process.cwd(), 'uploads');
   if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
@@ -24,14 +22,7 @@ async function startServer() {
   // Static uploads
   app.use('/uploads', express.static(uploadsDir));
 
-  // Initialize DB
-  await initDb();
-
-  // Start continuous 100% automatic database synchronization
-  startContinuousAutoSync(60000);
-
   // API Routes
-
   app.use('/api', apiRouter);
 
   // Vite middleware for development

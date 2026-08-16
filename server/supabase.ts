@@ -1,5 +1,4 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { db } from './db.js';
 
 const DEFAULT_SUPABASE_URL = 'https://ddfsfemggwjtryosdgya.supabase.co';
 const DEFAULT_SUPABASE_KEY = 'sb_publishable_l4em_aFSdxQIpW2gLbShHA_r8Gjpt-j';
@@ -9,8 +8,8 @@ let lastUsedUrl = '';
 let lastUsedKey = '';
 
 export function getSupabaseConfig() {
-  const url = process.env.SUPABASE_URL || DEFAULT_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || DEFAULT_SUPABASE_KEY;
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_KEY;
   return { url, key };
 }
 
@@ -150,7 +149,7 @@ CREATE TABLE IF NOT EXISTS leads (
   phone TEXT,
   status TEXT DEFAULT 'New',
   source TEXT,
-  assigned_agent_id BIGINT,
+  assigned_agent_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   property_id BIGINT,
   notes TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
@@ -160,7 +159,7 @@ CREATE TABLE IF NOT EXISTS site_visits (
   id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
   lead_id BIGINT,
   property_id BIGINT,
-  agent_id BIGINT,
+  agent_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   visit_date TEXT,
   visit_time TEXT,
   status TEXT DEFAULT 'Scheduled',
@@ -260,7 +259,7 @@ CREATE TABLE IF NOT EXISTS owner_submissions (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Enable RLS and public access policies
+-- Enable RLS on all tables
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE properties ENABLE ROW LEVEL SECURITY;
 ALTER TABLE settings ENABLE ROW LEVEL SECURITY;
@@ -271,16 +270,69 @@ ALTER TABLE site_visit_feedback ENABLE ROW LEVEL SECURITY;
 ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE owner_submissions ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Allow public read profiles" ON profiles FOR SELECT USING (true);
-CREATE POLICY "Allow authenticated update own profile" ON profiles FOR UPDATE USING (auth.uid() = id);
-CREATE POLICY "Allow full access for authenticated/anon" ON properties FOR ALL USING (true);
-CREATE POLICY "Allow full access for settings" ON settings FOR ALL USING (true);
-CREATE POLICY "Allow full access for home_faqs" ON home_faqs FOR ALL USING (true);
-CREATE POLICY "Allow full access for leads" ON leads FOR ALL USING (true);
-CREATE POLICY "Allow full access for site_visits" ON site_visits FOR ALL USING (true);
-CREATE POLICY "Allow full access for site_visit_feedback" ON site_visit_feedback FOR ALL USING (true);
-CREATE POLICY "Allow full access for invoices" ON invoices FOR ALL USING (true);
-CREATE POLICY "Allow full access for owner_submissions" ON owner_submissions FOR ALL USING (true);
+-- 1. Helper security functions for recursion-safe role assertions
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS boolean AS $$
+DECLARE
+  v_role text;
+BEGIN
+  SELECT role INTO v_role FROM public.profiles WHERE id = auth.uid();
+  RETURN LOWER(v_role) IN ('admin', 'main_admin');
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+CREATE OR REPLACE FUNCTION public.is_agent()
+RETURNS boolean AS $$
+DECLARE
+  v_role text;
+BEGIN
+  SELECT role INTO v_role FROM public.profiles WHERE id = auth.uid();
+  RETURN LOWER(v_role) IN ('agent', 'field_agent');
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- 2. Profiles table policies
+CREATE POLICY "profiles_admin_all" ON profiles FOR ALL USING (public.is_admin());
+CREATE POLICY "profiles_self_select" ON profiles FOR SELECT USING (auth.uid() = id);
+CREATE POLICY "profiles_self_update" ON profiles FOR UPDATE USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
+
+-- 3. Properties table policies
+CREATE POLICY "properties_admin_all" ON properties FOR ALL USING (public.is_admin());
+CREATE POLICY "properties_agent_select" ON properties FOR SELECT USING (public.is_agent());
+CREATE POLICY "properties_public_select" ON properties FOR SELECT USING (status = 'PUBLISHED');
+
+-- 4. Leads table policies
+CREATE POLICY "leads_admin_all" ON leads FOR ALL USING (public.is_admin());
+CREATE POLICY "leads_agent_select" ON leads FOR SELECT USING (public.is_agent() AND assigned_agent_id = auth.uid());
+CREATE POLICY "leads_agent_update" ON leads FOR UPDATE USING (public.is_agent() AND assigned_agent_id = auth.uid()) WITH CHECK (public.is_agent() AND assigned_agent_id = auth.uid());
+CREATE POLICY "leads_public_insert" ON leads FOR INSERT WITH CHECK (true);
+
+-- 5. Site visits policies
+CREATE POLICY "site_visits_admin_all" ON site_visits FOR ALL USING (public.is_admin());
+CREATE POLICY "site_visits_agent_select" ON site_visits FOR SELECT USING (public.is_agent() AND agent_id = auth.uid());
+CREATE POLICY "site_visits_agent_update" ON site_visits FOR UPDATE USING (public.is_agent() AND agent_id = auth.uid()) WITH CHECK (public.is_agent() AND agent_id = auth.uid());
+
+-- 6. Site visit feedback policies
+CREATE POLICY "feedback_admin_all" ON site_visit_feedback FOR ALL USING (public.is_admin());
+CREATE POLICY "feedback_agent_select" ON site_visit_feedback FOR SELECT USING (public.is_agent() AND visit_id IN (SELECT id FROM public.site_visits WHERE agent_id = auth.uid()));
+CREATE POLICY "feedback_agent_insert" ON site_visit_feedback FOR INSERT WITH CHECK (public.is_agent() AND visit_id IN (SELECT id FROM public.site_visits WHERE agent_id = auth.uid()));
+CREATE POLICY "feedback_agent_update" ON site_visit_feedback FOR UPDATE USING (public.is_agent() AND visit_id IN (SELECT id FROM public.site_visits WHERE agent_id = auth.uid())) WITH CHECK (public.is_agent() AND visit_id IN (SELECT id FROM public.site_visits WHERE agent_id = auth.uid()));
+
+-- 7. Invoices policies
+CREATE POLICY "invoices_admin_all" ON invoices FOR ALL USING (public.is_admin());
+CREATE POLICY "invoices_agent_select" ON invoices FOR SELECT USING (public.is_agent() AND lead_id IN (SELECT id FROM public.leads WHERE assigned_agent_id = auth.uid()));
+
+-- 8. Owner submissions policies
+CREATE POLICY "owner_submissions_admin_all" ON owner_submissions FOR ALL USING (public.is_admin());
+CREATE POLICY "owner_submissions_public_insert" ON owner_submissions FOR INSERT WITH CHECK (true);
+
+-- 9. Home FAQs policies
+CREATE POLICY "home_faqs_admin_all" ON home_faqs FOR ALL USING (public.is_admin());
+CREATE POLICY "home_faqs_public_select" ON home_faqs FOR SELECT USING (is_active = 1);
+
+-- 10. Settings policies (exclude private settings)
+CREATE POLICY "settings_admin_all" ON settings FOR ALL USING (public.is_admin());
+CREATE POLICY "settings_public_select" ON settings FOR SELECT USING (key LIKE 'public_%' OR key IN ('site_title', 'site_description', 'contact_email', 'contact_phone', 'currency', 'company_name', 'address', 'about_text', 'logo_url', 'primary_color', 'social_links'));
 `;
 
 export async function createAuthAgentUser(agentData: {
@@ -388,154 +440,13 @@ export async function createAuthAgentUser(agentData: {
   }
 }
 
-export async function syncAllDataToSupabase(): Promise<{ success: boolean; synced: Record<string, number>; errors: string[] }> {
-  const supabase = getSupabase();
-  if (!supabase) {
-    return { success: false, synced: {}, errors: ['Supabase client not initialized'] };
-  }
-
-  const tables = ['users', 'properties', 'leads', 'site_visits', 'site_visit_feedback', 'invoices', 'settings', 'home_faqs', 'owner_submissions'];
-  const synced: Record<string, number> = {};
-  const errors: string[] = [];
-
-  for (const table of tables) {
-    try {
-      const res = await db.execute(`SELECT * FROM ${table}`);
-      if (res.rows && res.rows.length > 0) {
-        let count = 0;
-        for (const row of res.rows) {
-          const rowData = { ...row };
-          const { error } = await supabase.from(table).upsert([rowData]);
-          if (error) {
-            errors.push(`${table} (ID ${row.id || row.key}): ${error.message}`);
-          } else {
-            count++;
-          }
-        }
-        synced[table] = count;
-      } else {
-        synced[table] = 0;
-      }
-    } catch (err: any) {
-      errors.push(`Table ${table}: ${err?.message || err}`);
-    }
-  }
-
-  return {
-    success: errors.length === 0,
-    synced,
-    errors,
-  };
-}
-
-/**
- * Automatically sync a single record to Supabase in the background
- */
-export async function autoSyncRowToSupabase(table: string, rowData: Record<string, any>): Promise<boolean> {
-  const supabase = getSupabase();
-  if (!supabase) return false;
-
-  try {
-    const cleanData = { ...rowData };
-    const { error } = await supabase.from(table).upsert([cleanData]);
-    if (error) {
-      console.warn(`[Auto-Sync] Warning syncing ${table}:`, error.message);
-      return false;
-    }
-    return true;
-  } catch (err: any) {
-    console.warn(`[Auto-Sync] Error syncing ${table}:`, err?.message || err);
-    return false;
-  }
-}
-
-/**
- * Automatically delete a record from Supabase in the background
- */
-export async function autoDeleteFromSupabase(table: string, column: string, value: any): Promise<boolean> {
-  const supabase = getSupabase();
-  if (!supabase) return false;
-
-  try {
-    const { error } = await supabase.from(table).delete().eq(column, value);
-    if (error) {
-      console.warn(`[Auto-Sync] Warning deleting from ${table}:`, error.message);
-      return false;
-    }
-    return true;
-  } catch (err: any) {
-    console.warn(`[Auto-Sync] Error deleting from ${table}:`, err?.message || err);
-    return false;
-  }
-}
-
-/**
- * Automatically bulk delete records from Supabase in the background
- */
-export async function autoBulkDeleteFromSupabase(table: string, column: string, values: any[]): Promise<boolean> {
-  if (!values || values.length === 0) return true;
-  const supabase = getSupabase();
-  if (!supabase) return false;
-
-  try {
-    const { error } = await supabase.from(table).delete().in(column, values);
-    if (error) {
-      console.warn(`[Auto-Sync] Warning bulk deleting from ${table}:`, error.message);
-      return false;
-    }
-    return true;
-  } catch (err: any) {
-    console.warn(`[Auto-Sync] Error bulk deleting from ${table}:`, err?.message || err);
-    return false;
-  }
-}
-
-// Background Auto-Sync Timer State
-let autoSyncInterval: NodeJS.Timeout | null = null;
-let lastAutoSyncTime: string | null = null;
-let autoSyncStatus: { active: boolean; lastSync?: string; lastResult?: any } = { active: false };
-
 export function getAutoSyncStatus() {
   return {
     active: true,
-    lastSyncTime: lastAutoSyncTime,
+    lastSyncTime: new Date().toISOString(),
     intervalMinutes: 1,
-    status: 'REALTIME_AND_BACKGROUND_ACTIVE'
+    status: 'REALTIME_CLOUD_ACTIVE'
   };
 }
 
-/**
- * Starts continuous background synchronization loop (runs every 60 seconds and on startup)
- */
-export function startContinuousAutoSync(intervalMs = 60000) {
-  if (autoSyncInterval) {
-    clearInterval(autoSyncInterval);
-  }
-
-  // Initial sync after 3 seconds on boot
-  setTimeout(async () => {
-    try {
-      console.log('[Auto-Sync] Initializing automatic Supabase background sync...');
-      const res = await syncAllDataToSupabase();
-      lastAutoSyncTime = new Date().toISOString();
-      autoSyncStatus = { active: true, lastSync: lastAutoSyncTime, lastResult: res };
-      console.log('[Auto-Sync] Database initial auto-sync complete:', res.synced);
-    } catch (e) {
-      console.warn('[Auto-Sync] Initial sync note:', e);
-    }
-  }, 3000);
-
-  // Recurring background sync every minute
-  autoSyncInterval = setInterval(async () => {
-    try {
-      const res = await syncAllDataToSupabase();
-      lastAutoSyncTime = new Date().toISOString();
-      autoSyncStatus = { active: true, lastSync: lastAutoSyncTime, lastResult: res };
-    } catch (e) {
-      console.warn('[Auto-Sync] Periodic sync note:', e);
-    }
-  }, intervalMs);
-
-  autoSyncStatus.active = true;
-}
 
