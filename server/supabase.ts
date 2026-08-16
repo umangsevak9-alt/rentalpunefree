@@ -2,7 +2,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 const DEFAULT_SUPABASE_URL = 'https://ddfsfemggwjtryosdgya.supabase.co';
-const DEFAULT_SUPABASE_KEY = 'sb_publishable_l4em_aFSdxQIpW2gLbShHA_r8Gjpt-j';
+const DEFAULT_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRkZnNmZW1nZ3dqdHJ5b3NkZ3lhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDIwNDQ5ODIsImV4cCI6MjA1NzYyMDk4Mn0.uHw5_j7Q4E8j5Fh0aWvjYl4K1D9_9H1z6Q6S9lE0I6U';
 
 let supabaseClient: SupabaseClient | null = null;
 let lastUsedUrl = '';

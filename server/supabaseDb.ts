@@ -703,7 +703,12 @@ export const supabaseDb = {
     if (error) {
       throw new Error(`Supabase query failed (Submissions): ${error.message} (Code: ${error.code})`);
     }
-    return data || [];
+    if (!data) return [];
+    return data.map(s => ({
+      ...s,
+      amenities: safeParseJSON(s.amenities, Array.isArray(s.amenities) ? s.amenities : [], `owner_submissions.amenities (ID ${s.id})`),
+      images: safeParseJSON(s.images, Array.isArray(s.images) ? s.images : [], `owner_submissions.images (ID ${s.id})`)
+    }));
   },
 
   async createOwnerSubmission(os: any): Promise<any> {
@@ -789,21 +794,63 @@ export const supabaseDb = {
   // --- AGENTS (PROFILES / USERS TABLE) ---
   async getAgents(): Promise<any[]> {
     const supabase = getClient();
-    try {
-      const { data, error } = await supabase.from('profiles').select('*').eq('role', 'agent').order('name', { ascending: true });
-      if (!error && data && data.length > 0) {
-        return data;
-      }
-    } catch {}
+    const map = new Map<string, any>();
 
+    // 1. Fetch from profiles table
     try {
-      const { data, error } = await supabase.from('users').select('*').ilike('role', '%AGENT%').order('name', { ascending: true });
-      if (!error && data) {
-        return data;
+      const { data, error } = await supabase.from('profiles').select('*').order('name', { ascending: true });
+      if (!error && Array.isArray(data)) {
+        for (const p of data) {
+          const r = String(p.role || '').toLowerCase();
+          if (r === 'agent' || r === 'field_agent' || r === 'sub_admin' || (!r.includes('admin') && p.email)) {
+            const key = (p.email || p.id || '').toLowerCase();
+            map.set(key, {
+              id: p.id || p.user_id,
+              user_id: p.user_id || p.id,
+              name: p.name || 'Agent',
+              email: p.email || '',
+              phone: p.phone || '',
+              role: 'AGENT',
+              notes: p.notes || '',
+              permissions: p.permissions || '',
+              created_at: p.created_at
+            });
+          }
+        }
       }
-    } catch {}
+    } catch (e) {
+      console.warn('Profiles getAgents warning:', e);
+    }
 
-    return [];
+    // 2. Fetch from users table
+    try {
+      const { data, error } = await supabase.from('users').select('*').order('name', { ascending: true });
+      if (!error && Array.isArray(data)) {
+        for (const u of data) {
+          const r = String(u.role || '').toLowerCase();
+          if (r === 'agent' || r === 'field_agent' || r === 'sub_admin' || (!r.includes('admin') && u.email)) {
+            const key = (u.email || u.id || '').toLowerCase();
+            if (!map.has(key)) {
+              map.set(key, {
+                id: u.id,
+                user_id: u.id,
+                name: u.name || 'Agent',
+                email: u.email || '',
+                phone: u.phone || '',
+                role: 'AGENT',
+                notes: u.notes || '',
+                permissions: u.permissions || '',
+                created_at: u.created_at
+              });
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Users getAgents warning:', e);
+    }
+
+    return Array.from(map.values());
   },
 
   async updateAgent(id: any, agent: any): Promise<boolean> {

@@ -398,41 +398,9 @@ export const supabaseService = {
   // --- AGENTS & TEAM MANAGEMENT ---
   agents: {
     async getAll(): Promise<User[]> {
-      try {
-        // 1. Try querying Supabase profiles table directly
-        const { data: profiles, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .order('created_at', { ascending: false });
+      const agentMap = new Map<string, User>();
 
-        if (!error && profiles && profiles.length > 0) {
-          const mapped: User[] = profiles
-            .filter((p: any) => {
-              const r = String(p.role || '').toLowerCase();
-              return r === 'agent' || r === 'field_agent';
-            })
-            .map((p: any) => ({
-              id: p.id || p.user_id,
-              user_id: p.user_id || p.id,
-              name: p.name || 'Agent',
-              email: p.email || '',
-              phone: p.phone || '',
-              role: 'AGENT' as const,
-              notes: p.notes,
-              permissions: p.permissions,
-              created_at: p.created_at
-            }));
-
-          if (mapped.length > 0) {
-            setLocal('agents', mapped);
-            return mapped;
-          }
-        }
-      } catch (e) {
-        console.warn('Supabase profiles fetch error:', e);
-      }
-
-      // 2. Try fetching from server-side admin endpoint
+      // 1. Try fetching from server-side admin endpoint
       try {
         const { data: { session } } = await supabase.auth.getSession();
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -443,21 +411,95 @@ export const supabaseService = {
         if (resp.ok) {
           const data = await resp.json();
           if (Array.isArray(data) && data.length > 0) {
-            const mapped: User[] = data.map((u: any) => ({
-              id: u.id || u.user_id,
-              user_id: u.user_id || u.id,
-              name: u.name,
-              email: u.email,
-              phone: u.phone,
-              role: 'AGENT' as const,
-              notes: u.notes,
-              created_at: u.created_at
-            }));
-            setLocal('agents', mapped);
-            return mapped;
+            for (const u of data) {
+              const key = String(u.email || u.id || '').toLowerCase();
+              agentMap.set(key, {
+                id: u.id || u.user_id,
+                user_id: u.user_id || u.id,
+                name: u.name || 'Agent',
+                email: u.email || '',
+                phone: u.phone || '',
+                role: 'AGENT' as const,
+                notes: u.notes || '',
+                permissions: u.permissions || '',
+                created_at: u.created_at
+              });
+            }
           }
         }
-      } catch {}
+      } catch (err) {
+        console.warn('API agents fetch warning:', err);
+      }
+
+      // 2. Query Supabase profiles table directly
+      try {
+        const { data: profiles, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (!error && profiles && profiles.length > 0) {
+          for (const p of profiles) {
+            const r = String(p.role || '').toLowerCase();
+            if (r === 'agent' || r === 'field_agent' || r === 'sub_admin' || (!r.includes('admin') && p.email)) {
+              const key = String(p.email || p.id || '').toLowerCase();
+              if (!agentMap.has(key)) {
+                agentMap.set(key, {
+                  id: p.id || p.user_id,
+                  user_id: p.user_id || p.id,
+                  name: p.name || 'Agent',
+                  email: p.email || '',
+                  phone: p.phone || '',
+                  role: 'AGENT' as const,
+                  notes: p.notes,
+                  permissions: p.permissions,
+                  created_at: p.created_at
+                });
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Supabase profiles fetch error:', e);
+      }
+
+      // 3. Query Supabase users table directly
+      try {
+        const { data: users, error: uError } = await supabase
+          .from('users')
+          .select('*')
+          .order('name', { ascending: true });
+
+        if (!uError && users && users.length > 0) {
+          for (const u of users) {
+            const r = String(u.role || '').toLowerCase();
+            if (r === 'agent' || r === 'field_agent' || (!r.includes('admin') && u.email)) {
+              const key = String(u.email || u.id || '').toLowerCase();
+              if (!agentMap.has(key)) {
+                agentMap.set(key, {
+                  id: u.id,
+                  user_id: u.id,
+                  name: u.name || 'Agent',
+                  email: u.email || '',
+                  phone: u.phone || '',
+                  role: 'AGENT' as const,
+                  notes: u.notes,
+                  permissions: u.permissions,
+                  created_at: u.created_at
+                });
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Supabase users fetch error:', e);
+      }
+
+      const result = Array.from(agentMap.values());
+      if (result.length > 0) {
+        setLocal('agents', result);
+        return result;
+      }
 
       return getLocal<User[]>('agents', SEED_AGENTS);
     },
@@ -931,7 +973,7 @@ export const supabaseService = {
               id: Number(v.id),
               lead_id: Number(v.lead_id),
               property_id: Number(v.property_id),
-              agent_id: Number(v.agent_id),
+              agent_id: v.agent_id ? (isNaN(Number(v.agent_id)) ? v.agent_id : Number(v.agent_id)) : undefined,
               visit_date: v.visit_date,
               visit_time: v.visit_time,
               status: v.status || 'Scheduled',
@@ -962,30 +1004,37 @@ export const supabaseService = {
         console.warn('API visits fetch warning:', err);
       }
 
-      // 2. Direct Supabase query with feedback join
+      // 2. Direct Supabase query with feedback and agent joins
       try {
-        const [vRes, fRes, lRes, pRes] = await Promise.all([
+        const [vRes, fRes, lRes, pRes, profRes, uRes] = await Promise.allSettled([
           supabase.from('site_visits').select('*').order('id', { ascending: false }),
           supabase.from('site_visit_feedback').select('*'),
           supabase.from('leads').select('*'),
-          supabase.from('properties').select('*')
+          supabase.from('properties').select('*'),
+          supabase.from('profiles').select('*'),
+          supabase.from('users').select('*')
         ]);
 
-        if (!vRes.error && vRes.data) {
-          const feedbacks = fRes.data || [];
-          const leads = lRes.data || [];
-          const properties = pRes.data || [];
+        if (vRes.status === 'fulfilled' && !vRes.value.error && vRes.value.data) {
+          const feedbacks = fRes.status === 'fulfilled' ? fRes.value.data || [] : [];
+          const leads = lRes.status === 'fulfilled' ? lRes.value.data || [] : [];
+          const properties = pRes.status === 'fulfilled' ? pRes.value.data || [] : [];
+          const allAgents = [
+            ...(profRes.status === 'fulfilled' && Array.isArray(profRes.value.data) ? profRes.value.data : []),
+            ...(uRes.status === 'fulfilled' && Array.isArray(uRes.value.data) ? uRes.value.data : [])
+          ];
 
-          const mapped = vRes.data.map((v: any) => {
+          const mapped = vRes.value.data.map((v: any) => {
             const feed = feedbacks.find((f: any) => String(f.visit_id) === String(v.id));
             const lead = leads.find((l: any) => String(l.id) === String(v.lead_id));
             const prop = properties.find((p: any) => String(p.id) === String(v.property_id));
+            const agent = allAgents.find((a: any) => String(a.id) === String(v.agent_id) || String(a.user_id) === String(v.agent_id));
 
             return {
               id: Number(v.id),
               lead_id: Number(v.lead_id),
               property_id: Number(v.property_id),
-              agent_id: Number(v.agent_id),
+              agent_id: v.agent_id ? (isNaN(Number(v.agent_id)) ? v.agent_id : Number(v.agent_id)) : undefined,
               visit_date: v.visit_date,
               visit_time: v.visit_time,
               status: v.status || 'Scheduled',
@@ -993,6 +1042,8 @@ export const supabaseService = {
               lead_name: lead?.name,
               lead_phone: lead?.phone,
               property_title: prop?.title,
+              agent_name: agent?.name,
+              agent_email: agent?.email,
               feedback_id: feed?.id ? Number(feed.id) : undefined,
               interest_level: feed?.interest_level,
               customer_feedback: feed?.customer_feedback,
@@ -1644,13 +1695,57 @@ export const supabaseService = {
   ownerSubmissions: {
     async getAll(): Promise<any[]> {
       const local = getLocal<any[]>('submissions', []);
+
+      // 1. Try server API endpoint
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const headers: Record<string, string> = {};
+        if (session?.access_token) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
+        const res = await fetch('/api/owner-submissions', { headers });
+        if (res.ok) {
+          const apiData = await res.json();
+          if (Array.isArray(apiData) && apiData.length > 0) {
+            const mapped = apiData.map((s: any) => ({
+              id: Number(s.id),
+              owner_name: s.owner_name,
+              owner_phone: s.owner_phone,
+              owner_email: s.owner_email,
+              owner_type: s.owner_type || 'OWNER',
+              property_title: s.property_title,
+              property_type: s.property_type || 'Apartment',
+              bhk_config: s.bhk_config || '2 BHK',
+              location: s.location,
+              address: s.address,
+              expected_rent: Number(s.expected_rent || 0),
+              security_deposit: Number(s.security_deposit || 0),
+              furnishing: s.furnishing || 'Semi-Furnished',
+              available_from: s.available_from,
+              preferred_tenants: s.preferred_tenants || 'Any',
+              amenities: safeJsonParse<string[]>(s.amenities, Array.isArray(s.amenities) ? s.amenities : []),
+              images: safeJsonParse<string[]>(s.images, Array.isArray(s.images) ? s.images : []),
+              notes: s.notes,
+              status: s.status || 'PENDING',
+              admin_notes: s.admin_notes,
+              created_at: s.created_at
+            }));
+            setLocal('submissions', mapped);
+            return mapped;
+          }
+        }
+      } catch (err) {
+        console.warn('API owner_submissions fetch warning:', err);
+      }
+
+      // 2. Direct Supabase query
       try {
         const { data, error } = await supabase
           .from('owner_submissions')
           .select('*')
           .order('id', { ascending: false });
 
-        if (!error && data) {
+        if (!error && data && data.length > 0) {
           const mapped = data.map((s: any) => ({
             id: Number(s.id),
             owner_name: s.owner_name,
@@ -1675,19 +1770,13 @@ export const supabaseService = {
             created_at: s.created_at
           }));
 
-          // Merge Supabase entries with any local-only entries that haven't synced yet
-          const combined = [...mapped];
-          for (const item of local) {
-            if (!combined.some(c => c.id === item.id || (c.owner_phone === item.owner_phone && c.property_title === item.property_title))) {
-              combined.push(item);
-            }
-          }
-          setLocal('submissions', combined);
-          return combined;
+          setLocal('submissions', mapped);
+          return mapped;
         }
       } catch (err) {
         console.warn('Supabase owner_submissions fetch error:', err);
       }
+
       return local;
     },
 
@@ -1713,6 +1802,23 @@ export const supabaseService = {
         status: 'PENDING'
       };
 
+      // 1. Post to API
+      try {
+        const res = await fetch('/api/owner-submissions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+          const apiRes = await res.json();
+          const newSub = { id: Number(apiRes.id), ...sub, status: 'PENDING', created_at: new Date().toISOString() };
+          const all = getLocal<any[]>('submissions', []);
+          setLocal('submissions', [newSub, ...all]);
+          return newSub;
+        }
+      } catch {}
+
+      // 2. Direct Supabase fallback
       try {
         const { data, error } = await supabase
           .from('owner_submissions')
@@ -1735,6 +1841,19 @@ export const supabaseService = {
     },
 
     async update(id: number, updates: any): Promise<void> {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (session?.access_token) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
+        await fetch(`/api/owner-submissions/${id}`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify(updates)
+        });
+      } catch {}
+
       try {
         await supabase.from('owner_submissions').update(updates).eq('id', id);
       } catch {}
@@ -1777,6 +1896,18 @@ export const supabaseService = {
 
     async delete(id: number): Promise<void> {
       try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const headers: Record<string, string> = {};
+        if (session?.access_token) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
+        await fetch(`/api/owner-submissions/${id}`, {
+          method: 'DELETE',
+          headers
+        });
+      } catch {}
+
+      try {
         await supabase.from('owner_submissions').delete().eq('id', id);
       } catch {}
       const all = getLocal<any[]>('submissions', []);
@@ -1784,6 +1915,19 @@ export const supabaseService = {
     },
 
     async bulkDelete(ids: number[]): Promise<void> {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (session?.access_token) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
+        await fetch('/api/owner-submissions/bulk-delete', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ ids })
+        });
+      } catch {}
+
       try {
         await supabase.from('owner_submissions').delete().in('id', ids);
       } catch {}

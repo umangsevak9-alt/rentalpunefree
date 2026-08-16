@@ -115,7 +115,7 @@ export default function Leads() {
         phone: formData.phone,
         status: formData.status,
         source: formData.source,
-        assigned_agent_id: formData.assigned_agent_id ? Number(formData.assigned_agent_id) : undefined,
+        assigned_agent_id: formData.assigned_agent_id ? (isNaN(Number(formData.assigned_agent_id)) ? (formData.assigned_agent_id as any) : Number(formData.assigned_agent_id)) : undefined,
         property_id: formData.property_id ? Number(formData.property_id) : undefined,
         notes: formData.notes
       });

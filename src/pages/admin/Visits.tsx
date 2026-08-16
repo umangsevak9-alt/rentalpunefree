@@ -145,7 +145,7 @@ export default function Visits() {
         ...formData,
         lead_id: formData.lead_id ? Number(formData.lead_id) : undefined as any,
         property_id: formData.property_id ? Number(formData.property_id) : undefined as any,
-        agent_id: formData.agent_id ? Number(formData.agent_id) : undefined as any,
+        agent_id: formData.agent_id ? (isNaN(Number(formData.agent_id)) ? (formData.agent_id as any) : Number(formData.agent_id)) : (undefined as any),
       };
 
       if (editingVisit) {
