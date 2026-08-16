@@ -6,6 +6,7 @@ import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
 import { db } from './db.js';
+import { supabaseDb } from './supabaseDb.js';
 import { 
   getSupabase, 
   isSupabaseConnected, 
@@ -213,11 +214,7 @@ router.get('/auth/me', authenticate, async (req: any, res: any) => {
 // --- SETTINGS (Public & Admin) ---
 router.get('/settings', async (req, res) => {
   try {
-    const result = await db.execute('SELECT * FROM settings');
-    const settings = result.rows.reduce((acc: any, row: any) => {
-      acc[row.key] = row.value;
-      return acc;
-    }, {});
+    const settings = await supabaseDb.getSettings();
     res.json(settings);
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -227,14 +224,7 @@ router.get('/settings', async (req, res) => {
 router.put('/settings', authenticate, requireAdmin, async (req, res) => {
   try {
     const updates = req.body; // e.g. { hero_heading: 'New Heading', phone: '123' }
-    for (const [key, value] of Object.entries(updates)) {
-      await db.execute({
-        sql: 'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=?',
-        args: [key, String(value), String(value)]
-      });
-      // Automatic background Supabase sync
-      autoSyncRowToSupabase('settings', { key, value: String(value) }).catch(() => {});
-    }
+    await supabaseDb.updateSettings(updates);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -330,34 +320,10 @@ router.post('/upload/video', authenticate, upload.single('file'), async (req: an
 // --- PROPERTIES ---
 router.get('/properties', async (req, res) => {
   try {
-    const result = await db.execute('SELECT * FROM properties ORDER BY id DESC');
-    res.json(result.rows.map(r => {
-      let parsedImages: string[] = [];
-      let parsedVideos: string[] = [];
-      let parsedFaqs: any[] = [];
-      try {
-        parsedImages = r.images ? (typeof r.images === 'string' ? JSON.parse(r.images as string) : r.images) : [];
-      } catch (e) {
-        parsedImages = [];
-      }
-      try {
-        parsedVideos = r.videos ? (typeof r.videos === 'string' ? JSON.parse(r.videos as string) : r.videos) : [];
-      } catch (e) {
-        parsedVideos = [];
-      }
-      try {
-        parsedFaqs = r.faqs ? (typeof r.faqs === 'string' ? JSON.parse(r.faqs as string) : r.faqs) : [];
-      } catch (e) {
-        parsedFaqs = [];
-      }
-      return {
-        ...r,
-        images: Array.isArray(parsedImages) ? parsedImages.slice(0, 10) : [],
-        videos: Array.isArray(parsedVideos) ? parsedVideos.slice(0, 4) : [],
-        faqs: Array.isArray(parsedFaqs) ? parsedFaqs : []
-      };
-    }));
+    const properties = await supabaseDb.getProperties();
+    res.json(properties);
   } catch (err) {
+    console.error('Error fetching properties:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -365,39 +331,13 @@ router.get('/properties', async (req, res) => {
 router.get('/properties/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await db.execute({
-      sql: 'SELECT * FROM properties WHERE id = ?',
-      args: [id]
-    });
-    if (result.rows.length === 0) {
+    const property = await supabaseDb.getProperty(id);
+    if (!property) {
       return res.status(404).json({ error: 'Property not found' });
     }
-    const r = result.rows[0];
-    let parsedImages: string[] = [];
-    let parsedVideos: string[] = [];
-    let parsedFaqs: any[] = [];
-    try {
-      parsedImages = r.images ? (typeof r.images === 'string' ? JSON.parse(r.images as string) : r.images) : [];
-    } catch (e) {
-      parsedImages = [];
-    }
-    try {
-      parsedVideos = r.videos ? (typeof r.videos === 'string' ? JSON.parse(r.videos as string) : r.videos) : [];
-    } catch (e) {
-      parsedVideos = [];
-    }
-    try {
-      parsedFaqs = r.faqs ? (typeof r.faqs === 'string' ? JSON.parse(r.faqs as string) : r.faqs) : [];
-    } catch (e) {
-      parsedFaqs = [];
-    }
-    res.json({
-      ...r,
-      images: Array.isArray(parsedImages) ? parsedImages.slice(0, 10) : [],
-      videos: Array.isArray(parsedVideos) ? parsedVideos.slice(0, 4) : [],
-      faqs: Array.isArray(parsedFaqs) ? parsedFaqs : []
-    });
+    res.json(property);
   } catch (err) {
+    console.error('Error fetching property:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -408,37 +348,25 @@ router.post('/properties', authenticate, requireAdmin, async (req, res) => {
     const cleanImages = (Array.isArray(images) ? images : []).slice(0, 10);
     const cleanVideos = (Array.isArray(videos) ? videos : []).slice(0, 4);
     const cleanFaqs = Array.isArray(faqs) ? faqs : [];
-    const imagesJson = JSON.stringify(cleanImages);
-    const videosJson = JSON.stringify(cleanVideos);
-    const faqsJson = JSON.stringify(cleanFaqs);
 
-    const result = await db.execute({
-      sql: 'INSERT INTO properties (title, description, price, type, bedrooms, bathrooms, area, location, images, videos, faqs, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      args: [title, description, price ? Number(price) : null, type, bedrooms ? Number(bedrooms) : null, bathrooms ? Number(bathrooms) : null, area ? Number(area) : null, location, imagesJson, videosJson, faqsJson, status || 'PUBLISHED']
+    const result = await supabaseDb.createProperty({
+      title,
+      description,
+      price,
+      type,
+      bedrooms,
+      bathrooms,
+      area,
+      location,
+      status,
+      images: cleanImages,
+      videos: cleanVideos,
+      faqs: cleanFaqs
     });
-    const newId = result.lastInsertRowid !== undefined ? Number(result.lastInsertRowid) : null;
 
-    // Automatic real-time background Supabase sync
-    if (newId) {
-      autoSyncRowToSupabase('properties', {
-        id: newId,
-        title,
-        description,
-        price: price ? Number(price) : null,
-        type,
-        bedrooms: bedrooms ? Number(bedrooms) : null,
-        bathrooms: bathrooms ? Number(bathrooms) : null,
-        area: area ? Number(area) : null,
-        location,
-        status: status || 'PUBLISHED',
-        images: imagesJson,
-        videos: videosJson,
-        faqs: faqsJson
-      }).catch(() => {});
-    }
-
-    res.json({ id: newId, success: true });
+    res.json({ id: result.id, success: true });
   } catch (err) {
+    console.error('Error creating property:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -450,33 +378,21 @@ router.put('/properties/:id', authenticate, requireAdmin, async (req, res) => {
     const cleanImages = (Array.isArray(images) ? images : []).slice(0, 10);
     const cleanVideos = (Array.isArray(videos) ? videos : []).slice(0, 4);
     const cleanFaqs = Array.isArray(faqs) ? faqs : [];
-    const imagesJson = JSON.stringify(cleanImages);
-    const videosJson = JSON.stringify(cleanVideos);
-    const faqsJson = JSON.stringify(cleanFaqs);
 
-    await db.execute({
-      sql: `UPDATE properties 
-            SET title = ?, description = ?, price = ?, type = ?, bedrooms = ?, bathrooms = ?, area = ?, location = ?, status = ?, images = ?, videos = ?, faqs = ?
-            WHERE id = ?`,
-      args: [title, description, price ? Number(price) : null, type, bedrooms ? Number(bedrooms) : null, bathrooms ? Number(bathrooms) : null, area ? Number(area) : null, location, status || 'PUBLISHED', imagesJson, videosJson, faqsJson, id]
-    });
-
-    // Automatic real-time Supabase sync
-    autoSyncRowToSupabase('properties', {
-      id: Number(id),
+    await supabaseDb.updateProperty(id, {
       title,
       description,
-      price: price ? Number(price) : null,
+      price,
       type,
-      bedrooms: bedrooms ? Number(bedrooms) : null,
-      bathrooms: bathrooms ? Number(bathrooms) : null,
-      area: area ? Number(area) : null,
+      bedrooms,
+      bathrooms,
+      area,
       location,
-      status: status || 'PUBLISHED',
-      images: imagesJson,
-      videos: videosJson,
-      faqs: faqsJson
-    }).catch(() => {});
+      status,
+      images: cleanImages,
+      videos: cleanVideos,
+      faqs: cleanFaqs
+    });
 
     res.json({ success: true });
   } catch (err) {
@@ -488,8 +404,8 @@ router.put('/properties/:id', authenticate, requireAdmin, async (req, res) => {
 // --- HOME PAGE FAQS (Public & Admin) ---
 router.get('/faqs', async (req, res) => {
   try {
-    const result = await db.execute('SELECT * FROM home_faqs WHERE is_active = 1 ORDER BY sort_order ASC, id ASC');
-    res.json(result.rows);
+    const faqs = await supabaseDb.getFaqs();
+    res.json(faqs);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch FAQs' });
   }
@@ -497,8 +413,8 @@ router.get('/faqs', async (req, res) => {
 
 router.get('/faqs/all', authenticate, requireAdmin, async (req, res) => {
   try {
-    const result = await db.execute('SELECT * FROM home_faqs ORDER BY sort_order ASC, id ASC');
-    res.json(result.rows);
+    const faqs = await supabaseDb.getFaqsAll();
+    res.json(faqs);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch all FAQs' });
   }
@@ -510,21 +426,14 @@ router.post('/faqs', authenticate, requireAdmin, async (req, res) => {
     if (!question || !answer) {
       return res.status(400).json({ error: 'Question and answer are required' });
     }
-    const result = await db.execute({
-      sql: 'INSERT INTO home_faqs (question, answer, category, sort_order, is_active) VALUES (?, ?, ?, ?, ?)',
-      args: [question, answer, category || 'General', Number(sort_order), is_active ? 1 : 0]
-    });
-    const newId = Number(result.lastInsertRowid);
-    autoSyncRowToSupabase('home_faqs', {
-      id: newId,
+    const result = await supabaseDb.createFaq({
       question,
       answer,
-      category: category || 'General',
-      sort_order: Number(sort_order),
-      is_active: is_active ? 1 : 0
-    }).catch(() => {});
-
-    res.json({ id: newId, success: true });
+      category,
+      sort_order,
+      is_active
+    });
+    res.json({ id: result.id, success: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to create FAQ' });
   }
@@ -534,29 +443,13 @@ router.put('/faqs/:id', authenticate, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { question, answer, category, sort_order, is_active } = req.body;
-    await db.execute({
-      sql: `UPDATE home_faqs 
-            SET question = COALESCE(?, question),
-                answer = COALESCE(?, answer),
-                category = COALESCE(?, category),
-                sort_order = COALESCE(?, sort_order),
-                is_active = COALESCE(?, is_active)
-            WHERE id = ?`,
-      args: [
-        question !== undefined ? question : null,
-        answer !== undefined ? answer : null,
-        category !== undefined ? category : null,
-        sort_order !== undefined ? Number(sort_order) : null,
-        is_active !== undefined ? (is_active ? 1 : 0) : null,
-        id
-      ]
+    await supabaseDb.updateFaq(id, {
+      question,
+      answer,
+      category,
+      sort_order,
+      is_active
     });
-
-    const updated = await db.execute({ sql: 'SELECT * FROM home_faqs WHERE id = ?', args: [id] });
-    if (updated.rows[0]) {
-      autoSyncRowToSupabase('home_faqs', updated.rows[0]).catch(() => {});
-    }
-
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update FAQ' });
@@ -566,11 +459,7 @@ router.put('/faqs/:id', authenticate, requireAdmin, async (req, res) => {
 router.delete('/faqs/:id', authenticate, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    await db.execute({
-      sql: 'DELETE FROM home_faqs WHERE id = ?',
-      args: [id]
-    });
-    autoDeleteFromSupabase('home_faqs', 'id', Number(id)).catch(() => {});
+    await supabaseDb.deleteFaq(id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete FAQ' });
@@ -579,7 +468,6 @@ router.delete('/faqs/:id', authenticate, requireAdmin, async (req, res) => {
 
 router.post('/faqs/reset-defaults', authenticate, requireAdmin, async (req, res) => {
   try {
-    await db.execute('DELETE FROM home_faqs');
     const defaultHomeFaqs = [
       {
         question: 'How does the rental search and move-in process work with Rental Pune?',
@@ -631,15 +519,8 @@ router.post('/faqs/reset-defaults', authenticate, requireAdmin, async (req, res)
       }
     ];
 
-    for (const f of defaultHomeFaqs) {
-      await db.execute({
-        sql: 'INSERT INTO home_faqs (question, answer, category, sort_order, is_active) VALUES (?, ?, ?, ?, 1)',
-        args: [f.question, f.answer, f.category, f.sort_order]
-      });
-    }
-
-    const all = await db.execute('SELECT * FROM home_faqs ORDER BY sort_order ASC, id ASC');
-    res.json({ success: true, count: all.rows.length, faqs: all.rows });
+    const all = await supabaseDb.resetFaqs(defaultHomeFaqs);
+    res.json({ success: true, count: all.length, faqs: all });
   } catch (err) {
     res.status(500).json({ error: 'Failed to reset FAQs' });
   }
@@ -669,14 +550,9 @@ router.delete('/properties/:id', authenticate, requireAdmin, async (req, res) =>
       sql: 'DELETE FROM invoices WHERE property_id = ?',
       args: [id]
     });
-    // Delete property
-    await db.execute({
-      sql: 'DELETE FROM properties WHERE id = ?',
-      args: [id]
-    });
-
-    // Automatic Supabase sync
-    autoDeleteFromSupabase('properties', 'id', Number(id)).catch(() => {});
+    
+    // Delete property using supabaseDb repository layer
+    await supabaseDb.deleteProperty(id);
 
     res.json({ success: true });
   } catch (err) {
@@ -716,13 +592,9 @@ router.post('/properties/bulk-delete', authenticate, requireAdmin, async (req, r
       sql: `DELETE FROM invoices WHERE property_id IN (${placeholders})`,
       args: cleanIds
     });
-    await db.execute({
-      sql: `DELETE FROM properties WHERE id IN (${placeholders})`,
-      args: cleanIds
-    });
-
-    // Automatic Supabase Bulk Delete
-    autoBulkDeleteFromSupabase('properties', 'id', cleanIds).catch(() => {});
+    
+    // Bulk delete properties using supabaseDb repository layer
+    await supabaseDb.bulkDeleteProperties(cleanIds);
 
     res.json({ success: true, count: cleanIds.length, message: `${cleanIds.length} properties deleted successfully.` });
   } catch (err) {
@@ -747,28 +619,18 @@ router.post('/leads', async (req, res) => {
     const cleanName = String(name).trim();
     const cleanPhone = String(phone).trim();
 
-    const result = await db.execute({
-      sql: 'INSERT INTO leads (name, email, phone, notes, property_id, source) VALUES (?, ?, ?, ?, ?, ?)',
-      args: [cleanName, cleanEmail, cleanPhone, cleanNotes, cleanPropertyId, 'Website']
-    });
-    
-    const newId = result.lastInsertRowid !== undefined ? Number(result.lastInsertRowid) : 1;
-
-    // Automatic real-time Supabase background sync
-    autoSyncRowToSupabase('leads', {
-      id: newId,
+    const result = await supabaseDb.createLead({
       name: cleanName,
       email: cleanEmail,
       phone: cleanPhone,
-      property_id: cleanPropertyId,
       notes: cleanNotes,
-      status: 'New',
+      property_id: cleanPropertyId,
       source: 'Website'
-    }).catch(() => {});
+    });
 
     return res.status(201).json({ 
       success: true, 
-      id: newId, 
+      id: result.id, 
       message: 'Enquiry received. Our team will contact you in 2 hours.' 
     });
   } catch (err: any) {
@@ -779,18 +641,23 @@ router.post('/leads', async (req, res) => {
 
 router.get('/leads', authenticate, requireAdmin, async (req, res) => {
   try {
-    const result = await db.execute(`
-      SELECT 
-        l.*,
-        p.title as property_title,
-        u.name as assigned_agent_name
-      FROM leads l
-      LEFT JOIN properties p ON l.property_id = p.id
-      LEFT JOIN users u ON l.assigned_agent_id = u.id
-      ORDER BY l.created_at DESC
-    `);
-    res.json(result.rows);
+    const leads = await supabaseDb.getLeads();
+    const properties = await supabaseDb.getProperties();
+    const agents = await supabaseDb.getAgents();
+
+    const joinedLeads = leads.map(l => {
+      const prop = properties.find(p => String(p.id) === String(l.property_id));
+      const agent = agents.find(a => String(a.id || a.user_id) === String(l.assigned_agent_id));
+      return {
+        ...l,
+        property_title: prop?.title || null,
+        assigned_agent_name: agent?.name || null
+      };
+    });
+
+    res.json(joinedLeads);
   } catch (err) {
+    console.error('Error fetching leads:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -800,35 +667,16 @@ router.put('/leads/:id', authenticate, requireAdmin, async (req, res) => {
     const { id } = req.params;
     const { name, email, phone, status, source, notes, assigned_agent_id, property_id } = req.body;
 
-    await db.execute({
-      sql: `UPDATE leads 
-            SET name = ?, email = ?, phone = ?, status = ?, source = ?, notes = ?, assigned_agent_id = ?, property_id = ?
-            WHERE id = ?`,
-      args: [
-        name, 
-        email || null, 
-        phone, 
-        status || 'New', 
-        source || 'Website', 
-        notes || null, 
-        assigned_agent_id ? Number(assigned_agent_id) : null, 
-        property_id ? Number(property_id) : null, 
-        id
-      ]
-    });
-
-    // Automatic real-time Supabase sync
-    autoSyncRowToSupabase('leads', {
-      id: Number(id),
+    await supabaseDb.updateLead(id, {
       name,
-      email: email || null,
+      email,
       phone,
-      status: status || 'New',
-      source: source || 'Website',
-      notes: notes || null,
-      assigned_agent_id: assigned_agent_id ? Number(assigned_agent_id) : null,
-      property_id: property_id ? Number(property_id) : null
-    }).catch(() => {});
+      status,
+      source,
+      notes,
+      assigned_agent_id,
+      property_id
+    });
 
     res.json({ success: true });
   } catch (err) {
@@ -856,14 +704,9 @@ router.delete('/leads/:id', authenticate, requireAdmin, async (req, res) => {
       sql: 'DELETE FROM invoices WHERE lead_id = ?',
       args: [id]
     });
-    // Delete lead
-    await db.execute({
-      sql: 'DELETE FROM leads WHERE id = ?',
-      args: [id]
-    });
 
-    // Automatic Supabase sync
-    autoDeleteFromSupabase('leads', 'id', Number(id)).catch(() => {});
+    // Delete lead using supabaseDb
+    await supabaseDb.deleteLead(id);
 
     res.json({ success: true, message: 'Lead deleted successfully' });
   } catch (err) {
@@ -899,13 +742,9 @@ router.post('/leads/bulk-delete', authenticate, requireAdmin, async (req, res) =
       sql: `DELETE FROM invoices WHERE lead_id IN (${placeholders})`,
       args: cleanIds
     });
-    await db.execute({
-      sql: `DELETE FROM leads WHERE id IN (${placeholders})`,
-      args: cleanIds
-    });
 
-    // Automatic Supabase bulk delete
-    autoBulkDeleteFromSupabase('leads', 'id', cleanIds).catch(() => {});
+    // Bulk delete leads using supabaseDb
+    await supabaseDb.bulkDeleteLeads(cleanIds);
 
     res.json({ success: true, count: cleanIds.length, message: `${cleanIds.length} leads deleted successfully.` });
   } catch (err) {
@@ -917,41 +756,8 @@ router.post('/leads/bulk-delete', authenticate, requireAdmin, async (req, res) =
 // --- AGENTS (Users & Field Agents) ---
 router.get(['/agents', '/admin/agents'], authenticate, requireAdmin, async (req, res) => {
   try {
-    const supabase = getSupabase();
-    if (supabase) {
-      try {
-        const { data: profiles, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .order('created_at', { ascending: false });
-
-        if (!error && profiles && profiles.length > 0) {
-          const agentProfiles = profiles
-            .filter((p: any) => String(p.role || '').toLowerCase() === 'agent' || String(p.role || '').toLowerCase() === 'field_agent')
-            .map((p: any) => ({
-              id: p.id || p.user_id,
-              user_id: p.user_id || p.id,
-              name: p.name,
-              email: p.email,
-              phone: p.phone,
-              role: 'AGENT',
-              notes: p.notes,
-              created_at: p.created_at
-            }));
-          if (agentProfiles.length > 0) {
-            return res.json(agentProfiles);
-          }
-        }
-      } catch (e) {
-        console.warn('Supabase profiles fetch in /agents note:', e);
-      }
-    }
-
-    const result = await db.execute({
-      sql: 'SELECT id, name, email, role, phone, notes, created_at FROM users WHERE role = ? OR role = ? ORDER BY id DESC',
-      args: ['AGENT', 'agent']
-    });
-    res.json(result.rows);
+    const agents = await supabaseDb.getAgents();
+    res.json(agents);
   } catch (err) {
     res.status(500).json({ error: 'Server error fetching agents' });
   }
@@ -1010,47 +816,32 @@ router.put(['/agents/:id', '/admin/agents/:id'], authenticate, requireAdmin, asy
       return res.status(400).json({ error: 'Name and email are required' });
     }
 
-    const supabase = getSupabase();
-    if (supabase) {
-      try {
-        await supabase
-          .from('profiles')
-          .update({
-            name,
-            email,
-            phone: phone || '',
-            notes: notes || '',
-            updated_at: new Date().toISOString()
-          })
-          .or(`id.eq.${id},user_id.eq.${id}`);
+    // Update using supabaseDb
+    await supabaseDb.updateAgent(id, { name, email, phone, notes });
 
-        if (password && password.trim()) {
-          try {
-            await supabase.auth.admin.updateUserById(id, {
-              password: password.trim(),
-              user_metadata: { name, phone: phone || '', notes: notes || '' }
-            });
-          } catch {}
-        }
+    // Update auth password in Supabase if provided
+    const supabase = getSupabase();
+    if (supabase && password && password.trim()) {
+      try {
+        await supabase.auth.admin.updateUserById(id, {
+          password: password.trim(),
+          user_metadata: { name, phone: phone || '', notes: notes || '' }
+        });
       } catch (e) {
-        console.warn('Supabase profile update note:', e);
+        console.warn('Supabase auth password update error:', e);
       }
     }
 
-    try {
-      if (password && password.trim()) {
+    // Update local database password if provided
+    if (password && password.trim()) {
+      try {
         const hashedPassword = await bcrypt.hash(password.trim(), 10);
         await db.execute({
-          sql: 'UPDATE users SET name = ?, email = ?, password = ?, phone = ?, notes = ? WHERE id = ? OR email = ?',
-          args: [name, email, hashedPassword, phone || '', notes || '', id, email]
+          sql: 'UPDATE users SET password = ? WHERE id = ? OR email = ?',
+          args: [hashedPassword, id, email]
         });
-      } else {
-        await db.execute({
-          sql: 'UPDATE users SET name = ?, email = ?, phone = ?, notes = ? WHERE id = ? OR email = ?',
-          args: [name, email, phone || '', notes || '', id, email]
-        });
-      }
-    } catch {}
+      } catch {}
+    }
 
     res.json({ success: true });
   } catch (err) {
@@ -1068,24 +859,16 @@ router.delete(['/agents/:id', '/admin/agents/:id'], authenticate, requireAdmin, 
       return res.status(400).json({ error: 'You cannot delete your own account while logged in.' });
     }
 
+    // Delete using supabaseDb repository layer
+    await supabaseDb.deleteAgent(id);
+
+    // Delete Auth User
     const supabase = getSupabase();
     if (supabase) {
       try {
-        await supabase.from('profiles').delete().or(`id.eq.${id},user_id.eq.${id}`);
-        try {
-          await supabase.auth.admin.deleteUser(id);
-        } catch {}
-      } catch (e) {
-        console.warn('Supabase agent delete note:', e);
-      }
+        await supabase.auth.admin.deleteUser(id);
+      } catch {}
     }
-
-    try {
-      await db.execute({
-        sql: 'DELETE FROM users WHERE id = ? OR email = ?',
-        args: [id, id]
-      });
-    } catch {}
 
     res.json({ success: true, message: 'Agent deleted permanently.' });
   } catch (err) {
@@ -1097,43 +880,8 @@ router.delete(['/agents/:id', '/admin/agents/:id'], authenticate, requireAdmin, 
 // --- SITE VISITS ---
 router.get('/visits', authenticate, async (req: any, res: any) => {
   try {
-    let sql = `
-      SELECT 
-        v.*, 
-        l.name as lead_name, 
-        l.phone as lead_phone, 
-        l.email as lead_email, 
-        p.title as property_title,
-        p.location as property_location,
-        u.name as agent_name,
-        u.email as agent_email,
-        f.id as feedback_id,
-        f.interest_level,
-        f.customer_feedback,
-        f.requirements,
-        f.budget,
-        f.preferred_configuration,
-        f.timeline,
-        f.next_action,
-        f.created_at as feedback_created_at
-      FROM site_visits v 
-      LEFT JOIN leads l ON v.lead_id = l.id 
-      LEFT JOIN properties p ON v.property_id = p.id
-      LEFT JOIN users u ON v.agent_id = u.id
-      LEFT JOIN site_visit_feedback f ON f.visit_id = v.id
-    `;
-    let args: any[] = [];
-    
-    // If agent, only show their visits
-    if (req.user.role === 'AGENT') {
-      sql += ' WHERE v.agent_id = ?';
-      args.push(req.user.id);
-    }
-    
-    sql += ' ORDER BY v.visit_date DESC, v.visit_time DESC';
-    
-    const result = await db.execute({ sql, args });
-    res.json(result.rows);
+    const visits = await supabaseDb.getVisits(req.user.role, req.user.id);
+    res.json(visits);
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
@@ -1142,25 +890,15 @@ router.get('/visits', authenticate, async (req: any, res: any) => {
 router.post('/visits', authenticate, requireAdmin, async (req, res) => {
   try {
     const { lead_id, property_id, agent_id, visit_date, visit_time, notes } = req.body;
-    const result = await db.execute({
-      sql: 'INSERT INTO site_visits (lead_id, property_id, agent_id, visit_date, visit_time, notes) VALUES (?, ?, ?, ?, ?, ?)',
-      args: [lead_id, property_id, agent_id, visit_date, visit_time, notes]
-    });
-    const newId = result.lastInsertRowid !== undefined ? Number(result.lastInsertRowid) : 1;
-
-    // Automatic Supabase sync
-    autoSyncRowToSupabase('site_visits', {
-      id: newId,
-      lead_id: lead_id ? Number(lead_id) : null,
-      property_id: property_id ? Number(property_id) : null,
-      agent_id: agent_id ? Number(agent_id) : null,
+    const result = await supabaseDb.createVisit({
+      lead_id,
+      property_id,
+      agent_id,
       visit_date,
       visit_time,
-      notes: notes || null,
-      status: 'Scheduled'
-    }).catch(() => {});
-
-    res.json({ id: newId });
+      notes
+    });
+    res.json({ id: result.id });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
@@ -1170,34 +908,15 @@ router.put('/visits/:id', authenticate, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { lead_id, property_id, agent_id, visit_date, visit_time, status, notes } = req.body;
-    await db.execute({
-      sql: `UPDATE site_visits 
-            SET lead_id = ?, property_id = ?, agent_id = ?, visit_date = ?, visit_time = ?, status = ?, notes = ?
-            WHERE id = ?`,
-      args: [
-        lead_id ? Number(lead_id) : null,
-        property_id ? Number(property_id) : null,
-        agent_id ? Number(agent_id) : null,
-        visit_date,
-        visit_time,
-        status || 'Scheduled',
-        notes || null,
-        id
-      ]
-    });
-
-    // Automatic Supabase sync
-    autoSyncRowToSupabase('site_visits', {
-      id: Number(id),
-      lead_id: lead_id ? Number(lead_id) : null,
-      property_id: property_id ? Number(property_id) : null,
-      agent_id: agent_id ? Number(agent_id) : null,
+    await supabaseDb.updateVisit(id, {
+      lead_id,
+      property_id,
+      agent_id,
       visit_date,
       visit_time,
-      status: status || 'Scheduled',
-      notes: notes || null
-    }).catch(() => {});
-
+      status,
+      notes
+    });
     res.json({ success: true });
   } catch (err) {
     console.error('Error updating site visit:', err);
@@ -1208,23 +927,7 @@ router.put('/visits/:id', authenticate, requireAdmin, async (req, res) => {
 router.delete('/visits/:id', authenticate, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-
-    // First delete any linked site visit feedback
-    await db.execute({
-      sql: 'DELETE FROM site_visit_feedback WHERE visit_id = ?',
-      args: [id]
-    });
-
-    // Delete the site visit
-    await db.execute({
-      sql: 'DELETE FROM site_visits WHERE id = ?',
-      args: [id]
-    });
-
-    // Automatic Supabase sync
-    autoDeleteFromSupabase('site_visits', 'id', Number(id)).catch(() => {});
-    autoDeleteFromSupabase('site_visit_feedback', 'visit_id', Number(id)).catch(() => {});
-
+    await supabaseDb.deleteVisit(id);
     res.json({ success: true, message: 'Site visit and feedback deleted successfully.' });
   } catch (err) {
     console.error('Error deleting site visit:', err);
@@ -1245,24 +948,7 @@ router.post('/visits/bulk-delete', authenticate, requireAdmin, async (req, res) 
       return res.status(400).json({ error: 'Invalid visit IDs provided.' });
     }
 
-    const placeholders = cleanIds.map(() => '?').join(',');
-
-    // Delete feedback for these visits
-    await db.execute({
-      sql: `DELETE FROM site_visit_feedback WHERE visit_id IN (${placeholders})`,
-      args: cleanIds
-    });
-
-    // Delete visits
-    await db.execute({
-      sql: `DELETE FROM site_visits WHERE id IN (${placeholders})`,
-      args: cleanIds
-    });
-
-    // Automatic Supabase bulk delete
-    autoBulkDeleteFromSupabase('site_visits', 'id', cleanIds).catch(() => {});
-    autoBulkDeleteFromSupabase('site_visit_feedback', 'visit_id', cleanIds).catch(() => {});
-
+    await supabaseDb.bulkDeleteVisits(cleanIds);
     res.json({ success: true, count: cleanIds.length, message: `${cleanIds.length} site visits deleted successfully.` });
   } catch (err) {
     console.error('Error bulk deleting site visits:', err);
@@ -1273,11 +959,7 @@ router.post('/visits/bulk-delete', authenticate, requireAdmin, async (req, res) 
 router.delete('/feedbacks/:id', authenticate, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    await db.execute({
-      sql: 'DELETE FROM site_visit_feedback WHERE id = ?',
-      args: [id]
-    });
-    autoDeleteFromSupabase('site_visit_feedback', 'id', Number(id)).catch(() => {});
+    await supabaseDb.deleteFeedback(id);
     res.json({ success: true, message: 'Feedback deleted successfully.' });
   } catch (err) {
     console.error('Error deleting feedback:', err);
@@ -1288,40 +970,8 @@ router.delete('/feedbacks/:id', authenticate, requireAdmin, async (req, res) => 
 // --- AGENT FEEDBACK ---
 router.get('/feedbacks', authenticate, async (req: any, res: any) => {
   try {
-    let sql = `
-      SELECT 
-        f.*,
-        v.visit_date,
-        v.visit_time,
-        v.status as visit_status,
-        v.notes as visit_notes,
-        l.name as lead_name,
-        l.phone as lead_phone,
-        l.email as lead_email,
-        p.title as property_title,
-        p.location as property_location,
-        p.price as property_price,
-        p.type as property_type,
-        u.name as agent_name,
-        u.email as agent_email
-      FROM site_visit_feedback f
-      JOIN site_visits v ON f.visit_id = v.id
-      LEFT JOIN leads l ON v.lead_id = l.id
-      LEFT JOIN properties p ON v.property_id = p.id
-      LEFT JOIN users u ON v.agent_id = u.id
-    `;
-    let args: any[] = [];
-
-    // If agent, only show their submitted feedbacks
-    if (req.user.role === 'AGENT') {
-      sql += ' WHERE v.agent_id = ?';
-      args.push(req.user.id);
-    }
-
-    sql += ' ORDER BY f.created_at DESC';
-
-    const result = await db.execute({ sql, args });
-    res.json(result.rows);
+    const feedbacks = await supabaseDb.getFeedbacks(req.user.role, req.user.id);
+    res.json(feedbacks);
   } catch (err) {
     console.error('Error fetching feedbacks:', err);
     res.status(500).json({ error: 'Server error' });
@@ -1333,61 +983,23 @@ router.post('/visits/:id/feedback', authenticate, async (req: any, res: any) => 
     const visitId = req.params.id;
     // Verify visit belongs to agent if agent
     if (req.user.role === 'AGENT') {
-       const visit = await db.execute({sql: 'SELECT * FROM site_visits WHERE id = ? AND agent_id = ?', args: [visitId, req.user.id]});
-       if (visit.rows.length === 0) return res.status(403).json({error: 'Forbidden'});
+      const visits = await supabaseDb.getVisits('AGENT', req.user.id);
+      const visit = visits.find(v => String(v.id) === String(visitId));
+      if (!visit) return res.status(403).json({ error: 'Forbidden' });
     }
     
     const { interest_level, customer_feedback, requirements, budget, preferred_configuration, timeline, next_action } = req.body;
     
-    // Check if feedback already exists for this visit
-    const existing = await db.execute({
-      sql: 'SELECT id FROM site_visit_feedback WHERE visit_id = ?',
-      args: [visitId]
+    await supabaseDb.createFeedback({
+      visit_id: visitId,
+      interest_level,
+      customer_feedback,
+      requirements,
+      budget,
+      preferred_configuration,
+      timeline,
+      next_action
     });
-
-    if (existing.rows.length > 0) {
-      await db.execute({
-        sql: `UPDATE site_visit_feedback 
-              SET interest_level = ?, customer_feedback = ?, requirements = ?, budget = ?, preferred_configuration = ?, timeline = ?, next_action = ?
-              WHERE visit_id = ?`,
-        args: [interest_level, customer_feedback, requirements, budget ? Number(budget) : null, preferred_configuration, timeline, next_action, visitId]
-      });
-      autoSyncRowToSupabase('site_visit_feedback', {
-        visit_id: Number(visitId),
-        interest_level,
-        customer_feedback,
-        requirements,
-        budget: budget ? Number(budget) : null,
-        preferred_configuration,
-        timeline,
-        next_action
-      }).catch(() => {});
-    } else {
-      const fbRes = await db.execute({
-        sql: `INSERT INTO site_visit_feedback (visit_id, interest_level, customer_feedback, requirements, budget, preferred_configuration, timeline, next_action) 
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [visitId, interest_level, customer_feedback, requirements, budget ? Number(budget) : null, preferred_configuration, timeline, next_action]
-      });
-      const newFbId = Number(fbRes.lastInsertRowid);
-      autoSyncRowToSupabase('site_visit_feedback', {
-        id: newFbId,
-        visit_id: Number(visitId),
-        interest_level,
-        customer_feedback,
-        requirements,
-        budget: budget ? Number(budget) : null,
-        preferred_configuration,
-        timeline,
-        next_action
-      }).catch(() => {});
-    }
-    
-    await db.execute({
-      sql: 'UPDATE site_visits SET status = ? WHERE id = ?',
-      args: ['Completed', visitId]
-    });
-
-    autoSyncRowToSupabase('site_visits', { id: Number(visitId), status: 'Completed' }).catch(() => {});
     
     res.json({ success: true });
   } catch (err) {
@@ -1399,40 +1011,8 @@ router.post('/visits/:id/feedback', authenticate, async (req: any, res: any) => 
 // --- INVOICES API (IN RUPEES ₹) ---
 router.get('/invoices', authenticate, async (req: any, res: any) => {
   try {
-    const result = await db.execute(`
-      SELECT 
-        i.*,
-        l.name as lead_name,
-        l.email as lead_email,
-        l.phone as lead_phone,
-        p.title as property_title,
-        p.location as property_location,
-        p.price as property_price,
-        p.type as property_type
-      FROM invoices i
-      LEFT JOIN leads l ON i.lead_id = l.id
-      LEFT JOIN properties p ON i.property_id = p.id
-      ORDER BY i.id DESC
-    `);
-
-    const formatted = result.rows.map(row => {
-      let items = [];
-      if (typeof row.items === 'string') {
-        try {
-          items = JSON.parse(row.items);
-        } catch (e) {
-          items = [];
-        }
-      } else if (Array.isArray(row.items)) {
-        items = row.items;
-      }
-      return {
-        ...row,
-        items
-      };
-    });
-
-    res.json(formatted);
+    const invoices = await supabaseDb.getInvoices();
+    res.json(invoices);
   } catch (err) {
     console.error('Error fetching invoices:', err);
     res.status(500).json({ error: 'Server error' });
@@ -1442,44 +1022,11 @@ router.get('/invoices', authenticate, async (req: any, res: any) => {
 router.get('/invoices/:id', authenticate, async (req: any, res: any) => {
   try {
     const id = req.params.id;
-    const result = await db.execute({
-      sql: `
-        SELECT 
-          i.*,
-          l.name as lead_name,
-          l.email as lead_email,
-          l.phone as lead_phone,
-          p.title as property_title,
-          p.location as property_location,
-          p.price as property_price
-        FROM invoices i
-        LEFT JOIN leads l ON i.lead_id = l.id
-        LEFT JOIN properties p ON i.property_id = p.id
-        WHERE i.id = ?
-      `,
-      args: [id]
-    });
-
-    if (result.rows.length === 0) {
+    const invoice = await supabaseDb.getInvoice(id);
+    if (!invoice) {
       return res.status(404).json({ error: 'Invoice not found' });
     }
-
-    const row = result.rows[0];
-    let items = [];
-    if (typeof row.items === 'string') {
-      try {
-        items = JSON.parse(row.items);
-      } catch (e) {
-        items = [];
-      }
-    } else if (Array.isArray(row.items)) {
-      items = row.items;
-    }
-
-    res.json({
-      ...row,
-      items
-    });
+    res.json(invoice);
   } catch (err) {
     console.error('Error fetching invoice details:', err);
     res.status(500).json({ error: 'Server error' });
@@ -1527,13 +1074,12 @@ router.post('/invoices', authenticate, requireAdmin, async (req: any, res: any) 
     // Generate unique invoice number if not provided
     let finalInvoiceNumber = invoice_number;
     if (!finalInvoiceNumber || !finalInvoiceNumber.trim()) {
-      const countRes = await db.execute('SELECT COUNT(*) as count FROM invoices');
-      const nextNum = Number(countRes.rows[0].count) + 1;
+      const invoices = await supabaseDb.getInvoices();
+      const nextNum = invoices.length + 1;
       const year = new Date().getFullYear();
       finalInvoiceNumber = `INV-${year}-${String(nextNum).padStart(4, '0')}`;
     }
 
-    const itemsJson = typeof items === 'string' ? items : JSON.stringify(items || []);
     const calcSubtotal = Number(subtotal) || 0;
     const calcTax = Number(tax) || 0;
     const calcDiscount = Number(discount) || 0;
@@ -1542,91 +1088,43 @@ router.post('/invoices', authenticate, requireAdmin, async (req: any, res: any) 
     const calcBalance = balance_due !== undefined ? Number(balance_due) : Math.max(0, calcTotal - calcPaid);
     const finalStatus = status || (calcPaid >= calcTotal ? 'Paid' : calcPaid > 0 ? 'Partially Paid' : 'Pending');
 
-    const result = await db.execute({
-      sql: `INSERT INTO invoices (
-        invoice_number, lead_id, property_id, client_name, client_email, client_phone, client_address,
-        client_pan, client_gstin, items, subtotal, tax_type, tax_rate, tax, discount, total,
-        amount_paid, balance_due, status, payment_mode, issue_date, due_date, notes, terms,
-        bank_name, account_holder, account_number, ifsc_code, branch_name, account_type, upi_id, upi_qr_url, payment_instructions
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      args: [
-        finalInvoiceNumber,
-        lead_id ? Number(lead_id) : null,
-        property_id ? Number(property_id) : null,
-        client_name || 'Client',
-        client_email || '',
-        client_phone || '',
-        client_address || '',
-        client_pan || '',
-        client_gstin || '',
-        itemsJson,
-        calcSubtotal,
-        tax_type || 'GST_18',
-        Number(tax_rate) || 18,
-        calcTax,
-        calcDiscount,
-        calcTotal,
-        calcPaid,
-        calcBalance,
-        finalStatus,
-        payment_mode || 'Bank Transfer / NEFT / RTGS',
-        issue_date || new Date().toISOString().split('T')[0],
-        due_date || new Date(Date.now() + 15 * 86400000).toISOString().split('T')[0],
-        notes || '',
-        terms || '1. All payments must be made in Indian Rupees (INR ₹) via RTGS / NEFT / Cheque / UPI.\n2. Goods & Services Tax (GST) is levied as per Indian Real Estate Tax guidelines.\n3. Possession shall be handed over subject to realization of full payment.',
-        bank_name || '',
-        account_holder || '',
-        account_number || '',
-        ifsc_code || '',
-        branch_name || '',
-        account_type || '',
-        upi_id || '',
-        upi_qr_url || '',
-        payment_instructions || ''
-      ]
-    });
-
-    const newId = result.lastInsertRowid !== undefined ? Number(result.lastInsertRowid) : 1;
-
-    // Automatic Supabase sync
-    autoSyncRowToSupabase('invoices', {
-      id: newId,
+    const result = await supabaseDb.createInvoice({
       invoice_number: finalInvoiceNumber,
-      lead_id: lead_id ? Number(lead_id) : null,
-      property_id: property_id ? Number(property_id) : null,
-      client_name: client_name || 'Client',
-      client_email: client_email || '',
-      client_phone: client_phone || '',
-      client_address: client_address || '',
-      client_pan: client_pan || '',
-      client_gstin: client_gstin || '',
-      items: itemsJson,
+      lead_id,
+      property_id,
+      client_name,
+      client_email,
+      client_phone,
+      client_address,
+      client_pan,
+      client_gstin,
+      items,
       subtotal: calcSubtotal,
-      tax_type: tax_type || 'GST_18',
-      tax_rate: Number(tax_rate) || 18,
+      tax_type,
+      tax_rate,
       tax: calcTax,
       discount: calcDiscount,
       total: calcTotal,
       amount_paid: calcPaid,
       balance_due: calcBalance,
       status: finalStatus,
-      payment_mode: payment_mode || 'Bank Transfer / NEFT / RTGS',
-      issue_date: issue_date || new Date().toISOString().split('T')[0],
-      due_date: due_date || new Date(Date.now() + 15 * 86400000).toISOString().split('T')[0],
-      notes: notes || '',
-      terms: terms || '',
-      bank_name: bank_name || '',
-      account_holder: account_holder || '',
-      account_number: account_number || '',
-      ifsc_code: ifsc_code || '',
-      branch_name: branch_name || '',
-      account_type: account_type || '',
-      upi_id: upi_id || '',
-      upi_qr_url: upi_qr_url || '',
-      payment_instructions: payment_instructions || ''
-    }).catch(() => {});
+      payment_mode,
+      issue_date,
+      due_date,
+      notes,
+      terms,
+      bank_name,
+      account_holder,
+      account_number,
+      ifsc_code,
+      branch_name,
+      account_type,
+      upi_id,
+      upi_qr_url,
+      payment_instructions
+    });
 
-    res.json({ id: newId, invoice_number: finalInvoiceNumber, success: true });
+    res.json({ id: result.id, invoice_number: finalInvoiceNumber, success: true });
   } catch (err) {
     console.error('Error creating invoice:', err);
     res.status(500).json({ error: 'Server error' });
@@ -1672,7 +1170,6 @@ router.put('/invoices/:id', authenticate, requireAdmin, async (req: any, res: an
       payment_instructions
     } = req.body;
 
-    const itemsJson = typeof items === 'string' ? items : JSON.stringify(items || []);
     const calcSubtotal = Number(subtotal) || 0;
     const calcTax = Number(tax) || 0;
     const calcDiscount = Number(discount) || 0;
@@ -1680,69 +1177,20 @@ router.put('/invoices/:id', authenticate, requireAdmin, async (req: any, res: an
     const calcPaid = Number(amount_paid) || 0;
     const calcBalance = balance_due !== undefined ? Number(balance_due) : Math.max(0, calcTotal - calcPaid);
 
-    await db.execute({
-      sql: `UPDATE invoices SET 
-        invoice_number = ?, lead_id = ?, property_id = ?, client_name = ?, client_email = ?, client_phone = ?,
-        client_address = ?, client_pan = ?, client_gstin = ?, items = ?, subtotal = ?, tax_type = ?,
-        tax_rate = ?, tax = ?, discount = ?, total = ?, amount_paid = ?, balance_due = ?,
-        status = ?, payment_mode = ?, issue_date = ?, due_date = ?, notes = ?, terms = ?,
-        bank_name = ?, account_holder = ?, account_number = ?, ifsc_code = ?, branch_name = ?,
-        account_type = ?, upi_id = ?, upi_qr_url = ?, payment_instructions = ?
-      WHERE id = ?`,
-      args: [
-        invoice_number,
-        lead_id ? Number(lead_id) : null,
-        property_id ? Number(property_id) : null,
-        client_name,
-        client_email || '',
-        client_phone || '',
-        client_address || '',
-        client_pan || '',
-        client_gstin || '',
-        itemsJson,
-        calcSubtotal,
-        tax_type || 'GST_18',
-        Number(tax_rate) || 18,
-        calcTax,
-        calcDiscount,
-        calcTotal,
-        calcPaid,
-        calcBalance,
-        status || 'Pending',
-        payment_mode || 'Bank Transfer / NEFT / RTGS',
-        issue_date,
-        due_date,
-        notes || '',
-        terms || '',
-        bank_name || '',
-        account_holder || '',
-        account_number || '',
-        ifsc_code || '',
-        branch_name || '',
-        account_type || '',
-        upi_id || '',
-        upi_qr_url || '',
-        payment_instructions || '',
-        id
-      ]
-    });
-
-    // Automatic Supabase sync
-    autoSyncRowToSupabase('invoices', {
-      id: Number(id),
+    await supabaseDb.updateInvoice(id, {
       invoice_number,
-      lead_id: lead_id ? Number(lead_id) : null,
-      property_id: property_id ? Number(property_id) : null,
+      lead_id,
+      property_id,
       client_name,
-      client_email: client_email || '',
-      client_phone: client_phone || '',
-      client_address: client_address || '',
-      client_pan: client_pan || '',
-      client_gstin: client_gstin || '',
-      items: itemsJson,
+      client_email,
+      client_phone,
+      client_address,
+      client_pan,
+      client_gstin,
+      items,
       subtotal: calcSubtotal,
-      tax_type: tax_type || 'GST_18',
-      tax_rate: Number(tax_rate) || 18,
+      tax_type,
+      tax_rate,
       tax: calcTax,
       discount: calcDiscount,
       total: calcTotal,
@@ -1752,18 +1200,18 @@ router.put('/invoices/:id', authenticate, requireAdmin, async (req: any, res: an
       payment_mode: payment_mode || 'Bank Transfer / NEFT / RTGS',
       issue_date,
       due_date,
-      notes: notes || '',
-      terms: terms || '',
-      bank_name: bank_name || '',
-      account_holder: account_holder || '',
-      account_number: account_number || '',
-      ifsc_code: ifsc_code || '',
-      branch_name: branch_name || '',
-      account_type: account_type || '',
-      upi_id: upi_id || '',
-      upi_qr_url: upi_qr_url || '',
-      payment_instructions: payment_instructions || ''
-    }).catch(() => {});
+      notes,
+      terms,
+      bank_name,
+      account_holder,
+      account_number,
+      ifsc_code,
+      branch_name,
+      account_type,
+      upi_id,
+      upi_qr_url,
+      payment_instructions
+    });
 
     res.json({ success: true });
   } catch (err) {
@@ -1775,11 +1223,7 @@ router.put('/invoices/:id', authenticate, requireAdmin, async (req: any, res: an
 router.delete('/invoices/:id', authenticate, requireAdmin, async (req: any, res: any) => {
   try {
     const id = req.params.id;
-    await db.execute({
-      sql: 'DELETE FROM invoices WHERE id = ?',
-      args: [id]
-    });
-    autoDeleteFromSupabase('invoices', 'id', Number(id)).catch(() => {});
+    await supabaseDb.deleteInvoice(id);
     res.json({ success: true });
   } catch (err) {
     console.error('Error deleting invoice:', err);
@@ -1792,32 +1236,23 @@ router.patch('/invoices/:id/payment', authenticate, requireAdmin, async (req: an
     const id = req.params.id;
     const { amount_paid, status, payment_mode } = req.body;
 
-    const invRes = await db.execute({
-      sql: 'SELECT total FROM invoices WHERE id = ?',
-      args: [id]
-    });
-
-    if (invRes.rows.length === 0) {
+    const invoice = await supabaseDb.getInvoice(id);
+    if (!invoice) {
       return res.status(404).json({ error: 'Invoice not found' });
     }
 
-    const total = Number(invRes.rows[0].total) || 0;
+    const total = Number(invoice.total) || 0;
     const newPaid = Number(amount_paid) || 0;
     const newBalance = Math.max(0, total - newPaid);
     const newStatus = status || (newPaid >= total ? 'Paid' : newPaid > 0 ? 'Partially Paid' : 'Pending');
 
-    await db.execute({
-      sql: 'UPDATE invoices SET amount_paid = ?, balance_due = ?, status = ?, payment_mode = COALESCE(?, payment_mode) WHERE id = ?',
-      args: [newPaid, newBalance, newStatus, payment_mode || null, id]
-    });
-
-    autoSyncRowToSupabase('invoices', {
-      id: Number(id),
+    await supabaseDb.updateInvoice(id, {
+      ...invoice,
       amount_paid: newPaid,
       balance_due: newBalance,
       status: newStatus,
-      payment_mode: payment_mode || null
-    }).catch(() => {});
+      payment_mode: payment_mode || invoice.payment_mode
+    });
 
     res.json({ success: true, amount_paid: newPaid, balance_due: newBalance, status: newStatus });
   } catch (err) {
@@ -1829,140 +1264,49 @@ router.patch('/invoices/:id/payment', authenticate, requireAdmin, async (req: an
 // --- DASHBOARD STATS ---
 router.get('/dashboard/stats', authenticate, async (req: any, res: any) => {
   try {
-    const [
-      propTotal,
-      propPublished,
-      propSold,
-      propDraft,
-      propValueRes,
-      propTypesRes,
-      leadTotal,
-      leadActive,
-      leadConverted,
-      leadNew,
-      leadStagesRes,
-      visitTotal,
-      visitScheduled,
-      visitCompleted,
-      agentCount,
-      feedbackCount,
-      hotCount,
-      warmCount,
-      coldCount,
-      avgBudgetRes,
-      invoiceCountRes,
-      invoicePaidCountRes,
-      invoicePendingCountRes,
-      invoiceSumsRes
-    ] = await Promise.all([
-      db.execute('SELECT COUNT(*) as count FROM properties'),
-      db.execute("SELECT COUNT(*) as count FROM properties WHERE status = 'PUBLISHED'"),
-      db.execute("SELECT COUNT(*) as count FROM properties WHERE status = 'SOLD'"),
-      db.execute("SELECT COUNT(*) as count FROM properties WHERE status = 'DRAFT'"),
-      db.execute("SELECT SUM(price) as total_val, SUM(CASE WHEN status = 'PUBLISHED' THEN price ELSE 0 END) as published_val FROM properties"),
-      db.execute('SELECT type, COUNT(*) as count FROM properties GROUP BY type ORDER BY count DESC'),
-      db.execute('SELECT COUNT(*) as count FROM leads'),
-      db.execute("SELECT COUNT(*) as count FROM leads WHERE status NOT IN ('Lost', 'Converted')"),
-      db.execute("SELECT COUNT(*) as count FROM leads WHERE status = 'Converted'"),
-      db.execute("SELECT COUNT(*) as count FROM leads WHERE status = 'New'"),
-      db.execute('SELECT status, COUNT(*) as count FROM leads GROUP BY status ORDER BY count DESC'),
-      db.execute('SELECT COUNT(*) as count FROM site_visits'),
-      db.execute("SELECT COUNT(*) as count FROM site_visits WHERE status = 'Scheduled'"),
-      db.execute("SELECT COUNT(*) as count FROM site_visits WHERE status = 'Completed'"),
-      db.execute("SELECT COUNT(*) as count FROM users WHERE role = 'AGENT'"),
-      db.execute('SELECT COUNT(*) as count FROM site_visit_feedback'),
-      db.execute("SELECT COUNT(*) as count FROM site_visit_feedback WHERE interest_level = 'Hot'"),
-      db.execute("SELECT COUNT(*) as count FROM site_visit_feedback WHERE interest_level = 'Warm'"),
-      db.execute("SELECT COUNT(*) as count FROM site_visit_feedback WHERE interest_level = 'Cold'"),
-      db.execute('SELECT AVG(budget) as avg_budget FROM site_visit_feedback WHERE budget > 0'),
-      db.execute('SELECT COUNT(*) as count FROM invoices'),
-      db.execute("SELECT COUNT(*) as count FROM invoices WHERE status = 'Paid'"),
-      db.execute("SELECT COUNT(*) as count FROM invoices WHERE status = 'Pending'"),
-      db.execute('SELECT SUM(total) as total_invoiced, SUM(amount_paid) as total_collected, SUM(balance_due) as total_due FROM invoices')
-    ]);
-
-    const recentFeedbacks = await db.execute(`
-      SELECT 
-        f.*,
-        v.visit_date,
-        v.visit_time,
-        l.name as lead_name,
-        l.phone as lead_phone,
-        p.title as property_title,
-        u.name as agent_name
-      FROM site_visit_feedback f
-      JOIN site_visits v ON f.visit_id = v.id
-      LEFT JOIN leads l ON v.lead_id = l.id
-      LEFT JOIN properties p ON v.property_id = p.id
-      LEFT JOIN users u ON v.agent_id = u.id
-      ORDER BY f.created_at DESC
-      LIMIT 6
-    `);
-
-    const recentLeads = await db.execute(`
-      SELECT 
-        l.id,
-        l.name,
-        l.phone,
-        l.email,
-        l.status,
-        l.source,
-        l.created_at,
-        p.title as property_title,
-        u.name as agent_name
-      FROM leads l
-      LEFT JOIN properties p ON l.property_id = p.id
-      LEFT JOIN users u ON l.assigned_agent_id = u.id
-      ORDER BY l.created_at DESC
-      LIMIT 5
-    `);
-
-    const totalVal = Number(propValueRes.rows[0]?.total_val) || 0;
-    const publishedVal = Number(propValueRes.rows[0]?.published_val) || 0;
-    const avgBudget = Number(avgBudgetRes.rows[0]?.avg_budget) || 0;
-
+    const stats = await supabaseDb.getDashboardStats(req.user.role, req.user.id);
     res.json({
       serverTime: new Date().toISOString(),
       properties: {
-        total: Number(propTotal.rows[0]?.count) || 0,
-        published: Number(propPublished.rows[0]?.count) || 0,
-        sold: Number(propSold.rows[0]?.count) || 0,
-        draft: Number(propDraft.rows[0]?.count) || 0,
-        totalPortfolioValue: totalVal,
-        publishedPortfolioValue: publishedVal,
-        typeBreakdown: propTypesRes.rows || []
+        total: stats.properties.total,
+        published: stats.properties.published,
+        sold: stats.properties.sold,
+        draft: stats.properties.draft,
+        totalPortfolioValue: stats.properties.total_val,
+        publishedPortfolioValue: stats.properties.published_val,
+        typeBreakdown: stats.properties.types
       },
       leads: {
-        total: Number(leadTotal.rows[0]?.count) || 0,
-        active: Number(leadActive.rows[0]?.count) || 0,
-        converted: Number(leadConverted.rows[0]?.count) || 0,
-        new: Number(leadNew.rows[0]?.count) || 0,
-        stageBreakdown: leadStagesRes.rows || [],
-        recent: recentLeads.rows || []
+        total: stats.leads.total,
+        active: stats.leads.active,
+        converted: stats.leads.converted,
+        new: stats.leads.new,
+        stageBreakdown: stats.leads.stages,
+        recent: stats.recentLeads
       },
       visits: {
-        total: Number(visitTotal.rows[0]?.count) || 0,
-        scheduled: Number(visitScheduled.rows[0]?.count) || 0,
-        completed: Number(visitCompleted.rows[0]?.count) || 0
+        total: stats.visits.total,
+        scheduled: stats.visits.scheduled,
+        completed: stats.visits.completed
       },
       agents: {
-        total: Number(agentCount.rows[0]?.count) || 0
+        total: stats.agents.count
       },
       feedbacks: {
-        total: Number(feedbackCount.rows[0]?.count) || 0,
-        hotLeads: Number(hotCount.rows[0]?.count) || 0,
-        warmLeads: Number(warmCount.rows[0]?.count) || 0,
-        coldLeads: Number(coldCount.rows[0]?.count) || 0,
-        averageBudget: avgBudget,
-        recent: recentFeedbacks.rows || []
+        total: stats.feedback.total,
+        hotLeads: stats.feedback.hot,
+        warmLeads: stats.feedback.warm,
+        coldLeads: stats.feedback.cold,
+        averageBudget: stats.feedback.avg_budget,
+        recent: stats.recentFeedbacks
       },
       invoices: {
-        total: Number(invoiceCountRes.rows[0]?.count) || 0,
-        paid: Number(invoicePaidCountRes.rows[0]?.count) || 0,
-        pending: Number(invoicePendingCountRes.rows[0]?.count) || 0,
-        totalInvoiced: Number(invoiceSumsRes.rows[0]?.total_invoiced) || 0,
-        totalCollected: Number(invoiceSumsRes.rows[0]?.total_collected) || 0,
-        totalDue: Number(invoiceSumsRes.rows[0]?.total_due) || 0
+        total: stats.invoices.total,
+        paid: stats.invoices.paid,
+        pending: stats.invoices.pending,
+        totalInvoiced: stats.invoices.total_invoiced,
+        totalCollected: stats.invoices.total_collected,
+        totalDue: stats.invoices.total_due
       }
     });
   } catch (err) {
@@ -2036,66 +1380,28 @@ router.post('/owner-submissions', async (req, res) => {
       return res.status(400).json({ error: 'Please provide name, phone, property title, and location' });
     }
 
-    const amenitiesJson = typeof amenities === 'string' ? amenities : JSON.stringify(amenities);
-    const imagesJson = typeof images === 'string' ? images : JSON.stringify(images);
-
-    const result = await db.execute({
-      sql: `INSERT INTO owner_submissions (
-        owner_name, owner_phone, owner_email, owner_type, property_title, property_type,
-        bhk_config, location, address, expected_rent, security_deposit, furnishing,
-        available_from, preferred_tenants, amenities, images, notes, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')`,
-      args: [
-        owner_name,
-        owner_phone,
-        owner_email || null,
-        owner_type,
-        property_title,
-        property_type,
-        bhk_config,
-        location,
-        address || null,
-        expected_rent ? Number(expected_rent) : null,
-        security_deposit ? Number(security_deposit) : null,
-        furnishing,
-        available_from || null,
-        preferred_tenants,
-        amenitiesJson,
-        imagesJson,
-        notes || null
-      ]
+    const result = await supabaseDb.createOwnerSubmission({
+      owner_name,
+      owner_phone,
+      owner_email,
+      owner_type,
+      property_title,
+      property_type,
+      bhk_config,
+      location,
+      address,
+      expected_rent,
+      security_deposit,
+      furnishing,
+      available_from,
+      preferred_tenants,
+      amenities,
+      images,
+      notes
     });
 
-    const newId = Number(result.lastInsertRowid);
-
-    // Also sync to Supabase if connected
-    const supabase = getSupabase();
-    if (supabase) {
-      supabase.from('owner_submissions').insert([{
-        id: newId,
-        owner_name,
-        owner_phone,
-        owner_email: owner_email || null,
-        owner_type,
-        property_title,
-        property_type,
-        bhk_config,
-        location,
-        address: address || null,
-        expected_rent: expected_rent ? Number(expected_rent) : null,
-        security_deposit: security_deposit ? Number(security_deposit) : null,
-        furnishing,
-        available_from: available_from || null,
-        preferred_tenants,
-        amenities: amenitiesJson,
-        images: imagesJson,
-        notes: notes || null,
-        status: 'PENDING'
-      }]).then(() => {}, () => {});
-    }
-
     return res.status(201).json({
-      id: newId,
+      id: result.id,
       message: 'Property listing submitted successfully! Our team will contact you shortly.'
     });
   } catch (err: any) {
@@ -2107,8 +1413,8 @@ router.post('/owner-submissions', async (req, res) => {
 // Admin GET all owner submissions
 router.get('/owner-submissions', authenticate, requireAdmin, async (req, res) => {
   try {
-    const submissions = await db.execute('SELECT * FROM owner_submissions ORDER BY created_at DESC');
-    return res.json(submissions.rows || []);
+    const submissions = await supabaseDb.getOwnerSubmissions();
+    return res.json(submissions);
   } catch (err) {
     console.error('Error fetching owner submissions:', err);
     return res.status(500).json({ error: 'Failed to fetch owner submissions' });
@@ -2121,19 +1427,7 @@ router.put('/owner-submissions/:id', authenticate, requireAdmin, async (req, res
     const { id } = req.params;
     const { status, admin_notes } = req.body;
 
-    await db.execute({
-      sql: 'UPDATE owner_submissions SET status = COALESCE(?, status), admin_notes = COALESCE(?, admin_notes) WHERE id = ?',
-      args: [status || null, admin_notes || null, id]
-    });
-
-    const supabase = getSupabase();
-    if (supabase) {
-      const updateData: any = {};
-      if (status) updateData.status = status;
-      if (admin_notes !== undefined) updateData.admin_notes = admin_notes;
-      supabase.from('owner_submissions').update(updateData).eq('id', id).then(() => {}, () => {});
-    }
-
+    await supabaseDb.updateOwnerSubmission(id, { status, admin_notes });
     return res.json({ success: true, message: 'Submission updated' });
   } catch (err) {
     console.error('Error updating owner submission:', err);
@@ -2145,13 +1439,7 @@ router.put('/owner-submissions/:id', authenticate, requireAdmin, async (req, res
 router.delete('/owner-submissions/:id', authenticate, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    await db.execute({ sql: 'DELETE FROM owner_submissions WHERE id = ?', args: [Number(id)] });
-
-    const supabase = getSupabase();
-    if (supabase) {
-      supabase.from('owner_submissions').delete().eq('id', Number(id)).then(() => {}, () => {});
-    }
-
+    await supabaseDb.deleteOwnerSubmission(id);
     return res.json({ success: true, message: 'Submission deleted' });
   } catch (err) {
     console.error('Error deleting owner submission:', err);
@@ -2172,17 +1460,7 @@ router.post('/owner-submissions/bulk-delete', authenticate, requireAdmin, async 
       return res.status(400).json({ error: 'Invalid submission IDs provided.' });
     }
 
-    const placeholders = cleanIds.map(() => '?').join(',');
-    await db.execute({
-      sql: `DELETE FROM owner_submissions WHERE id IN (${placeholders})`,
-      args: cleanIds
-    });
-
-    const supabase = getSupabase();
-    if (supabase) {
-      supabase.from('owner_submissions').delete().in('id', cleanIds).then(() => {}, () => {});
-    }
-
+    await supabaseDb.bulkDeleteOwnerSubmissions(cleanIds);
     return res.json({ success: true, count: cleanIds.length, message: `${cleanIds.length} owner submissions deleted successfully.` });
   } catch (err) {
     console.error('Error bulk deleting owner submissions:', err);
@@ -2194,13 +1472,12 @@ router.post('/owner-submissions/bulk-delete', authenticate, requireAdmin, async 
 router.post('/owner-submissions/:id/approve', authenticate, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const subRes = await db.execute({ sql: 'SELECT * FROM owner_submissions WHERE id = ?', args: [Number(id)] });
+    const submissions = await supabaseDb.getOwnerSubmissions();
+    const sub = submissions.find(s => String(s.id) === String(id));
     
-    if (!subRes.rows || subRes.rows.length === 0) {
+    if (!sub) {
       return res.status(404).json({ error: 'Submission not found' });
     }
-
-    const sub: any = subRes.rows[0];
 
     let imagesArr: string[] = [];
     try {
@@ -2224,54 +1501,27 @@ router.post('/owner-submissions/:id/approve', authenticate, requireAdmin, async 
       ? `${sub.notes} (Furnishing: ${sub.furnishing}, Preferred Tenants: ${sub.preferred_tenants})`
       : `${sub.bhk_config} ${sub.property_type} available for rent in ${sub.location}. ${sub.furnishing} residence with ${sub.preferred_tenants} preference.`;
 
-    const propResult = await db.execute({
-      sql: `INSERT INTO properties (
-        title, description, price, type, bedrooms, bathrooms, area, location, status, images, amenities
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PUBLISHED', ?, ?)`,
-      args: [
-        sub.property_title,
-        description,
-        sub.expected_rent || 30000,
-        sub.bhk_config,
-        sub.bhk_config.includes('1') ? 1 : sub.bhk_config.includes('3') ? 3 : 2,
-        sub.bhk_config.includes('1') ? 1 : sub.bhk_config.includes('3') ? 3 : 2,
-        sub.bhk_config.includes('1') ? 800 : sub.bhk_config.includes('3') ? 1600 : 1200,
-        sub.location,
-        JSON.stringify(imagesArr),
-        JSON.stringify(amenitiesArr)
-      ]
+    const prop = await supabaseDb.createProperty({
+      title: sub.property_title,
+      description,
+      price: sub.expected_rent || 30000,
+      type: sub.bhk_config,
+      bedrooms: sub.bhk_config.includes('1') ? 1 : sub.bhk_config.includes('3') ? 3 : 2,
+      bathrooms: sub.bhk_config.includes('1') ? 1 : sub.bhk_config.includes('3') ? 3 : 2,
+      area: sub.bhk_config.includes('1') ? 800 : sub.bhk_config.includes('3') ? 1600 : 1200,
+      location: sub.location,
+      status: 'PUBLISHED',
+      images: imagesArr,
+      amenities: amenitiesArr
     });
 
-    const newPropertyId = Number(propResult.lastInsertRowid);
+    const newPropertyId = prop.id;
 
-    // Update submission status (using single quotes so SQLite treats APPROVED as string literal)
-    await db.execute({
-      sql: "UPDATE owner_submissions SET status = 'APPROVED', admin_notes = ? WHERE id = ?",
-      args: [`Converted to Published Property #${newPropertyId}`, Number(id)]
+    // Update submission status
+    await supabaseDb.updateOwnerSubmission(id, {
+      status: 'APPROVED',
+      admin_notes: `Converted to Published Property #${newPropertyId}`
     });
-
-    const supabase = getSupabase();
-    if (supabase) {
-      supabase.from('owner_submissions').update({
-        status: 'APPROVED',
-        admin_notes: `Converted to Published Property #${newPropertyId}`
-      }).eq('id', Number(id)).then(() => {}, () => {});
-
-      supabase.from('properties').insert([{
-        id: newPropertyId,
-        title: sub.property_title,
-        description,
-        price: sub.expected_rent || 30000,
-        type: sub.bhk_config,
-        bedrooms: sub.bhk_config.includes('1') ? 1 : sub.bhk_config.includes('3') ? 3 : 2,
-        bathrooms: sub.bhk_config.includes('1') ? 1 : sub.bhk_config.includes('3') ? 3 : 2,
-        area: sub.bhk_config.includes('1') ? 800 : sub.bhk_config.includes('3') ? 1600 : 1200,
-        location: sub.location,
-        status: 'PUBLISHED',
-        images: JSON.stringify(imagesArr),
-        amenities: JSON.stringify(amenitiesArr)
-      }]).then(() => {}, () => {});
-    }
 
     return res.json({
       success: true,

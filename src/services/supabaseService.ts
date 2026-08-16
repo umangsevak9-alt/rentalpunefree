@@ -3,8 +3,8 @@ import { Property, Lead, Visit, VisitFeedback, Invoice, User, FAQ, Settings } fr
 
 // Retrieve credentials with local storage override capability
 function getSavedSupabaseConfig() {
-  const envUrl = import.meta.env.VITE_SUPABASE_URL || '';
-  const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+  const envUrl = (import.meta as any).env.VITE_SUPABASE_URL || '';
+  const envKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || '';
 
   if (typeof window !== 'undefined' && window.localStorage) {
     const customUrl = localStorage.getItem('rp_custom_supabase_url');

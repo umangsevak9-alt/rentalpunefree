@@ -316,7 +316,7 @@ export default function Settings() {
         }
       });
 
-      const envUrl = import.meta.env.VITE_SUPABASE_URL || 'https://ddfsfemggwjtryosdgya.supabase.co';
+      const envUrl = (import.meta as any).env.VITE_SUPABASE_URL || 'https://ddfsfemggwjtryosdgya.supabase.co';
       setSupabaseStatus({
         url: envUrl,
         message: `Connected to Supabase project (${envUrl})`
