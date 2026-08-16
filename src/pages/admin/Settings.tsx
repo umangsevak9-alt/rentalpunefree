@@ -19,7 +19,15 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { getWhatsAppUrl } from '../../utils/whatsapp.js';
-import { supabaseService, supabase, isSupabaseConfigured } from '../../services/supabaseService.js';
+import { 
+  supabaseService, 
+  supabase, 
+  isSupabaseConfigured,
+  supabaseUrl,
+  supabaseAnonKey,
+  updateSupabaseCredentials,
+  resetSupabaseCredentials
+} from '../../services/supabaseService.js';
 
 const SUPABASE_SCHEMA_SQL = `-- Rental Pune PostgreSQL / Supabase Schema
 -- Run this in your Supabase SQL Editor (https://supabase.com/dashboard/project/_/sql)
@@ -234,6 +242,38 @@ export default function Settings() {
   const [syncResult, setSyncResult] = useState<any>(null);
   const [dbDiagLoading, setDbDiagLoading] = useState(false);
   const [dbDiagData, setDbDiagData] = useState<any>(null);
+
+  // Live Supabase Project Key Configuration
+  const [editingSupabaseKeys, setEditingSupabaseKeys] = useState(false);
+  const [customSupabaseUrl, setCustomSupabaseUrl] = useState(supabaseUrl);
+  const [customSupabaseKey, setCustomSupabaseKey] = useState(supabaseAnonKey);
+  const [keyUpdateMsg, setKeyUpdateMsg] = useState('');
+
+  const handleSaveSupabaseKeys = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customSupabaseUrl.trim() || !customSupabaseKey.trim()) {
+      setKeyUpdateMsg('Please provide both Project URL and Anon API key.');
+      return;
+    }
+    updateSupabaseCredentials(customSupabaseUrl.trim(), customSupabaseKey.trim());
+    setKeyUpdateMsg('Saved successfully! Testing database connection...');
+    setTimeout(() => {
+      runDatabaseDiagnostics();
+      setEditingSupabaseKeys(false);
+      setKeyUpdateMsg('');
+    }, 1000);
+  };
+
+  const handleResetSupabaseKeys = () => {
+    resetSupabaseCredentials();
+    setCustomSupabaseUrl(supabaseUrl);
+    setCustomSupabaseKey(supabaseAnonKey);
+    setKeyUpdateMsg('Reset to default project credentials.');
+    setTimeout(() => {
+      runDatabaseDiagnostics();
+      setKeyUpdateMsg('');
+    }, 1000);
+  };
 
   useEffect(() => {
     setFormData(settings || {});
@@ -838,22 +878,87 @@ export default function Settings() {
                 <div className="flex items-center justify-between text-neutral-300">
                   <span className="text-neutral-500">Project Endpoint:</span>
                   <span className="text-[#d4a359] font-semibold truncate max-w-[280px]">
-                    {supabaseStatus?.url || 'https://ddfsfemggwjtryosdgya.supabase.co'}
+                    {customSupabaseUrl || 'https://ddfsfemggwjtryosdgya.supabase.co'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-neutral-300">
-                  <span className="text-neutral-500">Publish Key:</span>
+                  <span className="text-neutral-500">Anon / Public Key:</span>
                   <span className="text-neutral-300 truncate max-w-[280px]">
-                    sb_publishable_l4em_aFSdxQIpW2g...
+                    {customSupabaseKey ? `${customSupabaseKey.slice(0, 16)}...${customSupabaseKey.slice(-8)}` : 'Not configured'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-neutral-300">
                   <span className="text-neutral-500">Status Message:</span>
                   <span className="text-emerald-400 text-[11px] font-sans font-medium">
-                    {supabaseStatus?.message || 'Connected to project https://ddfsfemggwjtryosdgya.supabase.co'}
+                    {supabaseStatus?.message || `Connected to ${customSupabaseUrl}`}
                   </span>
                 </div>
               </div>
+
+              {/* Configure / Edit Keys Button */}
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => setEditingSupabaseKeys(!editingSupabaseKeys)}
+                  className="text-xs text-[#d4a359] hover:underline font-semibold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Server className="w-3.5 h-3.5" />
+                  <span>{editingSupabaseKeys ? '▲ Hide Key Configurator' : '▼ Update Supabase Project URL & Anon API Key'}</span>
+                </button>
+              </div>
+
+              {/* Editable Supabase Credentials Form */}
+              {editingSupabaseKeys && (
+                <div className="p-3.5 bg-[#0e1726] rounded-xl border border-[#d4a359]/30 space-y-3">
+                  <p className="text-[11px] text-neutral-400">
+                    Paste your active Supabase Project URL and Anon API key from your <a href="https://supabase.com/dashboard/project/_/settings/api" target="_blank" rel="noopener noreferrer" className="text-[#d4a359] underline">Supabase Dashboard Settings &gt; API</a>.
+                  </p>
+                  
+                  <div className="space-y-2">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-neutral-300 mb-1">Supabase URL</label>
+                      <input
+                        type="text"
+                        value={customSupabaseUrl}
+                        onChange={(e) => setCustomSupabaseUrl(e.target.value)}
+                        placeholder="https://your-project.supabase.co"
+                        className="w-full px-3 py-1.5 bg-[#080f1a] border border-white/15 text-white rounded-lg text-xs font-mono focus:outline-none focus:border-[#d4a359]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-neutral-300 mb-1">Anon / Public API Key</label>
+                      <textarea
+                        value={customSupabaseKey}
+                        onChange={(e) => setCustomSupabaseKey(e.target.value)}
+                        placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                        rows={2}
+                        className="w-full px-3 py-1.5 bg-[#080f1a] border border-white/15 text-white rounded-lg text-xs font-mono focus:outline-none focus:border-[#d4a359]"
+                      />
+                    </div>
+                  </div>
+
+                  {keyUpdateMsg && (
+                    <p className="text-xs text-[#d4a359] font-medium">{keyUpdateMsg}</p>
+                  )}
+
+                  <div className="flex items-center justify-between pt-1">
+                    <button
+                      type="button"
+                      onClick={handleResetSupabaseKeys}
+                      className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white rounded-lg text-xs font-medium cursor-pointer"
+                    >
+                      Reset Default
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveSupabaseKeys}
+                      className="px-4 py-1.5 bg-[#d4a359] hover:bg-[#e5b364] text-[#080f1a] rounded-lg text-xs font-bold cursor-pointer shadow-sm"
+                    >
+                      Save & Reconnect
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Action Toolbar for Sync and SQL Setup */}
               <div className="pt-2 border-t border-white/10 flex flex-wrap items-center gap-3">

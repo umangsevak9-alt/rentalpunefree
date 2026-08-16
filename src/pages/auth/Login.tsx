@@ -1,8 +1,14 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../../store/index.js';
-import { supabaseService } from '../../services/supabaseService.js';
-import { ShieldCheck, UserPlus, KeyRound, Sparkles, AlertCircle } from 'lucide-react';
+import { 
+  supabaseService, 
+  supabaseUrl, 
+  supabaseAnonKey, 
+  updateSupabaseCredentials, 
+  resetSupabaseCredentials 
+} from '../../services/supabaseService.js';
+import { ShieldCheck, UserPlus, KeyRound, Sparkles, AlertCircle, Settings as SettingsIcon, CheckCircle2, RotateCcw, ExternalLink } from 'lucide-react';
 
 export default function Login() {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
@@ -12,8 +18,38 @@ export default function Login() {
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
+  
+  // Custom Supabase configuration modal
+  const [showConfigModal, setShowConfigModal] = useState(false);
+  const [inputUrl, setInputUrl] = useState(supabaseUrl || '');
+  const [inputKey, setInputKey] = useState(supabaseAnonKey || '');
+  const [configMsg, setConfigMsg] = useState('');
+
   const { setAuth } = useAppStore();
   const navigate = useNavigate();
+
+  const handleSaveConfig = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inputUrl.trim() || !inputKey.trim()) {
+      setConfigMsg('Please enter both Supabase Project URL and Anon Key');
+      return;
+    }
+    updateSupabaseCredentials(inputUrl.trim(), inputKey.trim());
+    setConfigMsg('Configuration saved! Reconnecting...');
+    setTimeout(() => {
+      setShowConfigModal(false);
+      setConfigMsg('');
+      setError('');
+    }, 800);
+  };
+
+  const handleResetConfig = () => {
+    resetSupabaseCredentials();
+    setInputUrl(supabaseUrl);
+    setInputKey(supabaseAnonKey);
+    setConfigMsg('Reset to default project credentials.');
+    setTimeout(() => setConfigMsg(''), 1500);
+  };
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,7 +62,11 @@ export default function Login() {
         const result = await supabaseService.auth.login(email, password);
         
         if (!result.success || !result.user || !result.token) {
-          throw new Error(result.error || 'Login failed. Please check your credentials or create an admin account below.');
+          const errMsg = result.error || 'Login failed. Please check your credentials or create an admin account below.';
+          if (errMsg.toLowerCase().includes('api key') || errMsg.toLowerCase().includes('invalid')) {
+            setShowConfigModal(true);
+          }
+          throw new Error(errMsg);
         }
         
         setAuth(result.user, result.token);
@@ -35,7 +75,11 @@ export default function Login() {
         const result = await supabaseService.auth.signUp(email, password, name, 'MAIN_ADMIN');
         
         if (!result.success) {
-          throw new Error(result.error || 'Failed to create user in Supabase Auth');
+          const errMsg = result.error || 'Failed to create user in Supabase Auth';
+          if (errMsg.toLowerCase().includes('api key') || errMsg.toLowerCase().includes('invalid')) {
+            setShowConfigModal(true);
+          }
+          throw new Error(errMsg);
         }
 
         if (result.user && result.token) {
@@ -91,9 +135,21 @@ export default function Login() {
         </div>
         
         {error && (
-          <div className="mb-4 p-3 bg-red-500/15 border border-red-500/30 text-red-300 rounded-xl text-xs font-semibold flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-            <span>{error}</span>
+          <div className="mb-4 p-3.5 bg-red-500/15 border border-red-500/30 text-red-300 rounded-xl text-xs font-semibold flex flex-col gap-2">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span>{error}</span>
+            </div>
+            {(error.toLowerCase().includes('api key') || error.toLowerCase().includes('invalid')) && (
+              <button
+                type="button"
+                onClick={() => setShowConfigModal(true)}
+                className="self-start px-3 py-1 bg-red-500/20 hover:bg-red-500/30 text-white rounded-lg text-[11px] font-bold border border-red-500/40 transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <SettingsIcon className="w-3.5 h-3.5" />
+                <span>Fix Supabase Project Keys</span>
+              </button>
+            )}
           </div>
         )}
 
@@ -164,12 +220,94 @@ export default function Login() {
           </button>
         </form>
         
-        <div className="mt-6 text-center text-xs text-neutral-300 bg-[#080f1a] p-3 rounded-xl border border-white/10 flex flex-col items-center">
-          <p className="text-[#d4a359] font-medium">Supabase Auth Integrated:</p>
-          <p className="text-neutral-400 text-[11px] mt-1 text-center">
-            Secured directly via Supabase Auth with Row Level Security (RLS) policies.
-          </p>
+        <div className="mt-6 text-center text-xs text-neutral-300 bg-[#080f1a] p-3 rounded-xl border border-white/10 flex flex-col items-center justify-between gap-2">
+          <div className="flex items-center justify-between w-full">
+            <span className="text-[#d4a359] font-medium text-[11px] flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+              Supabase Auth Connected
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowConfigModal(!showConfigModal)}
+              className="text-[11px] text-neutral-400 hover:text-white flex items-center gap-1 underline cursor-pointer"
+            >
+              <SettingsIcon className="w-3 h-3" />
+              <span>Change Project Keys</span>
+            </button>
+          </div>
         </div>
+
+        {/* Modal / Card for Custom Supabase URL & Anon Key */}
+        {showConfigModal && (
+          <div className="mt-4 p-4 bg-[#080f1a] rounded-2xl border border-[#d4a359]/40 space-y-3 relative z-20 shadow-xl">
+            <div className="flex items-center justify-between border-b border-white/10 pb-2">
+              <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                <SettingsIcon className="w-3.5 h-3.5 text-[#d4a359]" />
+                <span>Supabase Project Settings</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowConfigModal(false)}
+                className="text-neutral-400 hover:text-white text-xs cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-[11px] text-neutral-400">
+              Enter your active Supabase Project URL and Anon API key from your <a href="https://supabase.com/dashboard/project/_/settings/api" target="_blank" rel="noopener noreferrer" className="text-[#d4a359] underline inline-flex items-center gap-0.5">Supabase Dashboard Settings &gt; API <ExternalLink className="w-2.5 h-2.5 ml-0.5" /></a>.
+            </p>
+
+            <form onSubmit={handleSaveConfig} className="space-y-3">
+              <div>
+                <label className="block text-[10px] font-bold text-neutral-300 uppercase mb-1">Project URL</label>
+                <input
+                  type="text"
+                  value={inputUrl}
+                  onChange={(e) => setInputUrl(e.target.value)}
+                  placeholder="https://xyzcompany.supabase.co"
+                  className="w-full px-3 py-1.5 bg-[#0e1726] border border-white/15 text-white rounded-lg text-xs font-mono focus:outline-none focus:border-[#d4a359]"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-neutral-300 uppercase mb-1">Anon / Public API Key</label>
+                <textarea
+                  value={inputKey}
+                  onChange={(e) => setInputKey(e.target.value)}
+                  placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                  rows={2}
+                  className="w-full px-3 py-1.5 bg-[#0e1726] border border-white/15 text-white rounded-lg text-xs font-mono focus:outline-none focus:border-[#d4a359]"
+                  required
+                />
+              </div>
+
+              {configMsg && (
+                <p className="text-[11px] text-[#d4a359] font-medium animate-pulse">{configMsg}</p>
+              )}
+
+              <div className="flex items-center justify-between pt-1">
+                <button
+                  type="button"
+                  onClick={handleResetConfig}
+                  className="px-2.5 py-1.5 bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white rounded-lg text-[11px] font-medium flex items-center gap-1 cursor-pointer"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Reset Default</span>
+                </button>
+
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 bg-[#d4a359] hover:bg-[#e5b364] text-[#080f1a] rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-sm"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Apply Keys</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
       </div>
     </div>
   );
