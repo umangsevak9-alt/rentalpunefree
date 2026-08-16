@@ -152,17 +152,34 @@ const SEED_AGENTS: User[] = [
   }
 ];
 
+// Safe JSON parse helper to completely eliminate "Unexpected end of JSON input" errors
+function safeJsonParse<T>(val: any, fallback: T): T {
+  if (val === null || val === undefined || val === '') return fallback;
+  if (typeof val === 'object') return val as T;
+  if (typeof val !== 'string') return fallback;
+  const trimmed = val.trim();
+  if (!trimmed || trimmed === 'undefined' || trimmed === 'null') return fallback;
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch (e) {
+    console.warn('safeJsonParse fallback on invalid payload:', val);
+    return fallback;
+  }
+}
+
 // Local storage caching helpers
 function getLocal<T>(key: string, fallback: T): T {
+  if (typeof window === 'undefined' || !window.localStorage) return fallback;
   try {
     const val = localStorage.getItem('rp_' + key);
-    return val ? JSON.parse(val) : fallback;
+    return safeJsonParse<T>(val, fallback);
   } catch {
     return fallback;
   }
 }
 
 function setLocal<T>(key: string, data: T): void {
+  if (typeof window === 'undefined' || !window.localStorage) return;
   try {
     localStorage.setItem('rp_' + key, JSON.stringify(data));
   } catch (e) {
@@ -403,9 +420,9 @@ export const supabaseService = {
             area: Number(p.area || 0),
             location: p.location || 'Pune',
             status: p.status || 'PUBLISHED',
-            images: typeof p.images === 'string' ? JSON.parse(p.images) : (p.images || []),
-            videos: typeof p.videos === 'string' ? JSON.parse(p.videos) : (p.videos || []),
-            faqs: typeof p.faqs === 'string' ? JSON.parse(p.faqs) : (p.faqs || []),
+            images: safeJsonParse<string[]>(p.images, Array.isArray(p.images) ? p.images : []),
+            videos: safeJsonParse<string[]>(p.videos, Array.isArray(p.videos) ? p.videos : []),
+            faqs: safeJsonParse<any[]>(p.faqs, Array.isArray(p.faqs) ? p.faqs : []),
             created_at: p.created_at
           }));
           setLocal('properties', mapped);
@@ -437,9 +454,9 @@ export const supabaseService = {
             area: Number(data.area),
             location: data.location,
             status: data.status,
-            images: typeof data.images === 'string' ? JSON.parse(data.images) : (data.images || []),
-            videos: typeof data.videos === 'string' ? JSON.parse(data.videos) : (data.videos || []),
-            faqs: typeof data.faqs === 'string' ? JSON.parse(data.faqs) : (data.faqs || []),
+            images: safeJsonParse<string[]>(data.images, Array.isArray(data.images) ? data.images : []),
+            videos: safeJsonParse<string[]>(data.videos, Array.isArray(data.videos) ? data.videos : []),
+            faqs: safeJsonParse<any[]>(data.faqs, Array.isArray(data.faqs) ? data.faqs : []),
             created_at: data.created_at
           };
         }
@@ -836,7 +853,7 @@ export const supabaseService = {
             client_gstin: inv.client_gstin,
             property_title: inv.property_title,
             property_location: inv.property_location,
-            items: typeof inv.items === 'string' ? JSON.parse(inv.items) : (inv.items || []),
+            items: safeJsonParse<any[]>(inv.items, Array.isArray(inv.items) ? inv.items : []),
             subtotal: Number(inv.subtotal || 0),
             tax_type: inv.tax_type,
             tax_rate: Number(inv.tax_rate || 0),
