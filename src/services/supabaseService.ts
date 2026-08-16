@@ -231,6 +231,86 @@ const SEED_AGENTS: User[] = [
   }
 ];
 
+// Initial Seed Owner Submissions
+const SEED_OWNER_SUBMISSIONS = [
+  {
+    id: 101,
+    owner_name: 'Anand Kulkarni',
+    owner_phone: '+91 98220 14589',
+    owner_email: 'anand.kulkarni@gmail.com',
+    owner_type: 'OWNER',
+    property_title: '3 BHK Luxury Flat in Megapolis Mulberry',
+    property_type: 'Apartment',
+    bhk_config: '3 BHK',
+    location: 'Hinjewadi Phase 3',
+    address: 'Tower A, Megapolis, Rajiv Gandhi Infotech Park, Hinjewadi',
+    expected_rent: 38000,
+    security_deposit: 100000,
+    furnishing: 'Fully Furnished',
+    available_from: 'Immediate',
+    preferred_tenants: 'Family / IT Professionals',
+    amenities: ['Power Backup', 'Gymnasium', 'Swimming Pool', '24/7 Security', 'Covered Parking', 'Clubhouse', 'Modular Kitchen'],
+    images: [
+      'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80'
+    ],
+    notes: 'Premium high-floor flat with valley views, high-speed fiber internet, and 100% power backup. Ideal for tech professionals.',
+    status: 'PENDING',
+    admin_notes: '',
+    created_at: new Date(Date.now() - 3600000 * 2).toISOString()
+  },
+  {
+    id: 102,
+    owner_name: 'Rajesh Sharma',
+    owner_phone: '+91 98811 77234',
+    owner_email: 'rajesh.nri@outlook.com',
+    owner_type: 'NRI',
+    property_title: '2 BHK Premium Flat in Amanora Sweet Water Villas',
+    property_type: 'Apartment',
+    bhk_config: '2 BHK',
+    location: 'Hadapsar',
+    address: 'Sector 4, Amanora Park Town, Hadapsar, Pune',
+    expected_rent: 32000,
+    security_deposit: 80000,
+    furnishing: 'Semi-Furnished',
+    available_from: 'Next Month',
+    preferred_tenants: 'Any',
+    amenities: ['24/7 Security', 'Covered Parking', 'Modular Kitchen', 'Elevator / Lift', 'Piped MNGL Gas'],
+    images: [
+      'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80'
+    ],
+    notes: 'NRI owner based in Dubai. Society management has keys for inspection walkthroughs.',
+    status: 'CONTACTED',
+    admin_notes: 'Spoke with owner on WhatsApp. Walkthrough key with society office.',
+    created_at: new Date(Date.now() - 3600000 * 8).toISOString()
+  },
+  {
+    id: 103,
+    owner_name: 'Priya Deshmukh',
+    owner_phone: '+91 97654 32190',
+    owner_email: 'priya.deshmukh@yahoo.com',
+    owner_type: 'OWNER',
+    property_title: '4 BHK Duplex Penthouse in Panchshil Towers',
+    property_type: 'Penthouse / Villa',
+    bhk_config: '4 BHK',
+    location: 'Kharadi',
+    address: 'Tower B, Panchshil Towers, EON Free Zone, Kharadi, Pune',
+    expected_rent: 85000,
+    security_deposit: 250000,
+    furnishing: 'Fully Furnished',
+    available_from: 'Immediate',
+    preferred_tenants: 'Family',
+    amenities: ['Swimming Pool', 'Clubhouse', '24/7 Security', 'Power Backup', 'Gymnasium', 'Children Play Area', 'Pet Friendly'],
+    images: [
+      'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=80'
+    ],
+    notes: 'Ultra luxury duplex penthouse with designer interiors, Italian marble, and world class clubhouse.',
+    status: 'APPROVED',
+    admin_notes: 'Agreement signed. Verified owner credentials.',
+    created_at: new Date(Date.now() - 3600000 * 24).toISOString()
+  }
+];
+
 export const supabaseService = {
   // --- AUTHENTICATION VIA OFFICIAL SUPABASE AUTH ---
   auth: {
@@ -1695,6 +1775,22 @@ export const supabaseService = {
   ownerSubmissions: {
     async getAll(): Promise<any[]> {
       const local = getLocal<any[]>('submissions', []);
+      const altLocal = getLocal<any[]>('rental_pune_submissions', []);
+      
+      const combinedLocal = [...local, ...altLocal];
+      const mergedMap = new Map<any, any>();
+
+      // Seed baseline first
+      for (const s of SEED_OWNER_SUBMISSIONS) {
+        mergedMap.set(String(s.id), s);
+      }
+
+      // Merge local items
+      for (const s of combinedLocal) {
+        if (s && s.id) {
+          mergedMap.set(String(s.id), s);
+        }
+      }
 
       // 1. Try server API endpoint
       try {
@@ -1712,32 +1808,34 @@ export const supabaseService = {
         const res = await fetch('/api/owner-submissions', { headers });
         if (res.ok) {
           const apiData = await res.json();
-          if (Array.isArray(apiData) && apiData.length >= 0) {
-            const mapped = apiData.map((s: any) => ({
-              id: Number(s.id),
-              owner_name: s.owner_name || '',
-              owner_phone: s.owner_phone || '',
-              owner_email: s.owner_email || '',
-              owner_type: s.owner_type || 'OWNER',
-              property_title: s.property_title || 'Property Listing',
-              property_type: s.property_type || 'Apartment',
-              bhk_config: s.bhk_config || '2 BHK',
-              location: s.location || '',
-              address: s.address || '',
-              expected_rent: Number(s.expected_rent || 0),
-              security_deposit: Number(s.security_deposit || 0),
-              furnishing: s.furnishing || 'Semi-Furnished',
-              available_from: s.available_from || '',
-              preferred_tenants: s.preferred_tenants || 'Any',
-              amenities: safeJsonParse<string[]>(s.amenities, Array.isArray(s.amenities) ? s.amenities : []),
-              images: safeJsonParse<string[]>(s.images, Array.isArray(s.images) ? s.images : []),
-              notes: s.notes || '',
-              status: s.status || 'PENDING',
-              admin_notes: s.admin_notes || '',
-              created_at: s.created_at || new Date().toISOString()
-            }));
-            setLocal('submissions', mapped);
-            return mapped;
+          if (Array.isArray(apiData)) {
+            for (const s of apiData) {
+              if (s && s.id) {
+                mergedMap.set(String(s.id), {
+                  id: Number(s.id),
+                  owner_name: s.owner_name || '',
+                  owner_phone: s.owner_phone || '',
+                  owner_email: s.owner_email || '',
+                  owner_type: s.owner_type || 'OWNER',
+                  property_title: s.property_title || 'Property Listing',
+                  property_type: s.property_type || 'Apartment',
+                  bhk_config: s.bhk_config || '2 BHK',
+                  location: s.location || '',
+                  address: s.address || '',
+                  expected_rent: Number(s.expected_rent || 0),
+                  security_deposit: Number(s.security_deposit || 0),
+                  furnishing: s.furnishing || 'Semi-Furnished',
+                  available_from: s.available_from || '',
+                  preferred_tenants: s.preferred_tenants || 'Any',
+                  amenities: safeJsonParse<string[]>(s.amenities, Array.isArray(s.amenities) ? s.amenities : []),
+                  images: safeJsonParse<string[]>(s.images, Array.isArray(s.images) ? s.images : []),
+                  notes: s.notes || '',
+                  status: s.status || 'PENDING',
+                  admin_notes: s.admin_notes || '',
+                  created_at: s.created_at || new Date().toISOString()
+                });
+              }
+            }
           }
         }
       } catch (err) {
@@ -1751,42 +1849,53 @@ export const supabaseService = {
           .select('*')
           .order('id', { ascending: false });
 
-        if (!error && Array.isArray(data)) {
-          const mapped = data.map((s: any) => ({
-            id: Number(s.id),
-            owner_name: s.owner_name || '',
-            owner_phone: s.owner_phone || '',
-            owner_email: s.owner_email || '',
-            owner_type: s.owner_type || 'OWNER',
-            property_title: s.property_title || '',
-            property_type: s.property_type || 'Apartment',
-            bhk_config: s.bhk_config || '2 BHK',
-            location: s.location || '',
-            address: s.address || '',
-            expected_rent: Number(s.expected_rent || 0),
-            security_deposit: Number(s.security_deposit || 0),
-            furnishing: s.furnishing || 'Semi-Furnished',
-            available_from: s.available_from || '',
-            preferred_tenants: s.preferred_tenants || 'Any',
-            amenities: safeJsonParse<string[]>(s.amenities, Array.isArray(s.amenities) ? s.amenities : []),
-            images: safeJsonParse<string[]>(s.images, Array.isArray(s.images) ? s.images : []),
-            notes: s.notes || '',
-            status: s.status || 'PENDING',
-            admin_notes: s.admin_notes || '',
-            created_at: s.created_at || new Date().toISOString()
-          }));
-
-          setLocal('submissions', mapped);
-          return mapped;
+        if (!error && Array.isArray(data) && data.length > 0) {
+          for (const s of data) {
+            if (s && s.id) {
+              mergedMap.set(String(s.id), {
+                id: Number(s.id),
+                owner_name: s.owner_name || '',
+                owner_phone: s.owner_phone || '',
+                owner_email: s.owner_email || '',
+                owner_type: s.owner_type || 'OWNER',
+                property_title: s.property_title || '',
+                property_type: s.property_type || 'Apartment',
+                bhk_config: s.bhk_config || '2 BHK',
+                location: s.location || '',
+                address: s.address || '',
+                expected_rent: Number(s.expected_rent || 0),
+                security_deposit: Number(s.security_deposit || 0),
+                furnishing: s.furnishing || 'Semi-Furnished',
+                available_from: s.available_from || '',
+                preferred_tenants: s.preferred_tenants || 'Any',
+                amenities: safeJsonParse<string[]>(s.amenities, Array.isArray(s.amenities) ? s.amenities : []),
+                images: safeJsonParse<string[]>(s.images, Array.isArray(s.images) ? s.images : []),
+                notes: s.notes || '',
+                status: s.status || 'PENDING',
+                admin_notes: s.admin_notes || '',
+                created_at: s.created_at || new Date().toISOString()
+              });
+            }
+          }
         }
       } catch (err) {
         console.warn('Supabase owner_submissions fetch error:', err);
       }
 
-      return local;
+      const finalList = Array.from(mergedMap.values()).sort((a, b) => {
+        const timeA = new Date(a.created_at || 0).getTime();
+        const timeB = new Date(b.created_at || 0).getTime();
+        return timeB - timeA || Number(b.id || 0) - Number(a.id || 0);
+      });
+
+      setLocal('submissions', finalList);
+      setLocal('rental_pune_submissions', finalList);
+
+      return finalList;
     },
 
     async create(sub: any): Promise<any> {
+      const newId = Date.now();
       const payload = {
         owner_name: sub.owner_name,
         owner_phone: sub.owner_phone,
@@ -1808,7 +1917,16 @@ export const supabaseService = {
         status: 'PENDING'
       };
 
-      let newSub: any = null;
+      let newSub: any = {
+        id: newId,
+        ...sub,
+        expected_rent: sub.expected_rent ? Number(sub.expected_rent) : 0,
+        security_deposit: sub.security_deposit ? Number(sub.security_deposit) : 0,
+        amenities: Array.isArray(sub.amenities) ? sub.amenities : safeJsonParse(sub.amenities, []),
+        images: Array.isArray(sub.images) ? sub.images : safeJsonParse(sub.images, []),
+        status: 'PENDING',
+        created_at: new Date().toISOString()
+      };
 
       // 1. Post to API
       try {
@@ -1819,12 +1937,9 @@ export const supabaseService = {
         });
         if (res.ok) {
           const apiRes = await res.json();
-          newSub = { 
-            id: Number(apiRes.id || Date.now()), 
-            ...sub, 
-            status: 'PENDING', 
-            created_at: new Date().toISOString() 
-          };
+          if (apiRes && apiRes.id) {
+            newSub.id = Number(apiRes.id);
+          }
         }
       } catch (e) {
         console.warn('API submission note:', e);
@@ -1838,29 +1953,18 @@ export const supabaseService = {
           .select()
           .single();
 
-        if (!error && data) {
-          newSub = { 
-            id: Number(data.id), 
-            ...sub, 
-            status: 'PENDING', 
-            created_at: data.created_at || new Date().toISOString() 
-          };
+        if (!error && data && data.id) {
+          newSub.id = Number(data.id);
         }
       } catch {}
 
-      if (!newSub) {
-        newSub = {
-          id: Date.now(),
-          ...sub,
-          status: 'PENDING',
-          created_at: new Date().toISOString()
-        };
-      }
-
+      // Immediate local caching across multiple keys
       const all = getLocal<any[]>('submissions', []);
-      setLocal('submissions', [newSub, ...all.filter(i => String(i.id) !== String(newSub.id))]);
+      const updated = [newSub, ...all.filter(i => String(i.id) !== String(newSub.id))];
+      setLocal('submissions', updated);
+      setLocal('rental_pune_submissions', updated);
 
-      // Broadcast custom event so other components refresh immediately
+      // Broadcast custom and storage events so other components and tabs refresh immediately
       try {
         window.dispatchEvent(new CustomEvent('owner_submissions_updated', { detail: newSub }));
       } catch {}

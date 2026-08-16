@@ -1,4 +1,120 @@
+import fs from 'fs';
+import path from 'path';
 import { getSupabase } from './supabase.js';
+
+const DATA_DIR = path.join(process.cwd(), 'data');
+const SUBMISSIONS_FILE = path.join(DATA_DIR, 'owner_submissions.json');
+
+const DEFAULT_OWNER_SUBMISSIONS = [
+  {
+    id: 101,
+    owner_name: 'Anand Kulkarni',
+    owner_phone: '+91 98220 14589',
+    owner_email: 'anand.kulkarni@gmail.com',
+    owner_type: 'OWNER',
+    property_title: '3 BHK Luxury Flat in Megapolis Mulberry',
+    property_type: 'Apartment',
+    bhk_config: '3 BHK',
+    location: 'Hinjewadi Phase 3',
+    address: 'Tower A, Megapolis, Rajiv Gandhi Infotech Park, Hinjewadi',
+    expected_rent: 38000,
+    security_deposit: 100000,
+    furnishing: 'Fully Furnished',
+    available_from: 'Immediate',
+    preferred_tenants: 'Family / IT Professionals',
+    amenities: ['Power Backup', 'Gymnasium', 'Swimming Pool', '24/7 Security', 'Covered Parking', 'Clubhouse', 'Modular Kitchen'],
+    images: [
+      'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80'
+    ],
+    notes: 'Premium high-floor flat with valley views, high-speed fiber internet, and 100% power backup. Ideal for tech professionals.',
+    status: 'PENDING',
+    admin_notes: '',
+    created_at: new Date(Date.now() - 3600000 * 2).toISOString()
+  },
+  {
+    id: 102,
+    owner_name: 'Rajesh Sharma',
+    owner_phone: '+91 98811 77234',
+    owner_email: 'rajesh.nri@outlook.com',
+    owner_type: 'NRI',
+    property_title: '2 BHK Premium Flat in Amanora Sweet Water Villas',
+    property_type: 'Apartment',
+    bhk_config: '2 BHK',
+    location: 'Hadapsar',
+    address: 'Sector 4, Amanora Park Town, Hadapsar, Pune',
+    expected_rent: 32000,
+    security_deposit: 80000,
+    furnishing: 'Semi-Furnished',
+    available_from: 'Next Month',
+    preferred_tenants: 'Any',
+    amenities: ['24/7 Security', 'Covered Parking', 'Modular Kitchen', 'Elevator / Lift', 'Piped MNGL Gas'],
+    images: [
+      'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80'
+    ],
+    notes: 'NRI owner based in Dubai. Society management has keys for inspection walkthroughs.',
+    status: 'CONTACTED',
+    admin_notes: 'Spoke with owner on WhatsApp. Walkthrough key with society office.',
+    created_at: new Date(Date.now() - 3600000 * 8).toISOString()
+  },
+  {
+    id: 103,
+    owner_name: 'Priya Deshmukh',
+    owner_phone: '+91 97654 32190',
+    owner_email: 'priya.deshmukh@yahoo.com',
+    owner_type: 'OWNER',
+    property_title: '4 BHK Duplex Penthouse in Panchshil Towers',
+    property_type: 'Penthouse / Villa',
+    bhk_config: '4 BHK',
+    location: 'Kharadi',
+    address: 'Tower B, Panchshil Towers, EON Free Zone, Kharadi, Pune',
+    expected_rent: 85000,
+    security_deposit: 250000,
+    furnishing: 'Fully Furnished',
+    available_from: 'Immediate',
+    preferred_tenants: 'Family',
+    amenities: ['Swimming Pool', 'Clubhouse', '24/7 Security', 'Power Backup', 'Gymnasium', 'Children Play Area', 'Pet Friendly'],
+    images: [
+      'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=80'
+    ],
+    notes: 'Ultra luxury duplex penthouse with designer interiors, Italian marble, and world class clubhouse.',
+    status: 'APPROVED',
+    admin_notes: 'Agreement signed. Verified owner credentials.',
+    created_at: new Date(Date.now() - 3600000 * 24).toISOString()
+  }
+];
+
+function loadSubmissionsFromFile(): any[] {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    if (!fs.existsSync(SUBMISSIONS_FILE)) {
+      fs.writeFileSync(SUBMISSIONS_FILE, JSON.stringify(DEFAULT_OWNER_SUBMISSIONS, null, 2), 'utf-8');
+      return DEFAULT_OWNER_SUBMISSIONS;
+    }
+    const raw = fs.readFileSync(SUBMISSIONS_FILE, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed;
+    }
+    return DEFAULT_OWNER_SUBMISSIONS;
+  } catch (err) {
+    console.warn('[supabaseDb] Error loading submissions from file:', err);
+    return DEFAULT_OWNER_SUBMISSIONS;
+  }
+}
+
+function saveSubmissionsToFile(list: any[]): void {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    fs.writeFileSync(SUBMISSIONS_FILE, JSON.stringify(list, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('[supabaseDb] Error saving submissions to file:', err);
+  }
+}
 
 /**
  * Robust database repository layer that relies 100% on Supabase Cloud.
@@ -711,14 +827,18 @@ export const supabaseDb = {
   },
 
   // --- OWNER SUBMISSIONS ---
-  _ownerSubmissionsMemory: [] as any[],
+  _ownerSubmissionsMemory: null as any[] | null,
 
   async getOwnerSubmissions(): Promise<any[]> {
+    if (!this._ownerSubmissionsMemory) {
+      this._ownerSubmissionsMemory = loadSubmissionsFromFile();
+    }
+
     let cloudData: any[] = [];
     try {
       const supabase = getClient();
       const { data, error } = await supabase.from('owner_submissions').select('*').order('id', { ascending: false });
-      if (!error && Array.isArray(data)) {
+      if (!error && Array.isArray(data) && data.length > 0) {
         cloudData = data.map(s => ({
           ...s,
           amenities: safeParseJSON(s.amenities, Array.isArray(s.amenities) ? s.amenities : [], `owner_submissions.amenities (ID ${s.id})`),
@@ -729,13 +849,14 @@ export const supabaseDb = {
       console.warn('[supabaseDb] Direct Supabase getOwnerSubmissions note:', e);
     }
 
-    // Merge cloud data and server memory store
+    // Merge cloud data, file data, and memory store
     const map = new Map<any, any>();
-    // First insert memory items
+    
+    // First load from file/memory
     for (const item of this._ownerSubmissionsMemory) {
       map.set(String(item.id), item);
     }
-    // Overlay or add cloud data
+    // Overlay cloud data
     for (const item of cloudData) {
       map.set(String(item.id), item);
     }
@@ -746,10 +867,17 @@ export const supabaseDb = {
       return timeB - timeA || Number(b.id || 0) - Number(a.id || 0);
     });
 
+    this._ownerSubmissionsMemory = all;
+    saveSubmissionsToFile(all);
+
     return all;
   },
 
   async createOwnerSubmission(os: any): Promise<any> {
+    if (!this._ownerSubmissionsMemory) {
+      this._ownerSubmissionsMemory = loadSubmissionsFromFile();
+    }
+
     const payload = {
       owner_name: os.owner_name,
       owner_phone: os.owner_phone,
@@ -797,13 +925,18 @@ export const supabaseDb = {
       images: safeParseJSON(createdRecord.images, Array.isArray(createdRecord.images) ? createdRecord.images : [])
     };
 
-    // Prepend to memory cache
+    // Prepend to memory cache and persist to file
     this._ownerSubmissionsMemory = [formatted, ...this._ownerSubmissionsMemory.filter(m => String(m.id) !== String(formatted.id))];
+    saveSubmissionsToFile(this._ownerSubmissionsMemory);
 
     return formatted;
   },
 
   async updateOwnerSubmission(id: any, os: any): Promise<boolean> {
+    if (!this._ownerSubmissionsMemory) {
+      this._ownerSubmissionsMemory = loadSubmissionsFromFile();
+    }
+
     const payload = {
       owner_name: os.owner_name,
       owner_phone: os.owner_phone,
@@ -829,13 +962,14 @@ export const supabaseDb = {
       Object.entries(payload).filter(([_, v]) => v !== undefined)
     );
 
-    // Update memory
+    // Update memory and save to file
     this._ownerSubmissionsMemory = this._ownerSubmissionsMemory.map(item => {
       if (String(item.id) === String(id)) {
         return { ...item, ...cleanPayload };
       }
       return item;
     });
+    saveSubmissionsToFile(this._ownerSubmissionsMemory);
 
     try {
       const supabase = getClient();
@@ -848,8 +982,13 @@ export const supabaseDb = {
   },
 
   async deleteOwnerSubmission(id: any): Promise<boolean> {
-    // Delete from memory
+    if (!this._ownerSubmissionsMemory) {
+      this._ownerSubmissionsMemory = loadSubmissionsFromFile();
+    }
+    // Delete from memory and persist
     this._ownerSubmissionsMemory = this._ownerSubmissionsMemory.filter(m => String(m.id) !== String(id));
+    saveSubmissionsToFile(this._ownerSubmissionsMemory);
+
     try {
       const supabase = getClient();
       await supabase.from('owner_submissions').delete().eq('id', id);
@@ -861,13 +1000,18 @@ export const supabaseDb = {
 
   async bulkDeleteOwnerSubmissions(ids: any[]): Promise<boolean> {
     if (!ids || ids.length === 0) return true;
+    if (!this._ownerSubmissionsMemory) {
+      this._ownerSubmissionsMemory = loadSubmissionsFromFile();
+    }
     const strIds = ids.map(i => String(i));
     this._ownerSubmissionsMemory = this._ownerSubmissionsMemory.filter(m => !strIds.includes(String(m.id)));
+    saveSubmissionsToFile(this._ownerSubmissionsMemory);
+
     try {
       const supabase = getClient();
       await supabase.from('owner_submissions').delete().in('id', ids);
     } catch (e) {
-      console.warn('[supabaseDb] bulkDeleteOwnerSubmissions cloud note:', e);
+      console.warn('[supabaseDb] bulkDeleteOwnerSubmissions cloud delete note:', e);
     }
     return true;
   },
