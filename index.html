@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rental Pune - Premium Rentals in Prime Pune</title>
+    <meta name="description" content="Discover thoughtfully curated luxury rental properties in Pune's most desirable locations - Baner, Kothrud, Viman Nagar, Hinjewadi, and more." />
+    
+    <!-- Open Graph / WhatsApp / Facebook Link Preview Meta Tags -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Rental Pune" />
+    <meta property="og:title" content="Rental Pune - Premium Rentals & Verified Properties in Pune" />
+    <meta property="og:description" content="Explore verified luxury apartments, penthouses, and residences in Pune with complete specifications, high-res photos, and instant WhatsApp booking." />
+    <meta property="og:image" content="https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    
+    <!-- Twitter Card Meta Tags -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Rental Pune - Premium Rentals in Prime Pune" />
+    <meta name="twitter:description" content="Explore verified luxury apartments and penthouses in Pune with complete specifications and instant walkthrough scheduling." />
+    <meta name="twitter:image" content="https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,500;0,600;0,700;0,800;1,600&display=swap" rel="stylesheet">
+    <script>
+      (function() {
+        // Suppress external browser extension and third-party Web3/MetaMask/WebSocket noise
+        var isExtensionOrWsError = function(msg, src) {
+          var text = (String(msg || '') + ' ' + String(src || '')).toLowerCase();
+          return (
+            text.indexOf('metamask') !== -1 ||
+            text.indexOf('ethereum') !== -1 ||
+            text.indexOf('t is not a function') !== -1 ||
+            text.indexOf('only a getter') !== -1 ||
+            text.indexOf('websocket') !== -1 ||
+            text.indexOf('failed to connect to websocket') !== -1 ||
+            text.indexOf('chrome-extension') !== -1 ||
+            text.indexOf('moz-extension') !== -1 ||
+            text.indexOf('inpage.js') !== -1 ||
+            text.indexOf('contentscript') !== -1
+          );
+        };
+
+        var origOnError = window.onerror;
+        window.onerror = function(message, source, lineno, colno, error) {
+          if (isExtensionOrWsError(message, source) || (error && isExtensionOrWsError(error.message, error.stack))) {
+            return true; // suppresses error
+          }
+          if (typeof origOnError === 'function') {
+            return origOnError.apply(this, arguments);
+          }
+          return false;
+        };
+
+        window.addEventListener('error', function(event) {
+          var msg = event ? (event.message || '') : '';
+          var src = event ? (event.filename || '') : '';
+          if (isExtensionOrWsError(msg, src)) {
+            if (event.preventDefault) event.preventDefault();
+            if (event.stopPropagation) event.stopPropagation();
+            if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+            return false;
+          }
+        }, true);
+
+        window.addEventListener('unhandledrejection', function(event) {
+          var reason = event && event.reason ? (event.reason.message || event.reason.stack || String(event.reason)) : '';
+          if (isExtensionOrWsError(reason, '')) {
+            if (event.preventDefault) event.preventDefault();
+            if (event.stopPropagation) event.stopPropagation();
+            if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+            return false;
+          }
+        }, true);
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
