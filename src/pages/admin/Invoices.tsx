@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAppStore } from '../../store/index.js';
 import { Invoice, InvoiceItem, Property, Lead } from '../../types.js';
 import { formatINR, numberToWordsINR } from '../../utils/currency.js';
+import { supabaseService } from '../../services/supabaseService.js';
 import {
   FileText,
   Plus,
@@ -132,24 +133,15 @@ export default function Invoices() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [invRes, propRes, leadRes] = await Promise.all([
-        fetch('/api/invoices', { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch('/api/properties'),
-        fetch('/api/leads', { headers: { 'Authorization': `Bearer ${token}` } })
+      const [invData, propData, leadData] = await Promise.all([
+        supabaseService.invoices.getAll(),
+        supabaseService.properties.getAll(),
+        supabaseService.leads.getAll()
       ]);
 
-      if (invRes.ok) {
-        const invData = await invRes.json();
-        setInvoices(invData);
-      }
-      if (propRes.ok) {
-        const propData = await propRes.json();
-        setProperties(propData);
-      }
-      if (leadRes.ok) {
-        const leadData = await leadRes.json();
-        setLeads(leadData);
-      }
+      setInvoices(invData);
+      setProperties(propData);
+      setLeads(leadData);
     } catch (err) {
       console.error('Error loading invoices data:', err);
     } finally {
@@ -419,8 +411,10 @@ export default function Invoices() {
       return;
     }
 
-    const payload = {
+    const payload: Partial<Invoice> = {
       ...formData,
+      lead_id: formData.lead_id ? Number(formData.lead_id) : undefined,
+      property_id: formData.property_id ? Number(formData.property_id) : undefined,
       items,
       subtotal,
       tax: taxAmount,
@@ -431,25 +425,9 @@ export default function Invoices() {
 
     try {
       if (editingInvoiceId) {
-        const res = await fetch(`/api/invoices/${editingInvoiceId}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify(payload)
-        });
-        if (!res.ok) throw new Error('Failed to update invoice');
+        await supabaseService.invoices.update(editingInvoiceId, payload);
       } else {
-        const res = await fetch('/api/invoices', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify(payload)
-        });
-        if (!res.ok) throw new Error('Failed to create invoice');
+        await supabaseService.invoices.create(payload);
       }
 
       setIsFormOpen(false);
@@ -463,14 +441,9 @@ export default function Invoices() {
   // Delete Invoice
   const handleDeleteInvoice = async (id: number) => {
     try {
-      const res = await fetch(`/api/invoices/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        setInvoices(prev => prev.filter(inv => inv.id !== id));
-        setDeleteConfirmId(null);
-      }
+      await supabaseService.invoices.delete(id);
+      setInvoices(prev => prev.filter(inv => inv.id !== id));
+      setDeleteConfirmId(null);
     } catch (err) {
       console.error('Delete error:', err);
       alert('Failed to delete invoice.');
@@ -487,22 +460,9 @@ export default function Invoices() {
     }
 
     try {
-      const res = await fetch(`/api/invoices/${selectedInvoice.id}/payment`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          amount_paid: paid,
-          payment_mode: paymentModeInput
-        })
-      });
-
-      if (res.ok) {
-        setIsPaymentModalOpen(false);
-        fetchData();
-      }
+      await supabaseService.invoices.recordPayment(selectedInvoice.id, paid, paymentModeInput);
+      setIsPaymentModalOpen(false);
+      fetchData();
     } catch (err) {
       console.error('Payment update error:', err);
       alert('Failed to record payment.');

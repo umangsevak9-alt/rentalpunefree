@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAppStore } from '../../store/index.js';
 import { Visit, Lead, Property, User } from '../../types.js';
 import { formatINR } from '../../utils/currency.js';
+import { supabaseService } from '../../services/supabaseService.js';
 import { 
   Plus, 
   Trash2, 
@@ -85,17 +86,17 @@ export default function Visits() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [visitsRes, leadsRes, propsRes, agentsRes] = await Promise.all([
-        fetch('/api/visits', { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch('/api/leads', { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch('/api/properties'),
-        fetch('/api/agents', { headers: { 'Authorization': `Bearer ${token}` } })
+      const [visitsData, leadsData, propsData, agentsData] = await Promise.all([
+        supabaseService.visits.getAll(),
+        supabaseService.leads.getAll(),
+        supabaseService.properties.getAll(),
+        supabaseService.agents.getAll()
       ]);
 
-      if (visitsRes.ok) setVisits(await visitsRes.json());
-      if (leadsRes.ok) setLeads(await leadsRes.json());
-      if (propsRes.ok) setProperties(await propsRes.json());
-      if (agentsRes.ok) setAgents(await agentsRes.json());
+      setVisits(visitsData);
+      setLeads(leadsData);
+      setProperties(propsData);
+      setAgents(agentsData);
     } catch (err) {
       console.error('Error fetching site visits data:', err);
     } finally {
@@ -138,24 +139,17 @@ export default function Visits() {
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const payload: Partial<Visit> = {
+        ...formData,
+        lead_id: formData.lead_id ? Number(formData.lead_id) : undefined as any,
+        property_id: formData.property_id ? Number(formData.property_id) : undefined as any,
+        agent_id: formData.agent_id ? Number(formData.agent_id) : undefined as any,
+      };
+
       if (editingVisit) {
-        await fetch(`/api/visits/${editingVisit.id}`, {
-          method: 'PUT',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}` 
-          },
-          body: JSON.stringify(formData)
-        });
+        await supabaseService.visits.update(editingVisit.id, payload);
       } else {
-        await fetch('/api/visits', {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}` 
-          },
-          body: JSON.stringify(formData)
-        });
+        await supabaseService.visits.create(payload);
       }
       setIsAdding(false);
       setEditingVisit(null);
@@ -171,21 +165,10 @@ export default function Visits() {
     setDeleteError(null);
 
     try {
-      const res = await fetch(`/api/visits/${deleteConfirmVisit.id}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-
-      if (res.ok) {
-        setSelectedIds(prev => prev.filter(id => id !== deleteConfirmVisit.id));
-        setDeleteConfirmVisit(null);
-        fetchData();
-      } else {
-        const errorData = await res.json();
-        setDeleteError(errorData?.error || 'Failed to delete site visit.');
-      }
+      await supabaseService.visits.delete(deleteConfirmVisit.id);
+      setSelectedIds(prev => prev.filter(id => id !== deleteConfirmVisit.id));
+      setDeleteConfirmVisit(null);
+      fetchData();
     } catch (err) {
       console.error('Error deleting site visit:', err);
       setDeleteError('Network error while deleting site visit.');
@@ -199,29 +182,14 @@ export default function Visits() {
     if (selectedIds.length === 0) return;
     setIsBulkDeleting(true);
     try {
-      const res = await fetch('/api/visits/bulk-delete', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ ids: selectedIds })
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        setBulkActionMessage(data.message || `Successfully deleted ${selectedIds.length} site visits.`);
-        setTimeout(() => setBulkActionMessage(null), 4000);
-        setSelectedIds([]);
-        setShowBulkDeleteModal(false);
-        fetchData();
-      } else {
-        const data = await res.json();
-        alert(data.error || 'Failed to bulk delete site visits');
-      }
+      await supabaseService.visits.bulkDelete(selectedIds);
+      setBulkActionMessage(`Successfully deleted ${selectedIds.length} site visits.`);
+      setTimeout(() => setBulkActionMessage(null), 4000);
+      setSelectedIds([]);
+      setShowBulkDeleteModal(false);
+      fetchData();
     } catch (err) {
       console.error('Error in bulk deleting site visits:', err);
-      alert('Network error while performing bulk delete');
     } finally {
       setIsBulkDeleting(false);
     }
@@ -231,14 +199,7 @@ export default function Visits() {
     e.preventDefault();
     if (!selectedVisitId) return;
     try {
-      await fetch(`/api/visits/${selectedVisitId}/feedback`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}` 
-        },
-        body: JSON.stringify(feedbackForm)
-      });
+      await supabaseService.visits.submitFeedback(selectedVisitId, feedbackForm);
       setSelectedVisitId(null);
       fetchData();
     } catch (err) {

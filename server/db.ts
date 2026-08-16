@@ -1,12 +1,14 @@
 import { createClient } from '@libsql/client';
 import bcrypt from 'bcryptjs';
+import fs from 'fs';
+import path from 'path';
 
 // We use a local SQLite file for persistence
-export const db = createClient({
+export let db = createClient({
   url: 'file:local.db',
 });
 
-export async function initDb() {
+async function runSchemaSetup() {
   await db.executeMultiple(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -501,5 +503,28 @@ export async function initDb() {
     }
   } catch (e) {
     console.error('Error seeding home_faqs:', e);
+  }
+}
+
+export async function initDb() {
+  try {
+    await runSchemaSetup();
+  } catch (err: any) {
+    if (err?.message?.includes('SQLITE_CORRUPT') || err?.code === 'SQLITE_CORRUPT') {
+      console.warn('SQLite database corruption detected. Auto-recovering clean database file...');
+      try {
+        const dbPath = path.join(process.cwd(), 'local.db');
+        if (fs.existsSync(dbPath)) {
+          fs.unlinkSync(dbPath);
+        }
+        db = createClient({ url: 'file:local.db' });
+        await runSchemaSetup();
+        console.log('Database successfully recovered and re-initialized.');
+      } catch (recoverErr) {
+        console.error('Failed to auto-recover database:', recoverErr);
+      }
+    } else {
+      console.error('Database initialization error:', err);
+    }
   }
 }

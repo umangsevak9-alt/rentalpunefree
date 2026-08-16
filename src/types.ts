@@ -65,6 +65,7 @@ export type Visit = {
   visit_time: string;
   status: string;
   notes: string;
+  created_at?: string;
   lead_name?: string;
   lead_phone?: string;
   lead_email?: string;
