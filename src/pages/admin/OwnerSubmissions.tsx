@@ -55,7 +55,7 @@ export interface OwnerSubmission {
 }
 
 export default function OwnerSubmissions() {
-  const { token, settings } = useAppStore();
+  const { token, user, settings } = useAppStore();
   const [submissions, setSubmissions] = useState<OwnerSubmission[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -112,7 +112,7 @@ export default function OwnerSubmissions() {
 
   useEffect(() => {
     fetchSubmissions();
-  }, [token]);
+  }, [token, user]);
 
   const handleUpdateStatus = async (id: number, status: string, adminNotes?: string) => {
     try {

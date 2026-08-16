@@ -51,7 +51,7 @@ export default function Agents() {
 
   useEffect(() => {
     fetchAgents();
-  }, [token]);
+  }, [token, currentUser]);
 
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

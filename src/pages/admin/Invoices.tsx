@@ -44,7 +44,7 @@ const PRESET_LINE_ITEMS = [
 ];
 
 export default function Invoices() {
-  const { token, settings } = useAppStore();
+  const { token, user, settings } = useAppStore();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -151,7 +151,7 @@ export default function Invoices() {
 
   useEffect(() => {
     fetchData();
-  }, [token]);
+  }, [token, user]);
 
   // Calculations for Form
   const subtotal = useMemo(() => {

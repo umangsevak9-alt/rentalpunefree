@@ -916,32 +916,126 @@ export const supabaseService = {
   // --- SITE VISITS ---
   visits: {
     async getAll(): Promise<Visit[]> {
+      // 1. Try server API endpoint (which joins leads, properties, agents, and feedback)
       try {
-        const { data, error } = await supabase
-          .from('site_visits')
-          .select('*')
-          .order('id', { ascending: false });
-
-        if (!error && data) {
-          setLocal('visits', data);
-          return data.map((v: any) => ({
-            id: Number(v.id),
-            lead_id: Number(v.lead_id),
-            property_id: Number(v.property_id),
-            agent_id: Number(v.agent_id),
-            visit_date: v.visit_date,
-            visit_time: v.visit_time,
-            status: v.status || 'Scheduled',
-            notes: v.notes || '',
-            created_at: v.created_at
-          }));
+        const { data: { session } } = await supabase.auth.getSession();
+        const headers: Record<string, string> = {};
+        if (session?.access_token) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
         }
-      } catch {}
+        const res = await fetch('/api/visits', { headers });
+        if (res.ok) {
+          const apiData = await res.json();
+          if (Array.isArray(apiData) && apiData.length > 0) {
+            const mapped = apiData.map((v: any) => ({
+              id: Number(v.id),
+              lead_id: Number(v.lead_id),
+              property_id: Number(v.property_id),
+              agent_id: Number(v.agent_id),
+              visit_date: v.visit_date,
+              visit_time: v.visit_time,
+              status: v.status || 'Scheduled',
+              notes: v.notes || '',
+              lead_name: v.lead_name,
+              lead_phone: v.lead_phone,
+              lead_email: v.lead_email,
+              property_title: v.property_title,
+              property_location: v.property_location,
+              agent_name: v.agent_name,
+              agent_email: v.agent_email,
+              feedback_id: v.feedback_id ? Number(v.feedback_id) : undefined,
+              interest_level: v.interest_level,
+              customer_feedback: v.customer_feedback,
+              requirements: v.requirements,
+              budget: v.budget ? Number(v.budget) : undefined,
+              preferred_configuration: v.preferred_configuration,
+              timeline: v.timeline,
+              next_action: v.next_action,
+              feedback_created_at: v.feedback_created_at,
+              created_at: v.created_at
+            }));
+            setLocal('visits', mapped);
+            return mapped;
+          }
+        }
+      } catch (err) {
+        console.warn('API visits fetch warning:', err);
+      }
+
+      // 2. Direct Supabase query with feedback join
+      try {
+        const [vRes, fRes, lRes, pRes] = await Promise.all([
+          supabase.from('site_visits').select('*').order('id', { ascending: false }),
+          supabase.from('site_visit_feedback').select('*'),
+          supabase.from('leads').select('*'),
+          supabase.from('properties').select('*')
+        ]);
+
+        if (!vRes.error && vRes.data) {
+          const feedbacks = fRes.data || [];
+          const leads = lRes.data || [];
+          const properties = pRes.data || [];
+
+          const mapped = vRes.data.map((v: any) => {
+            const feed = feedbacks.find((f: any) => String(f.visit_id) === String(v.id));
+            const lead = leads.find((l: any) => String(l.id) === String(v.lead_id));
+            const prop = properties.find((p: any) => String(p.id) === String(v.property_id));
+
+            return {
+              id: Number(v.id),
+              lead_id: Number(v.lead_id),
+              property_id: Number(v.property_id),
+              agent_id: Number(v.agent_id),
+              visit_date: v.visit_date,
+              visit_time: v.visit_time,
+              status: v.status || 'Scheduled',
+              notes: v.notes || '',
+              lead_name: lead?.name,
+              lead_phone: lead?.phone,
+              property_title: prop?.title,
+              feedback_id: feed?.id ? Number(feed.id) : undefined,
+              interest_level: feed?.interest_level,
+              customer_feedback: feed?.customer_feedback,
+              requirements: feed?.requirements,
+              budget: feed?.budget ? Number(feed.budget) : undefined,
+              preferred_configuration: feed?.preferred_configuration,
+              timeline: feed?.timeline,
+              next_action: feed?.next_action,
+              feedback_created_at: feed?.created_at,
+              created_at: v.created_at
+            };
+          });
+
+          setLocal('visits', mapped);
+          return mapped;
+        }
+      } catch (err) {
+        console.warn('Direct Supabase visits fetch warning:', err);
+      }
+
       return getLocal<Visit[]>('visits', []);
     },
 
     async create(visit: Partial<Visit>): Promise<Visit> {
       try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (session?.access_token) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
+        await fetch('/api/visits', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            lead_id: visit.lead_id,
+            property_id: visit.property_id,
+            agent_id: visit.agent_id,
+            visit_date: visit.visit_date,
+            visit_time: visit.visit_time,
+            notes: visit.notes
+          })
+        }).catch(() => {});
+
         const { data, error } = await supabase
           .from('site_visits')
           .insert([{
@@ -982,6 +1076,17 @@ export const supabaseService = {
 
     async update(id: number, updates: Partial<Visit>): Promise<void> {
       try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (session?.access_token) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
+        await fetch(`/api/visits/${id}`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify(updates)
+        }).catch(() => {});
+
         await supabase.from('site_visits').update(updates).eq('id', id);
       } catch {}
       const all = getLocal<Visit[]>('visits', []);
@@ -990,6 +1095,17 @@ export const supabaseService = {
 
     async delete(id: number): Promise<void> {
       try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const headers: Record<string, string> = {};
+        if (session?.access_token) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
+        await fetch(`/api/visits/${id}`, {
+          method: 'DELETE',
+          headers
+        }).catch(() => {});
+
+        await supabase.from('site_visit_feedback').delete().eq('visit_id', id);
         await supabase.from('site_visits').delete().eq('id', id);
       } catch {}
       const all = getLocal<Visit[]>('visits', []);
@@ -998,14 +1114,14 @@ export const supabaseService = {
 
     async bulkDelete(ids: number[]): Promise<void> {
       try {
-        await supabase.from('site_visits').delete().in('id', ids);
+        await Promise.all(ids.map(id => this.delete(id)));
       } catch {}
       const all = getLocal<Visit[]>('visits', []);
       setLocal('visits', all.filter(v => !ids.includes(v.id)));
     },
 
     async submitFeedback(visitId: number, feedbackData: any): Promise<VisitFeedback> {
-      return supabaseService.feedbacks.create({
+      const payload = {
         visit_id: visitId,
         interest_level: feedbackData.interest_level || 'Warm',
         customer_feedback: feedbackData.customer_feedback || feedbackData.feedback || '',
@@ -1015,64 +1131,179 @@ export const supabaseService = {
         timeline: feedbackData.timeline || '',
         next_action: feedbackData.next_action || '',
         photos: feedbackData.photos || ''
-      });
+      };
+
+      // 1. Submit via backend server endpoint
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (session?.access_token) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
+        const res = await fetch(`/api/visits/${visitId}/feedback`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+          const resData = await res.json();
+          if (resData.feedback) {
+            return resData.feedback;
+          }
+        }
+      } catch (err) {
+        console.warn('Server feedback submission error:', err);
+      }
+
+      // 2. Direct Supabase / local persistence fallback
+      return supabaseService.feedbacks.create(payload);
     }
   },
 
   // --- SITE VISIT FEEDBACK ---
   feedbacks: {
     async getAll(): Promise<VisitFeedback[]> {
+      // 1. Try server API endpoint (which handles full joins and permissions)
       try {
-        const { data, error } = await supabase
-          .from('site_visit_feedback')
-          .select('*')
-          .order('id', { ascending: false });
-
-        if (!error && data) {
-          setLocal('feedbacks', data);
-          return data.map((f: any) => ({
-            id: Number(f.id),
-            visit_id: Number(f.visit_id),
-            interest_level: f.interest_level || 'Warm',
-            customer_feedback: f.customer_feedback || '',
-            requirements: f.requirements,
-            budget: Number(f.budget || 0),
-            preferred_configuration: f.preferred_configuration,
-            timeline: f.timeline,
-            next_action: f.next_action,
-            photos: f.photos,
-            created_at: f.created_at
-          }));
+        const { data: { session } } = await supabase.auth.getSession();
+        const headers: Record<string, string> = {};
+        if (session?.access_token) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
         }
-      } catch {}
+        const res = await fetch('/api/feedbacks', { headers });
+        if (res.ok) {
+          const apiData = await res.json();
+          if (Array.isArray(apiData) && apiData.length > 0) {
+            setLocal('feedbacks', apiData);
+            return apiData;
+          }
+        }
+      } catch (err) {
+        console.warn('API feedbacks fetch warning:', err);
+      }
+
+      // 2. Direct Supabase query joining site_visit_feedback, site_visits, leads, properties, profiles
+      try {
+        const [fRes, vRes, lRes, pRes, prRes] = await Promise.all([
+          supabase.from('site_visit_feedback').select('*').order('id', { ascending: false }),
+          supabase.from('site_visits').select('*'),
+          supabase.from('leads').select('*'),
+          supabase.from('properties').select('*'),
+          supabase.from('profiles').select('*')
+        ]);
+
+        if (!fRes.error && fRes.data) {
+          const visits = vRes.data || [];
+          const leads = lRes.data || [];
+          const properties = pRes.data || [];
+          const profiles = prRes.data || [];
+
+          const mapped: VisitFeedback[] = fRes.data.map((f: any) => {
+            const v = visits.find((visit: any) => String(visit.id) === String(f.visit_id));
+            const l = v ? leads.find((lead: any) => String(lead.id) === String(v.lead_id)) : null;
+            const p = v ? properties.find((prop: any) => String(prop.id) === String(v.property_id)) : null;
+            const a = v ? profiles.find((prof: any) => String(prof.id || prof.user_id) === String(v.agent_id)) : null;
+
+            return {
+              id: Number(f.id),
+              visit_id: Number(f.visit_id),
+              interest_level: f.interest_level || 'Warm',
+              customer_feedback: f.customer_feedback || '',
+              requirements: f.requirements || '',
+              budget: Number(f.budget || 0),
+              preferred_configuration: f.preferred_configuration || '',
+              timeline: f.timeline || '',
+              next_action: f.next_action || '',
+              photos: f.photos || '',
+              visit_date: v?.visit_date,
+              visit_time: v?.visit_time,
+              visit_status: v?.status,
+              lead_name: l?.name,
+              lead_phone: l?.phone,
+              lead_email: l?.email,
+              property_title: p?.title,
+              property_location: p?.location,
+              agent_name: a?.name,
+              created_at: f.created_at
+            };
+          });
+
+          setLocal('feedbacks', mapped);
+          return mapped;
+        }
+      } catch (err) {
+        console.warn('Direct Supabase feedback fetch warning:', err);
+      }
+
       return getLocal<VisitFeedback[]>('feedbacks', []);
     },
 
     async create(feedback: Partial<VisitFeedback>): Promise<VisitFeedback> {
+      const payload: any = {
+        visit_id: feedback.visit_id ? Number(feedback.visit_id) : null,
+        interest_level: feedback.interest_level || 'Warm',
+        customer_feedback: feedback.customer_feedback || '',
+        requirements: feedback.requirements || '',
+        budget: feedback.budget ? Number(feedback.budget) : null,
+        preferred_configuration: feedback.preferred_configuration || '',
+        timeline: feedback.timeline || '',
+        next_action: feedback.next_action || '',
+        photos: feedback.photos || ''
+      };
+
       try {
+        // Also call backend API if possible
+        if (payload.visit_id) {
+          const { data: { session } } = await supabase.auth.getSession();
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (session?.access_token) {
+            headers['Authorization'] = `Bearer ${session.access_token}`;
+          }
+          await fetch(`/api/visits/${payload.visit_id}/feedback`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(payload)
+          }).catch(() => {});
+
+          // Upsert check in direct Supabase client
+          const { data: existing } = await supabase
+            .from('site_visit_feedback')
+            .select('id')
+            .eq('visit_id', payload.visit_id)
+            .maybeSingle();
+
+          if (existing) {
+            const { data, error } = await supabase
+              .from('site_visit_feedback')
+              .update(payload)
+              .eq('id', existing.id)
+              .select()
+              .single();
+
+            if (!error && data) {
+              const updated = { id: Number(data.id), ...feedback } as VisitFeedback;
+              const all = getLocal<VisitFeedback[]>('feedbacks', []);
+              setLocal('feedbacks', all.map(f => f.id === updated.id || f.visit_id === updated.visit_id ? updated : f));
+              return updated;
+            }
+          }
+        }
+
         const { data, error } = await supabase
           .from('site_visit_feedback')
-          .insert([{
-            visit_id: feedback.visit_id,
-            interest_level: feedback.interest_level || 'Warm',
-            customer_feedback: feedback.customer_feedback || '',
-            requirements: feedback.requirements,
-            budget: feedback.budget,
-            preferred_configuration: feedback.preferred_configuration,
-            timeline: feedback.timeline,
-            next_action: feedback.next_action,
-            photos: feedback.photos
-          }])
+          .insert([payload])
           .select()
           .single();
 
         if (!error && data) {
           const newF = { id: Number(data.id), ...feedback } as VisitFeedback;
           const all = getLocal<VisitFeedback[]>('feedbacks', []);
-          setLocal('feedbacks', [newF, ...all]);
+          setLocal('feedbacks', [newF, ...all.filter(f => f.id !== newF.id && f.visit_id !== newF.visit_id)]);
           return newF;
         }
-      } catch {}
+      } catch (e) {
+        console.warn('Supabase feedback insert warning:', e);
+      }
 
       const all = getLocal<VisitFeedback[]>('feedbacks', []);
       const newF: VisitFeedback = {
@@ -1087,12 +1318,22 @@ export const supabaseService = {
         next_action: feedback.next_action,
         created_at: new Date().toISOString()
       };
-      setLocal('feedbacks', [newF, ...all]);
+      setLocal('feedbacks', [newF, ...all.filter(f => f.visit_id !== newF.visit_id)]);
       return newF;
     },
 
     async delete(id: number): Promise<void> {
       try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const headers: Record<string, string> = {};
+        if (session?.access_token) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
+        await fetch(`/api/feedbacks/${id}`, {
+          method: 'DELETE',
+          headers
+        }).catch(() => {});
+
         await supabase.from('site_visit_feedback').delete().eq('id', id);
       } catch {}
       const all = getLocal<VisitFeedback[]>('feedbacks', []);
@@ -1103,6 +1344,31 @@ export const supabaseService = {
   // --- INVOICES ---
   invoices: {
     async getAll(): Promise<Invoice[]> {
+      // 1. Try server endpoint
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const headers: Record<string, string> = {};
+        if (session?.access_token) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
+        const res = await fetch('/api/invoices', { headers });
+        if (res.ok) {
+          const apiData = await res.json();
+          if (Array.isArray(apiData) && apiData.length > 0) {
+            const mapped = apiData.map((inv: any) => ({
+              ...inv,
+              id: Number(inv.id),
+              items: safeJsonParse<any[]>(inv.items, Array.isArray(inv.items) ? inv.items : [])
+            }));
+            setLocal('invoices', mapped);
+            return mapped;
+          }
+        }
+      } catch (err) {
+        console.warn('API invoices fetch warning:', err);
+      }
+
+      // 2. Direct Supabase query
       try {
         const { data, error } = await supabase
           .from('invoices')
@@ -1163,6 +1429,17 @@ export const supabaseService = {
       };
 
       try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (session?.access_token) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
+        await fetch('/api/invoices', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload)
+        }).catch(() => {});
+
         const { data, error } = await supabase
           .from('invoices')
           .insert([payload])
@@ -1218,6 +1495,17 @@ export const supabaseService = {
       if (updates.items) payload.items = JSON.stringify(updates.items);
 
       try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (session?.access_token) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
+        await fetch(`/api/invoices/${id}`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify(payload)
+        }).catch(() => {});
+
         await supabase.from('invoices').update(payload).eq('id', id);
       } catch {}
 
@@ -1227,6 +1515,16 @@ export const supabaseService = {
 
     async delete(id: number): Promise<void> {
       try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const headers: Record<string, string> = {};
+        if (session?.access_token) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
+        await fetch(`/api/invoices/${id}`, {
+          method: 'DELETE',
+          headers
+        }).catch(() => {});
+
         await supabase.from('invoices').delete().eq('id', id);
       } catch {}
       const all = getLocal<Invoice[]>('invoices', []);

@@ -83,7 +83,6 @@ export default function Dashboard() {
   });
 
   const fetchDashboardStats = async (isManual = false) => {
-    if (!token) return;
     if (isManual) setRefreshing(true);
 
     try {
@@ -112,18 +111,18 @@ export default function Dashboard() {
   // Initial fetch
   useEffect(() => {
     fetchDashboardStats();
-  }, [token]);
+  }, [token, user]);
 
-  // Live polling interval every 5 seconds if autoRefresh is enabled
+  // Live polling interval every 8 seconds if autoRefresh is enabled
   useEffect(() => {
-    if (!autoRefresh || !token) return;
+    if (!autoRefresh) return;
 
     const interval = setInterval(() => {
       fetchDashboardStats();
-    }, 5000);
+    }, 8000);
 
     return () => clearInterval(interval);
-  }, [autoRefresh, token]);
+  }, [autoRefresh, token, user]);
 
   if (user?.role === 'AGENT') {
     return (

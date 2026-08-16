@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAppStore } from '../../store/index.js';
 import { VisitFeedback } from '../../types.js';
 import { formatINR } from '../../utils/currency.js';
+import { supabaseService } from '../../services/supabaseService.js';
 import { 
   Flame, 
   Search, 
@@ -41,15 +42,30 @@ export default function Feedback() {
   const fetchFeedbacks = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/feedbacks', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
+      // 1. Fetch through supabaseService (includes backend API + direct Supabase cloud query with joins)
+      const data = await supabaseService.feedbacks.getAll();
+      if (Array.isArray(data) && data.length > 0) {
         setFeedbacks(data);
+      } else {
+        // Fallback to API endpoint
+        const res = await fetch('/api/feedbacks', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const apiData = await res.json();
+          setFeedbacks(apiData || []);
+        } else {
+          setFeedbacks(data || []);
+        }
       }
     } catch (err) {
       console.error('Error fetching feedbacks:', err);
+      try {
+        const localData = await supabaseService.feedbacks.getAll();
+        setFeedbacks(localData || []);
+      } catch {
+        setFeedbacks([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -59,16 +75,12 @@ export default function Feedback() {
     if (!window.confirm('Are you sure you want to delete this feedback review?')) return;
     setIsDeleting(true);
     try {
-      const res = await fetch(`/api/feedbacks/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        setSelectedFeedback(null);
-        fetchFeedbacks();
-      }
+      await supabaseService.feedbacks.delete(id);
+      setSelectedFeedback(null);
+      await fetchFeedbacks();
     } catch (err) {
       console.error('Error deleting feedback:', err);
+      alert('Error deleting feedback review.');
     } finally {
       setIsDeleting(false);
     }

@@ -87,7 +87,7 @@ export default function Leads() {
 
   useEffect(() => {
     fetchData();
-  }, [token]);
+  }, [token, user]);
 
   const openEditModal = (lead: Lead) => {
     setEditingLead(lead);

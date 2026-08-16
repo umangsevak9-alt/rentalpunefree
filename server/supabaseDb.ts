@@ -256,7 +256,14 @@ export const supabaseDb = {
     // Filter by agent if role is AGENT
     if (userRole === 'AGENT' && userId) {
       const cleanUserId = String(userId);
-      visits = visits.filter(v => String(v.agent_id) === cleanUserId);
+      visits = visits.filter(v => {
+        if (String(v.agent_id) === cleanUserId) return true;
+        const matchingProfile = profiles.find(p => String(p.id) === cleanUserId || String(p.user_id) === cleanUserId);
+        if (matchingProfile) {
+          return String(v.agent_id) === String(matchingProfile.id) || String(v.agent_id) === String(matchingProfile.user_id);
+        }
+        return false;
+      });
     }
 
     // Perform In-Memory Join
@@ -422,8 +429,8 @@ export const supabaseDb = {
     const supabase = getClient();
     const payload = {
       visit_id: f.visit_id ? Number(f.visit_id) : null,
-      interest_level: f.interest_level,
-      customer_feedback: f.customer_feedback,
+      interest_level: f.interest_level || 'Warm',
+      customer_feedback: f.customer_feedback || '',
       requirements: f.requirements || '',
       budget: f.budget ? Number(f.budget) : null,
       preferred_configuration: f.preferred_configuration || '2 BHK',
@@ -431,6 +438,25 @@ export const supabaseDb = {
       next_action: f.next_action || '',
       photos: typeof f.photos === 'string' ? f.photos : JSON.stringify(f.photos || [])
     };
+
+    if (payload.visit_id) {
+      const { data: existing } = await supabase
+        .from('site_visit_feedback')
+        .select('id')
+        .eq('visit_id', payload.visit_id)
+        .maybeSingle();
+
+      if (existing) {
+        const { data, error } = await supabase
+          .from('site_visit_feedback')
+          .update(payload)
+          .eq('id', existing.id)
+          .select()
+          .single();
+        if (!error && data) return data;
+      }
+    }
+
     return executeWithInsertRetry<any>(async () => 
       await supabase.from('site_visit_feedback').insert([payload]).select().single()
     );

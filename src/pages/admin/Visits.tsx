@@ -73,6 +73,8 @@ export default function Visits() {
   // Feedback modal state
   const [selectedVisitId, setSelectedVisitId] = useState<number | null>(null);
   const [viewingFeedbackVisit, setViewingFeedbackVisit] = useState<Visit | null>(null);
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
   const [feedbackForm, setFeedbackForm] = useState({ 
     interest_level: 'Hot', 
     customer_feedback: '', 
@@ -198,12 +200,17 @@ export default function Visits() {
   const handleFeedbackSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedVisitId) return;
+    setIsSubmittingFeedback(true);
+    setFeedbackError(null);
     try {
       await supabaseService.visits.submitFeedback(selectedVisitId, feedbackForm);
       setSelectedVisitId(null);
-      fetchData();
-    } catch (err) {
+      await fetchData();
+    } catch (err: any) {
       console.error('Error submitting feedback:', err);
+      setFeedbackError(err?.message || 'Failed to submit feedback. Please try again.');
+    } finally {
+      setIsSubmittingFeedback(false);
     }
   };
 
@@ -1132,15 +1139,28 @@ export default function Visits() {
                     placeholder="e.g. Follow up on Monday with floor plans" 
                   />
                 </div>
+                {feedbackError && (
+                  <div className="p-3 bg-red-950/80 border border-red-800 text-red-300 rounded-xl text-xs">
+                    {feedbackError}
+                  </div>
+                )}
               </form>
             </div>
             <div className="p-6 border-t border-neutral-800 bg-black flex justify-end">
               <button 
                 form="feedbackForm" 
                 type="submit" 
-                className="px-6 py-2 bg-[#d4a359] hover:bg-[#e5b364] text-[#080f1a] font-bold rounded-lg transition-colors shadow-md shadow-[#d4a359]/20 cursor-pointer"
+                disabled={isSubmittingFeedback}
+                className="px-6 py-2 bg-[#d4a359] hover:bg-[#e5b364] text-[#080f1a] font-bold rounded-lg transition-colors shadow-md shadow-[#d4a359]/20 cursor-pointer disabled:opacity-50 flex items-center space-x-2"
               >
-                Submit Feedback
+                {isSubmittingFeedback ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Saving to Supabase...</span>
+                  </>
+                ) : (
+                  <span>Submit Feedback</span>
+                )}
               </button>
             </div>
           </div>
