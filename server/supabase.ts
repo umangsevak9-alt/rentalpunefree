@@ -372,6 +372,8 @@ export async function createAuthAgentUser(agentData: {
 
   const cleanEmail = agentData.email.trim().toLowerCase();
   const cleanPassword = agentData.password || 'PuneRental@2025';
+  const shortNum = Math.floor(1000 + Math.random() * 9000);
+  const formattedAgentId = `AGENT-${shortNum}`;
   let authUserId = `agent_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   let authUser: any = null;
 
@@ -386,6 +388,7 @@ export async function createAuthAgentUser(agentData: {
           name: agentData.name,
           phone: agentData.phone || '',
           role: 'agent',
+          agent_id: formattedAgentId,
           notes: agentData.notes || ''
         }
       });
@@ -409,6 +412,7 @@ export async function createAuthAgentUser(agentData: {
               name: agentData.name,
               phone: agentData.phone || '',
               role: 'agent',
+              agent_id: formattedAgentId,
               notes: agentData.notes || ''
             }
           }
@@ -459,10 +463,12 @@ export async function createAuthAgentUser(agentData: {
     const finalUser = {
       id: authUserId,
       user_id: authUserId,
+      agent_id: formattedAgentId,
       name: agentData.name,
       email: cleanEmail,
       phone: agentData.phone || '',
       role: 'AGENT',
+      status: 'ACTIVE',
       notes: agentData.notes || '',
       created_at: authUser?.created_at || new Date().toISOString()
     };

@@ -1,6 +1,7 @@
 export type User = {
   id: string | number;
   user_id?: string;
+  agent_id?: string;
   name: string;
   email: string;
   phone?: string;
@@ -8,6 +9,8 @@ export type User = {
   permissions?: string;
   notes?: string;
   avatar_url?: string;
+  status?: string;
+  last_login?: string;
   created_at?: string;
 };
 

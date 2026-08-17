@@ -597,13 +597,18 @@ export const supabaseService = {
           if (Array.isArray(data) && data.length > 0) {
             for (const u of data) {
               const key = String(u.email || u.id || '').toLowerCase();
+              const idVal = u.id || u.user_id;
+              const agentId = u.agent_id || `AGENT-${typeof idVal === 'string' ? idVal.substring(idVal.length - 4) : idVal}`;
               agentMap.set(key, {
-                id: u.id || u.user_id,
+                id: idVal,
                 user_id: u.user_id || u.id,
+                agent_id: agentId,
                 name: u.name || 'Agent',
                 email: u.email || '',
                 phone: u.phone || '',
                 role: 'AGENT' as const,
+                status: u.status || 'ACTIVE',
+                last_login: u.last_login || null,
                 notes: u.notes || '',
                 permissions: u.permissions || '',
                 created_at: u.created_at
@@ -628,13 +633,18 @@ export const supabaseService = {
             if (r === 'agent' || r === 'field_agent' || r === 'sub_admin' || (!r.includes('admin') && p.email)) {
               const key = String(p.email || p.id || '').toLowerCase();
               if (!agentMap.has(key)) {
+                const idVal = p.id || p.user_id;
+                const agentId = p.agent_id || `AGENT-${typeof idVal === 'string' ? idVal.substring(idVal.length - 4) : idVal}`;
                 agentMap.set(key, {
-                  id: p.id || p.user_id,
+                  id: idVal,
                   user_id: p.user_id || p.id,
+                  agent_id: agentId,
                   name: p.name || 'Agent',
                   email: p.email || '',
                   phone: p.phone || '',
                   role: 'AGENT' as const,
+                  status: p.status || 'ACTIVE',
+                  last_login: p.last_login || null,
                   notes: p.notes,
                   permissions: p.permissions,
                   created_at: p.created_at
@@ -660,13 +670,18 @@ export const supabaseService = {
             if (r === 'agent' || r === 'field_agent' || (!r.includes('admin') && u.email)) {
               const key = String(u.email || u.id || '').toLowerCase();
               if (!agentMap.has(key)) {
+                const idVal = u.id;
+                const agentId = u.agent_id || `AGENT-${typeof idVal === 'string' ? idVal.substring(idVal.length - 4) : idVal}`;
                 agentMap.set(key, {
-                  id: u.id,
+                  id: idVal,
                   user_id: u.id,
+                  agent_id: agentId,
                   name: u.name || 'Agent',
                   email: u.email || '',
                   phone: u.phone || '',
                   role: 'AGENT' as const,
+                  status: u.status || 'ACTIVE',
+                  last_login: u.last_login || null,
                   notes: u.notes,
                   permissions: u.permissions,
                   created_at: u.created_at

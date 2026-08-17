@@ -1052,15 +1052,20 @@ export const supabaseDb = {
       }
       const key = email || String(a.id || a.user_id || '').toLowerCase();
       if (key) {
+        const idVal = a.id || a.user_id;
+        const agentId = a.agent_id || `AGENT-${typeof idVal === 'string' ? idVal.substring(idVal.length - 4) : idVal}`;
         map.set(key, {
-          id: a.id || a.user_id,
+          id: idVal,
           user_id: a.user_id || a.id,
+          agent_id: agentId,
           name: a.name || (email ? email.split('@')[0] : 'Agent'),
           email: a.email || '',
           phone: a.phone || '',
           role: 'AGENT',
+          status: a.status || 'ACTIVE',
           notes: a.notes || '',
           permissions: a.permissions || '',
+          last_login: a.last_login || null,
           created_at: a.created_at || new Date().toISOString()
         });
       }
@@ -1081,15 +1086,20 @@ export const supabaseDb = {
             const key = email || String(p.id || p.user_id || '').toLowerCase();
             if (key) {
               const existing = map.get(key) || {};
+              const idVal = p.id || p.user_id || existing.id;
+              const agentId = p.agent_id || existing.agent_id || `AGENT-${typeof idVal === 'string' ? idVal.substring(idVal.length - 4) : idVal}`;
               map.set(key, {
-                id: p.id || p.user_id || existing.id,
+                id: idVal,
                 user_id: p.user_id || p.id || existing.user_id,
+                agent_id: agentId,
                 name: p.name || existing.name || (email ? email.split('@')[0] : 'Agent'),
                 email: p.email || existing.email || '',
                 phone: p.phone || existing.phone || '',
                 role: 'AGENT',
+                status: p.status || existing.status || 'ACTIVE',
                 notes: p.notes || existing.notes || '',
                 permissions: p.permissions || existing.permissions || '',
+                last_login: p.last_login || existing.last_login || null,
                 created_at: p.created_at || existing.created_at || new Date().toISOString()
               });
             }
@@ -1115,15 +1125,20 @@ export const supabaseDb = {
             const key = email || String(u.id || '').toLowerCase();
             if (key) {
               const existing = map.get(key) || {};
+              const idVal = u.id || existing.id;
+              const agentId = u.agent_id || existing.agent_id || `AGENT-${typeof idVal === 'string' ? idVal.substring(idVal.length - 4) : idVal}`;
               map.set(key, {
-                id: u.id || existing.id,
+                id: idVal,
                 user_id: u.id || existing.user_id,
+                agent_id: agentId,
                 name: u.name || existing.name || (email ? email.split('@')[0] : 'Agent'),
                 email: u.email || existing.email || '',
                 phone: u.phone || existing.phone || '',
                 role: 'AGENT',
+                status: u.status || existing.status || 'ACTIVE',
                 notes: u.notes || existing.notes || '',
                 permissions: u.permissions || existing.permissions || '',
+                last_login: u.last_login || existing.last_login || null,
                 created_at: u.created_at || existing.created_at || new Date().toISOString()
               });
             }
@@ -1149,15 +1164,20 @@ export const supabaseDb = {
             const key = email || String(u.id || '').toLowerCase();
             if (key) {
               const existing = map.get(key) || {};
+              const idVal = u.id || existing.id;
+              const agentId = u.user_metadata?.agent_id || existing.agent_id || `AGENT-${typeof idVal === 'string' ? idVal.substring(idVal.length - 4) : idVal}`;
               map.set(key, {
-                id: u.id || existing.id,
+                id: idVal,
                 user_id: u.id || existing.user_id,
+                agent_id: agentId,
                 name: u.user_metadata?.name || existing.name || (email ? email.split('@')[0] : 'Agent'),
                 email: u.email || existing.email || '',
                 phone: u.user_metadata?.phone || existing.phone || '',
                 role: 'AGENT',
+                status: 'ACTIVE',
                 notes: u.user_metadata?.notes || existing.notes || '',
                 permissions: existing.permissions || '',
+                last_login: u.last_sign_in_at || existing.last_login || null,
                 created_at: u.created_at || existing.created_at || new Date().toISOString()
               });
             }
@@ -1171,7 +1191,7 @@ export const supabaseDb = {
     return result;
   },
 
-  async recordAgentLogin(userData: { id?: string | number; email: string; name?: string; phone?: string; role?: string; notes?: string }): Promise<void> {
+  async recordAgentLogin(userData: { id?: string | number; email: string; name?: string; phone?: string; role?: string; notes?: string; agent_id?: string }): Promise<void> {
     if (!userData || !userData.email) return;
     const cleanEmail = userData.email.trim().toLowerCase();
     const role = String(userData.role || '').toLowerCase();
@@ -1180,15 +1200,21 @@ export const supabaseDb = {
     const currentAgents = loadJsonFile<any[]>(AGENTS_FILE, DEFAULT_AGENTS);
     const existingIndex = currentAgents.findIndex(a => (a.email || '').toLowerCase() === cleanEmail);
     
+    const existing = existingIndex >= 0 ? currentAgents[existingIndex] : null;
+    const idVal = userData.id || (existing ? existing.id : `agent-${Date.now()}`);
+    const agentId = userData.agent_id || existing?.agent_id || `AGENT-${typeof idVal === 'string' ? idVal.substring(idVal.length - 4) : idVal}`;
+
     const updatedAgent = {
-      id: userData.id || (existingIndex >= 0 ? currentAgents[existingIndex].id : `agent-${Date.now()}`),
-      user_id: userData.id || (existingIndex >= 0 ? currentAgents[existingIndex].user_id : `agent-${Date.now()}`),
-      name: userData.name || (existingIndex >= 0 ? currentAgents[existingIndex].name : cleanEmail.split('@')[0]),
+      id: idVal,
+      user_id: userData.id || (existing ? existing.user_id : idVal),
+      agent_id: agentId,
+      name: userData.name || (existing ? existing.name : cleanEmail.split('@')[0]),
       email: cleanEmail,
-      phone: userData.phone || (existingIndex >= 0 ? currentAgents[existingIndex].phone : ''),
+      phone: userData.phone || (existing ? existing.phone : ''),
       role: 'AGENT',
-      notes: userData.notes || (existingIndex >= 0 ? currentAgents[existingIndex].notes : 'Registered field agent'),
-      created_at: existingIndex >= 0 ? currentAgents[existingIndex].created_at : new Date().toISOString(),
+      status: 'ACTIVE',
+      notes: userData.notes || (existing ? existing.notes : 'Registered field agent'),
+      created_at: existing ? existing.created_at : new Date().toISOString(),
       last_login: new Date().toISOString()
     };
 

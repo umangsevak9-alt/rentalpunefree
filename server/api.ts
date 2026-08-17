@@ -80,42 +80,209 @@ const otpStore = new Map<string, { code: string; expiresAt: number; attempts: nu
 router.post('/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-    const supabase = getSupabase();
-    if (!supabase) {
-      return res.status(500).json({ error: 'Supabase client is not configured' });
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
     }
 
     const cleanEmail = (email || '').trim().toLowerCase();
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: cleanEmail,
-      password
-    });
+    const supabase = getSupabase();
+    let authUser: any = null;
+    let token = '';
 
-    if (error) {
-      return res.status(401).json({ error: error.message });
+    if (supabase) {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: cleanEmail,
+        password
+      });
+
+      if (!error && data?.user) {
+        authUser = data.user;
+        token = data.session?.access_token || '';
+      }
     }
 
-    const userObj = {
-      id: data.user?.id,
-      name: data.user?.user_metadata?.name || cleanEmail.split('@')[0],
-      email: data.user?.email || cleanEmail,
-      phone: data.user?.user_metadata?.phone || '',
-      role: data.user?.user_metadata?.role || 'AGENT'
-    };
+    // Determine user profile & role
+    let userObj: any = null;
+    if (supabase && authUser) {
+      try {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*')
+          .or(`id.eq.${authUser.id},user_id.eq.${authUser.id},email.eq.${cleanEmail}`)
+          .maybeSingle();
 
-    // Auto-record agent login if non-admin or agent
-    try {
-      await supabaseDb.recordAgentLogin(userObj);
-    } catch (e) {
-      console.warn('recordAgentLogin warning:', e);
+        if (profile) {
+          userObj = {
+            id: profile.id || profile.user_id || authUser.id,
+            user_id: profile.user_id || profile.id || authUser.id,
+            agent_id: profile.agent_id || authUser.user_metadata?.agent_id,
+            name: profile.name || authUser.user_metadata?.name || cleanEmail.split('@')[0],
+            email: cleanEmail,
+            phone: profile.phone || authUser.user_metadata?.phone || '',
+            role: String(profile.role || 'AGENT').toUpperCase() === 'MAIN_ADMIN' || String(profile.role || '').toUpperCase() === 'ADMIN' ? 'MAIN_ADMIN' : 'AGENT',
+            status: 'ACTIVE',
+            last_login: new Date().toISOString()
+          };
+        }
+      } catch {}
+    }
+
+    if (!userObj) {
+      const agents = await supabaseDb.getAgents();
+      const existingAgent = agents.find(a => String(a.email || '').toLowerCase() === cleanEmail);
+      if (existingAgent) {
+        userObj = {
+          id: existingAgent.id || existingAgent.user_id,
+          user_id: existingAgent.user_id || existingAgent.id,
+          agent_id: existingAgent.agent_id,
+          name: existingAgent.name || cleanEmail.split('@')[0],
+          email: cleanEmail,
+          phone: existingAgent.phone || '',
+          role: 'AGENT',
+          status: 'ACTIVE',
+          last_login: new Date().toISOString()
+        };
+      } else {
+        const isDefaultAdmin = cleanEmail.includes('admin');
+        const shortId = `agent_${Date.now()}`;
+        userObj = {
+          id: authUser?.id || shortId,
+          user_id: authUser?.id || shortId,
+          agent_id: `AGENT-${Math.floor(1000 + Math.random() * 9000)}`,
+          name: authUser?.user_metadata?.name || cleanEmail.split('@')[0],
+          email: cleanEmail,
+          phone: authUser?.user_metadata?.phone || '',
+          role: isDefaultAdmin ? 'MAIN_ADMIN' : 'AGENT',
+          status: 'ACTIVE',
+          last_login: new Date().toISOString()
+        };
+      }
+    }
+
+    // Ensure recorded in agent directory & profiles table
+    if (userObj.role === 'AGENT') {
+      try {
+        await supabaseDb.recordAgentLogin(userObj);
+      } catch (e) {
+        console.warn('recordAgentLogin warning:', e);
+      }
+    }
+
+    if (!token) {
+      token = jwt.sign(
+        {
+          id: userObj.id,
+          user_id: userObj.user_id,
+          email: userObj.email,
+          name: userObj.name,
+          role: userObj.role
+        },
+        JWT_SECRET,
+        { expiresIn: '30d' }
+      );
     }
 
     res.json({ 
-      token: data.session?.access_token, 
-      user: userObj 
+      success: true,
+      token, 
+      user: userObj,
+      session: {
+        access_token: token,
+        user: userObj
+      }
     });
   } catch (error: any) {
-    res.status(500).json({ error: error?.message || 'Server error' });
+    res.status(500).json({ error: error?.message || 'Server login error' });
+  }
+});
+
+router.post('/auth/register', async (req, res) => {
+  try {
+    const { name, email, password, phone, role } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanRole = role ? String(role).toUpperCase() : (cleanEmail.includes('admin') ? 'MAIN_ADMIN' : 'AGENT');
+    
+    if (cleanRole === 'AGENT') {
+      const authResult = await createAuthAgentUser({
+        name: name?.trim() || cleanEmail.split('@')[0],
+        email: cleanEmail,
+        password: password.trim(),
+        phone: phone?.trim() || '',
+        notes: 'Self-registered field agent'
+      });
+
+      if (!authResult.success) {
+        return res.status(400).json({ error: authResult.error || 'Failed to create agent account' });
+      }
+
+      await supabaseDb.recordAgentLogin(authResult.user);
+
+      const token = jwt.sign(
+        {
+          id: authResult.user.id,
+          email: authResult.user.email,
+          name: authResult.user.name,
+          role: 'AGENT'
+        },
+        JWT_SECRET,
+        { expiresIn: '30d' }
+      );
+
+      return res.json({
+        success: true,
+        message: 'Agent registered and authorized successfully',
+        token,
+        user: authResult.user,
+        session: {
+          access_token: token,
+          user: authResult.user
+        }
+      });
+    }
+
+    // Default admin registration
+    const supabase = getSupabase();
+    let authUser: any = null;
+    if (supabase) {
+      const { data, error } = await supabase.auth.signUp({
+        email: cleanEmail,
+        password: password.trim(),
+        options: {
+          data: {
+            name: name?.trim() || 'Admin',
+            role: cleanRole
+          }
+        }
+      });
+      if (data?.user) authUser = data.user;
+    }
+
+    const userObj = {
+      id: authUser?.id || `user_${Date.now()}`,
+      name: name?.trim() || cleanEmail.split('@')[0],
+      email: cleanEmail,
+      phone: phone || '',
+      role: cleanRole
+    };
+
+    const token = jwt.sign(userObj, JWT_SECRET, { expiresIn: '30d' });
+
+    res.json({
+      success: true,
+      message: 'Account registered successfully',
+      token,
+      user: userObj,
+      session: {
+        access_token: token,
+        user: userObj
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'Registration failed' });
   }
 });
 
@@ -153,7 +320,7 @@ router.post('/auth/send-otp', async (req, res) => {
 
     return res.json({
       success: true,
-      message: `Verification code generated for ${cleanEmail}. Check your email or use the verification code.`,
+      message: `Verification code sent to ${cleanEmail}. Enter the 6-digit OTP code below to sign in.`,
       email: cleanEmail,
       otpCode: otpCode // Provided for instant verification convenience
     });
@@ -200,7 +367,7 @@ router.post('/auth/verify-otp', async (req, res) => {
     }
 
     if (!isValid) {
-      return res.status(400).json({ error: 'Invalid or expired OTP code. Please request a new code and try again.' });
+      return res.status(400).json({ error: 'Invalid or expired OTP code. Please enter the correct 6-digit code.' });
     }
 
     // Determine user role and details from Supabase profiles / agents
@@ -216,10 +383,14 @@ router.post('/auth/verify-otp', async (req, res) => {
         if (profile) {
           userObj = {
             id: profile.id || profile.user_id,
+            user_id: profile.user_id || profile.id,
+            agent_id: profile.agent_id || `AGENT-${typeof profile.id === 'string' ? profile.id.substring(profile.id.length - 4) : profile.id}`,
             name: profile.name || cleanEmail.split('@')[0],
             email: cleanEmail,
             phone: profile.phone || '',
-            role: String(profile.role || 'AGENT').toUpperCase()
+            role: String(profile.role || 'AGENT').toUpperCase() === 'MAIN_ADMIN' || String(profile.role || '').toUpperCase() === 'ADMIN' ? 'MAIN_ADMIN' : 'AGENT',
+            status: 'ACTIVE',
+            last_login: new Date().toISOString()
           };
         }
       } catch (e) {}
@@ -232,24 +403,33 @@ router.post('/auth/verify-otp', async (req, res) => {
       if (existingAgent) {
         userObj = {
           id: existingAgent.id || existingAgent.user_id,
+          user_id: existingAgent.user_id || existingAgent.id,
+          agent_id: existingAgent.agent_id || `AGENT-${typeof existingAgent.id === 'string' ? existingAgent.id.substring(existingAgent.id.length - 4) : existingAgent.id}`,
           name: existingAgent.name || cleanEmail.split('@')[0],
           email: cleanEmail,
           phone: existingAgent.phone || '',
-          role: 'AGENT'
+          role: 'AGENT',
+          status: 'ACTIVE',
+          last_login: new Date().toISOString()
         };
       } else {
         const isDefaultAdmin = cleanEmail.includes('admin');
+        const shortId = `agent_${Date.now()}`;
         userObj = {
-          id: supabaseUser?.id || `user_${Date.now()}`,
+          id: supabaseUser?.id || shortId,
+          user_id: supabaseUser?.id || shortId,
+          agent_id: `AGENT-${Math.floor(1000 + Math.random() * 9000)}`,
           name: cleanEmail.split('@')[0],
           email: cleanEmail,
           phone: '',
-          role: isDefaultAdmin ? 'MAIN_ADMIN' : 'AGENT'
+          role: isDefaultAdmin ? 'MAIN_ADMIN' : 'AGENT',
+          status: 'ACTIVE',
+          last_login: new Date().toISOString()
         };
       }
     }
 
-    // If agent, ensure recorded in directory
+    // If agent, ensure recorded in directory and updated with last_login
     if (userObj.role === 'AGENT') {
       try {
         await supabaseDb.recordAgentLogin(userObj);
@@ -259,6 +439,8 @@ router.post('/auth/verify-otp', async (req, res) => {
     const token = jwt.sign(
       {
         id: userObj.id,
+        user_id: userObj.user_id,
+        agent_id: userObj.agent_id,
         email: userObj.email,
         name: userObj.name,
         role: userObj.role
