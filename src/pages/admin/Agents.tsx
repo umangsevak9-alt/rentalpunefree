@@ -63,23 +63,8 @@ export default function Agents() {
     if (showLoading && agents.length === 0) setLoading(true);
     try {
       const data = await supabaseService.agents.getAll();
-      if (Array.isArray(data) && data.length > 0) {
-        setAgents(prev => {
-          const map = new Map<string, User>();
-          // 1. Put incoming data
-          for (const item of data) {
-            const key = (item.email || String(item.id || item.user_id || '')).toLowerCase().trim();
-            if (key) map.set(key, item);
-          }
-          // 2. Keep any optimistic/unsynced items from current state
-          for (const p of prev) {
-            const key = (p.email || String(p.id || p.user_id || '')).toLowerCase().trim();
-            if (key && !map.has(key)) {
-              map.set(key, p);
-            }
-          }
-          return Array.from(map.values());
-        });
+      if (Array.isArray(data)) {
+        setAgents(data);
       }
     } catch (err) {
       console.error('Error fetching agents:', err);

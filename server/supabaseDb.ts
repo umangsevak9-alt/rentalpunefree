@@ -1328,8 +1328,8 @@ export const supabaseDb = {
       updated_at: new Date().toISOString()
     };
 
-    // Update in local file store & Supabase registry
-    const currentAgents = loadJsonFile<any[]>(AGENTS_FILE, DEFAULT_AGENTS);
+    // Update in local file store & Supabase registry using authoritative live list
+    const currentAgents = await this.getAgents();
     const updated = currentAgents.map(a => 
       String(a.id) === String(id) || String(a.user_id) === String(id) ? { ...a, ...payload } : a
     );
@@ -1357,8 +1357,8 @@ export const supabaseDb = {
   },
 
   async deleteAgent(id: any): Promise<boolean> {
-    // Delete from file store & Supabase registry
-    const currentAgents = loadJsonFile<any[]>(AGENTS_FILE, DEFAULT_AGENTS);
+    // Delete from file store & Supabase registry using authoritative live list
+    const currentAgents = await this.getAgents();
     const filtered = currentAgents.filter(a => String(a.id) !== String(id) && String(a.user_id) !== String(id));
     saveJsonFile(AGENTS_FILE, filtered);
 

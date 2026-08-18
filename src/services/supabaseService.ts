@@ -4,21 +4,24 @@ import { useAppStore } from '../store/index.js';
 
 // Retrieve credentials with local storage override capability
 function getSavedSupabaseConfig() {
-  const envUrl = (import.meta as any).env.VITE_SUPABASE_URL || '';
-  const envKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || '';
+  const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || '';
+  const envKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '';
+
+  const defaultUrl = 'https://ddfsfemggwjtryosdgya.supabase.co';
+  const defaultKey = 'sb_publishable_l4em_aFSdxQIpW2gLbShHA_r8Gjpt-j';
 
   if (typeof window !== 'undefined' && window.localStorage) {
     const customUrl = localStorage.getItem('rp_custom_supabase_url');
     const customKey = localStorage.getItem('rp_custom_supabase_anon_key');
-    if (customUrl && customKey) {
+    // If the saved custom key is the old broken eyJ key, discard it
+    if (customKey && customKey.startsWith('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9')) {
+      localStorage.removeItem('rp_custom_supabase_anon_key');
+    } else if (customUrl && customKey) {
       return { url: customUrl.trim(), key: customKey.trim() };
     }
   }
 
-  const defaultUrl = envUrl || 'https://ddfsfemggwjtryosdgya.supabase.co';
-  const defaultKey = envKey || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRkZnNmZW1nZ3dqdHJ5b3NkZ3lhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDIwNDQ5ODIsImV4cCI6MjA1NzYyMDk4Mn0.uHw5_j7Q4E8j5Fh0aWvjYl4K1D9_9H1z6Q6S9lE0I6U';
-
-  return { url: defaultUrl, key: defaultKey };
+  return { url: envUrl || defaultUrl, key: envKey || defaultKey };
 }
 
 const initialConfig = getSavedSupabaseConfig();
@@ -995,6 +998,11 @@ export const supabaseService = {
         }, { onConflict: 'key' });
       } catch (e) {}
 
+      // Refresh authoritative multi-device list
+      try {
+        await supabaseService.agents.getAll();
+      } catch (e) {}
+
       notifyUpdate('agents', createdAgent);
       return createdAgent;
     },
@@ -1036,6 +1044,11 @@ export const supabaseService = {
         }, { onConflict: 'key' });
       } catch (e) {}
 
+      // Refresh authoritative multi-device list
+      try {
+        await supabaseService.agents.getAll();
+      } catch (e) {}
+
       notifyUpdate('agents', updated);
       return updated.find(a => String(a.id) === String(id) || String(a.user_id) === String(id)) || (updates as User);
     },
@@ -1065,6 +1078,11 @@ export const supabaseService = {
           key: 'agents_registry',
           value: JSON.stringify(remaining)
         }, { onConflict: 'key' });
+      } catch (e) {}
+
+      // Refresh authoritative multi-device list
+      try {
+        await supabaseService.agents.getAll();
       } catch (e) {}
 
       notifyUpdate('agents', remaining);
