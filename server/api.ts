@@ -1177,7 +1177,7 @@ router.post('/leads/bulk-delete', authenticate, requireAdmin, async (req, res) =
 });
 
 // --- AGENTS (Users & Field Agents) ---
-router.get(['/agents', '/admin/agents'], async (req, res) => {
+router.get(['/agents', '/admin/agents', '/admin/users', '/users'], async (req, res) => {
   try {
     const agents = await supabaseDb.getAgents();
     res.json(agents);
@@ -1186,7 +1186,29 @@ router.get(['/agents', '/admin/agents'], async (req, res) => {
   }
 });
 
-router.post(['/agents', '/admin/create-agent'], async (req, res) => {
+router.post(['/agents/sync', '/admin/agents/sync'], async (req, res) => {
+  try {
+    const agentData = req.body;
+    if (!agentData || !agentData.email) {
+      return res.status(400).json({ error: 'Agent email is required' });
+    }
+    await supabaseDb.recordAgentLogin({
+      id: agentData.id,
+      email: agentData.email,
+      name: agentData.name,
+      phone: agentData.phone,
+      role: 'AGENT',
+      notes: agentData.notes,
+      agent_id: agentData.agent_id
+    });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'Server error syncing agent' });
+  }
+});
+
+router.post(['/agents', '/admin/create-agent', '/admin/agents', '/admin/users'], async (req, res) => {
+  console.log('[API CREATE AGENT] Received request:', req.body);
   try {
     const { name, email, password, phone, notes } = req.body;
     if (!name || !email || !password) {
@@ -1204,13 +1226,16 @@ router.post(['/agents', '/admin/create-agent'], async (req, res) => {
       notes: notes?.trim() || ''
     });
 
+    console.log('[API CREATE AGENT] authResult:', authResult);
+
     if (!authResult.success) {
       return res.status(400).json({ error: authResult.error || 'Failed to create agent in Supabase Auth' });
     }
 
     // 2. Persist to server data/agents.json & profiles for instant cross-device visibility
-    await supabaseDb.recordAgentLogin({
+    const persistedAgent = await supabaseDb.createAgent({
       id: authResult.user.id,
+      agent_id: authResult.user.agent_id,
       email: cleanEmail,
       name: name.trim(),
       phone: phone?.trim() || '',
@@ -1218,10 +1243,12 @@ router.post(['/agents', '/admin/create-agent'], async (req, res) => {
       notes: notes?.trim() || ''
     });
 
+    console.log('[API CREATE AGENT] agent persisted successfully:', persistedAgent);
+
     return res.status(201).json({
       success: true,
       message: 'Agent account created successfully in Supabase Auth',
-      agent: authResult.user
+      agent: persistedAgent || authResult.user
     });
   } catch (err: any) {
     console.error('Error creating agent:', err);

@@ -59,22 +59,37 @@ export default function Agents() {
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  const fetchAgents = async (showLoading = true) => {
-    if (showLoading) setLoading(true);
+  const fetchAgents = async (showLoading = false) => {
+    if (showLoading && agents.length === 0) setLoading(true);
     try {
       const data = await supabaseService.agents.getAll();
-      if (Array.isArray(data)) {
-        setAgents(data);
+      if (Array.isArray(data) && data.length > 0) {
+        setAgents(prev => {
+          const map = new Map<string, User>();
+          // 1. Put incoming data
+          for (const item of data) {
+            const key = (item.email || String(item.id || item.user_id || '')).toLowerCase().trim();
+            if (key) map.set(key, item);
+          }
+          // 2. Keep any optimistic/unsynced items from current state
+          for (const p of prev) {
+            const key = (p.email || String(p.id || p.user_id || '')).toLowerCase().trim();
+            if (key && !map.has(key)) {
+              map.set(key, p);
+            }
+          }
+          return Array.from(map.values());
+        });
       }
     } catch (err) {
       console.error('Error fetching agents:', err);
     } finally {
-      if (showLoading) setLoading(false);
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchAgents(true);
+    fetchAgents(agents.length === 0);
 
     // 1. Instant window event & storage listener
     const handleUpdate = () => {
@@ -83,16 +98,21 @@ export default function Agents() {
     window.addEventListener('agents_updated', handleUpdate);
     window.addEventListener('storage', handleUpdate);
 
-    // 2. Real-time background sync polling every 3 seconds
+    // 2. Background sync polling every 10 seconds
     const interval = setInterval(() => {
-      fetchAgents(false);
-    }, 3000);
+      if (document.visibilityState === 'visible') {
+        fetchAgents(false);
+      }
+    }, 10000);
 
     // 3. Supabase Realtime channel subscription
     let channel: any = null;
     try {
       channel = supabase
         .channel('agents-realtime')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, () => {
+          fetchAgents(false);
+        })
         .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
           fetchAgents(false);
         })
@@ -112,7 +132,7 @@ export default function Agents() {
         supabase.removeChannel(channel).catch(() => {});
       }
     };
-  }, [token, currentUser]);
+  }, []);
 
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -131,7 +151,9 @@ export default function Agents() {
       notes: formData.notes,
       created_at: new Date().toISOString()
     };
-    setAgents(prev => [tempAgent, ...prev]);
+    
+    // Add immediately to UI
+    setAgents(prev => [tempAgent, ...prev.filter(a => (a.email || '').toLowerCase() !== tempAgent.email)]);
 
     try {
       const created = await supabaseService.agents.create(formData);
@@ -139,7 +161,7 @@ export default function Agents() {
       
       const savedAgentId = created?.agent_id || (created?.id ? `AGENT-${typeof created.id === 'string' ? created.id.substring(created.id.length - 4) : created.id}` : generatedId);
 
-      // Show the credentials popup so admin can copy the created Agent ID and Password
+      // Show credentials popup so admin can copy the created Agent ID and Password
       setCreatedCredentials({
         name: formData.name,
         email: formData.email.trim().toLowerCase(),
@@ -148,14 +170,17 @@ export default function Agents() {
         phone: formData.phone
       });
 
+      const confirmedAgent: User = {
+        ...(created || tempAgent),
+        agent_id: savedAgentId,
+        status: 'ACTIVE'
+      };
+
       setFormData({ name: '', email: '', password: '', phone: '', notes: '' });
-      if (created) {
-        setAgents(prev => [
-          { ...created, agent_id: savedAgentId, status: 'ACTIVE' },
-          ...prev.filter(a => a.id !== tempAgent.id && a.email !== created.email)
-        ]);
-      }
-      fetchAgents(false);
+      setAgents(prev => [
+        confirmedAgent,
+        ...prev.filter(a => a.id !== tempAgent.id && (a.email || '').toLowerCase() !== confirmedAgent.email)
+      ]);
     } catch (err: any) {
       setAgents(prev => prev.filter(a => a.id !== tempAgent.id));
       setErrorMessage(err?.message || 'Error creating agent account in Supabase Auth.');
@@ -240,7 +265,7 @@ export default function Agents() {
             </span>
           </div>
           <p className="text-sm text-neutral-400 mt-1">
-            Manage field agent credentials, Agent IDs, assign property tours, and control OTP/password logins.
+            Manage field agent credentials, Agent IDs, assign property tours, and control email & password accounts.
           </p>
         </div>
 
@@ -290,7 +315,7 @@ export default function Agents() {
           </div>
           <div className="flex items-center space-x-1.5 px-3 py-1.5 bg-black border border-neutral-800 rounded-lg">
             <KeyRound className="w-3.5 h-3.5 text-red-400" />
-            <span>OTP & Password Enabled</span>
+            <span>Supabase Auth & Password Login</span>
           </div>
         </div>
       </div>
@@ -310,7 +335,7 @@ export default function Agents() {
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-900 text-sm">
-              {loading ? (
+              {loading && agents.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-6 py-12 text-center text-neutral-400 font-medium">
                     <div className="w-6 h-6 border-2 border-red-600 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
@@ -383,7 +408,7 @@ export default function Agents() {
                             </span>
                           </div>
                           <div className="text-[10px] text-neutral-400">
-                            Supabase & OTP Verified
+                            Supabase Cloud Verified
                           </div>
                         </div>
                       </td>
@@ -522,15 +547,15 @@ export default function Agents() {
 
             <div className="p-3 bg-neutral-900/60 rounded-xl border border-neutral-800 text-xs text-neutral-300 space-y-1">
               <span className="font-bold text-white block">ℹ️ How the agent logs in:</span>
-              <p>• The agent can log in on the Login page using their <strong>Email and Password</strong>.</p>
-              <p>• Or the agent can click <strong>"OTP Login"</strong> to receive a 6-digit one-time code to their email.</p>
+              <p>• The agent logs in on the Login page using their <strong>Email and Password</strong>.</p>
+              <p>• If email confirmation is enabled on your Supabase project, they can confirm their email via the link sent to their inbox.</p>
             </div>
 
             <div className="flex items-center justify-between pt-2">
               <button
                 type="button"
                 onClick={() => {
-                  const credsText = `Rental Pune Agent Credentials:\nAgent ID: ${createdCredentials.agent_id}\nName: ${createdCredentials.name}\nEmail: ${createdCredentials.email}\nPassword: ${createdCredentials.password || '(Managed via OTP)'}\nLogin URL: ${window.location.origin}/login`;
+                  const credsText = `Rental Pune Agent Credentials:\nAgent ID: ${createdCredentials.agent_id}\nName: ${createdCredentials.name}\nEmail: ${createdCredentials.email}\nPassword: ${createdCredentials.password || '(Secured)'}\nLogin URL: ${window.location.origin}/login`;
                   copyToClipboard(credsText, 'modal-all');
                 }}
                 className="px-4 py-2 bg-neutral-900 hover:bg-neutral-800 text-white rounded-xl text-xs font-bold border border-neutral-700 flex items-center gap-1.5 cursor-pointer"
@@ -622,7 +647,7 @@ export default function Agents() {
                   placeholder="Min 6 characters"
                   className="w-full px-3.5 py-2.5 bg-black border border-neutral-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-red-600"
                 />
-                <p className="text-[11px] text-neutral-500 mt-1">Managed securely via Supabase Auth. Agent can also log in via OTP.</p>
+                <p className="text-[11px] text-neutral-500 mt-1">Managed securely via Supabase Auth with Email and Password sign-in.</p>
               </div>
 
               <div>

@@ -501,6 +501,7 @@ export const supabaseService = {
     async signUp(email: string, password: string, name: string, role: 'MAIN_ADMIN' | 'ADMIN' | 'AGENT' = 'ADMIN', phone?: string): Promise<{ success: boolean; user?: User; token?: string; session?: any; error?: string }> {
       try {
         const cleanEmail = (email || '').trim().toLowerCase();
+        const roleUpper = (role || 'ADMIN').toUpperCase();
 
         const { data, error } = await supabase.auth.signUp({
           email: cleanEmail,
@@ -508,7 +509,7 @@ export const supabaseService = {
           options: {
             data: {
               name: name,
-              role: role.toLowerCase(),
+              role: roleUpper,
               phone: phone || ''
             }
           }
@@ -527,7 +528,7 @@ export const supabaseService = {
               name: name,
               email: cleanEmail,
               phone: phone || '',
-              role: role.toLowerCase()
+              role: roleUpper
             }]);
           } catch (e) {
             console.warn('Profiles upsert on signup note:', e);
@@ -545,6 +546,28 @@ export const supabaseService = {
         return { success: false, error: 'Failed to create user in Supabase Auth' };
       } catch (err: any) {
         return { success: false, error: err?.message || 'Sign up failed' };
+      }
+    },
+
+    /**
+     * Resend signup confirmation email
+     */
+    async resendConfirmationEmail(email: string): Promise<{ success: boolean; message?: string; error?: string }> {
+      try {
+        const cleanEmail = (email || '').trim().toLowerCase();
+        if (!cleanEmail) {
+          return { success: false, error: 'Email address is required' };
+        }
+        const { error } = await supabase.auth.resend({
+          type: 'signup',
+          email: cleanEmail
+        });
+        if (error) {
+          return { success: false, error: error.message };
+        }
+        return { success: true, message: `Confirmation email resent to ${cleanEmail}. Please check your inbox and spam folder.` };
+      } catch (err: any) {
+        return { success: false, error: err?.message || 'Failed to resend confirmation email' };
       }
     },
 
@@ -580,7 +603,81 @@ export const supabaseService = {
     async getAll(): Promise<User[]> {
       const agentMap = new Map<string, User>();
 
-      // 1. Try fetching from server-side admin endpoint (syncs Cloud Supabase + Auth list + Server JSON)
+      // 0. Always start with cached local agents so newly created agents are never lost during background fetch
+      const localCached = getLocal<User[]>('agents', []);
+      for (const a of localCached) {
+        if (!a) continue;
+        const email = String(a.email || '').toLowerCase().trim();
+        if (email === 'vikram.joshi@rentalpune.com' || email === 'pooja.kulkarni@rentalpune.com' || email === 'rahul.deshmukh@rentalpune.com') {
+          continue;
+        }
+        const key = email || String(a.id || a.user_id || '').toLowerCase();
+        if (key) {
+          const idVal = a.id || a.user_id;
+          const agentId = a.agent_id || `AGENT-${typeof idVal === 'string' ? idVal.substring(idVal.length - 4) : idVal}`;
+          agentMap.set(key, {
+            id: idVal,
+            user_id: a.user_id ? String(a.user_id) : String(a.id),
+            agent_id: agentId,
+            name: a.name || 'Agent',
+            email: a.email || '',
+            phone: a.phone || '',
+            role: 'AGENT' as const,
+            status: a.status || 'ACTIVE',
+            last_login: a.last_login || null,
+            notes: a.notes || '',
+            permissions: a.permissions || '',
+            created_at: a.created_at || new Date().toISOString()
+          });
+        }
+      }
+
+      // 1. Fetch live agents directly from Supabase Cloud settings registry
+      try {
+        const { data: supaSetting, error: supaErr } = await supabase
+          .from('settings')
+          .select('value')
+          .eq('key', 'agents_registry')
+          .maybeSingle();
+
+        if (!supaErr && supaSetting?.value) {
+          try {
+            const parsed = JSON.parse(supaSetting.value);
+            if (Array.isArray(parsed)) {
+              for (const u of parsed) {
+                if (!u) continue;
+                const email = String(u.email || '').toLowerCase().trim();
+                if (email === 'vikram.joshi@rentalpune.com' || email === 'pooja.kulkarni@rentalpune.com' || email === 'rahul.deshmukh@rentalpune.com' || email === 'admin@rentalpune.com' || u.role === 'MAIN_ADMIN' || u.role === 'ADMIN') {
+                  continue;
+                }
+                const key = email || String(u.id || u.user_id || '').toLowerCase();
+                if (key) {
+                  const idVal = u.id || u.user_id;
+                  const agentId = u.agent_id || `AGENT-${typeof idVal === 'string' ? idVal.substring(idVal.length - 4) : idVal}`;
+                  agentMap.set(key, {
+                    id: idVal,
+                    user_id: u.user_id ? String(u.user_id) : String(u.id),
+                    agent_id: agentId,
+                    name: u.name || (email ? email.split('@')[0] : 'Agent'),
+                    email: u.email || '',
+                    phone: u.phone || '',
+                    role: 'AGENT' as const,
+                    status: u.status || 'ACTIVE',
+                    last_login: u.last_login || null,
+                    notes: u.notes || '',
+                    permissions: u.permissions || '',
+                    created_at: u.created_at || new Date().toISOString()
+                  });
+                }
+              }
+            }
+          } catch (parseErr) {}
+        }
+      } catch (err) {
+        console.warn('Supabase settings agents fetch note:', err);
+      }
+
+      // 2. Fetch from server-side admin endpoint (syncs Cloud Supabase + Auth list + Server JSON)
       try {
         const { data: { session } } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }));
         const storeToken = typeof useAppStore !== 'undefined' ? useAppStore.getState()?.token : null;
@@ -596,23 +693,29 @@ export const supabaseService = {
           const data = await resp.json();
           if (Array.isArray(data) && data.length > 0) {
             for (const u of data) {
-              const key = String(u.email || u.id || '').toLowerCase();
-              const idVal = u.id || u.user_id;
-              const agentId = u.agent_id || `AGENT-${typeof idVal === 'string' ? idVal.substring(idVal.length - 4) : idVal}`;
-              agentMap.set(key, {
-                id: idVal,
-                user_id: u.user_id || u.id,
-                agent_id: agentId,
-                name: u.name || 'Agent',
-                email: u.email || '',
-                phone: u.phone || '',
-                role: 'AGENT' as const,
-                status: u.status || 'ACTIVE',
-                last_login: u.last_login || null,
-                notes: u.notes || '',
-                permissions: u.permissions || '',
-                created_at: u.created_at
-              });
+              const email = String(u.email || '').toLowerCase().trim();
+              if (email === 'vikram.joshi@rentalpune.com' || email === 'pooja.kulkarni@rentalpune.com' || email === 'rahul.deshmukh@rentalpune.com' || email === 'admin@rentalpune.com' || u.role === 'MAIN_ADMIN' || u.role === 'ADMIN') {
+                continue;
+              }
+              const key = email || String(u.id || u.user_id || '').toLowerCase();
+              if (key) {
+                const idVal = u.id || u.user_id;
+                const agentId = u.agent_id || `AGENT-${typeof idVal === 'string' ? idVal.substring(idVal.length - 4) : idVal}`;
+                agentMap.set(key, {
+                  id: idVal,
+                  user_id: u.user_id ? String(u.user_id) : String(u.id),
+                  agent_id: agentId,
+                  name: u.name || (email ? email.split('@')[0] : 'Agent'),
+                  email: u.email || '',
+                  phone: u.phone || '',
+                  role: 'AGENT' as const,
+                  status: u.status || 'ACTIVE',
+                  last_login: u.last_login || null,
+                  notes: u.notes || '',
+                  permissions: u.permissions || '',
+                  created_at: u.created_at || new Date().toISOString()
+                });
+              }
             }
           }
         }
@@ -620,7 +723,7 @@ export const supabaseService = {
         console.warn('API agents fetch warning:', err);
       }
 
-      // 2. Query Supabase profiles table directly
+      // 3. Query Supabase profiles table directly
       try {
         const { data: profiles, error } = await supabase
           .from('profiles')
@@ -629,27 +732,29 @@ export const supabaseService = {
 
         if (!error && profiles && profiles.length > 0) {
           for (const p of profiles) {
-            const r = String(p.role || '').toLowerCase();
-            if (r === 'agent' || r === 'field_agent' || r === 'sub_admin' || (!r.includes('admin') && p.email)) {
-              const key = String(p.email || p.id || '').toLowerCase();
-              if (!agentMap.has(key)) {
-                const idVal = p.id || p.user_id;
-                const agentId = p.agent_id || `AGENT-${typeof idVal === 'string' ? idVal.substring(idVal.length - 4) : idVal}`;
-                agentMap.set(key, {
-                  id: idVal,
-                  user_id: p.user_id || p.id,
-                  agent_id: agentId,
-                  name: p.name || 'Agent',
-                  email: p.email || '',
-                  phone: p.phone || '',
-                  role: 'AGENT' as const,
-                  status: p.status || 'ACTIVE',
-                  last_login: p.last_login || null,
-                  notes: p.notes,
-                  permissions: p.permissions,
-                  created_at: p.created_at
-                });
-              }
+            const email = String(p.email || '').toLowerCase().trim();
+            if (email === 'vikram.joshi@rentalpune.com' || email === 'pooja.kulkarni@rentalpune.com' || email === 'rahul.deshmukh@rentalpune.com' || email === 'admin@rentalpune.com' || p.role === 'MAIN_ADMIN' || p.role === 'ADMIN') {
+              continue;
+            }
+            const key = email || String(p.id || p.user_id || '').toLowerCase();
+            if (key) {
+              const existing = agentMap.get(key);
+              const idVal = p.id || p.user_id || existing?.id;
+              const agentId = p.agent_id || existing?.agent_id || `AGENT-${typeof idVal === 'string' ? idVal.substring(idVal.length - 4) : idVal}`;
+              agentMap.set(key, {
+                id: idVal,
+                user_id: p.user_id ? String(p.user_id) : (p.id ? String(p.id) : (existing?.user_id ? String(existing.user_id) : undefined)),
+                agent_id: agentId,
+                name: p.name || existing?.name || (email ? email.split('@')[0] : 'Agent'),
+                email: p.email || existing?.email || '',
+                phone: p.phone || existing?.phone || '',
+                role: 'AGENT' as const,
+                status: p.status || existing?.status || 'ACTIVE',
+                last_login: p.last_login || existing?.last_login || null,
+                notes: p.notes || existing?.notes || '',
+                permissions: p.permissions || existing?.permissions || '',
+                created_at: p.created_at || existing?.created_at || new Date().toISOString()
+              });
             }
           }
         }
@@ -657,36 +762,39 @@ export const supabaseService = {
         console.warn('Supabase profiles fetch error:', e);
       }
 
-      // 3. Query Supabase users table directly
+      // 4. Query Supabase users table directly (only role=AGENT)
       try {
         const { data: users, error: uError } = await supabase
           .from('users')
           .select('*')
-          .order('name', { ascending: true });
+          .eq('role', 'AGENT')
+          .order('created_at', { ascending: false });
 
         if (!uError && users && users.length > 0) {
           for (const u of users) {
-            const r = String(u.role || '').toLowerCase();
-            if (r === 'agent' || r === 'field_agent' || (!r.includes('admin') && u.email)) {
-              const key = String(u.email || u.id || '').toLowerCase();
-              if (!agentMap.has(key)) {
-                const idVal = u.id;
-                const agentId = u.agent_id || `AGENT-${typeof idVal === 'string' ? idVal.substring(idVal.length - 4) : idVal}`;
-                agentMap.set(key, {
-                  id: idVal,
-                  user_id: u.id,
-                  agent_id: agentId,
-                  name: u.name || 'Agent',
-                  email: u.email || '',
-                  phone: u.phone || '',
-                  role: 'AGENT' as const,
-                  status: u.status || 'ACTIVE',
-                  last_login: u.last_login || null,
-                  notes: u.notes,
-                  permissions: u.permissions,
-                  created_at: u.created_at
-                });
-              }
+            const email = String(u.email || '').toLowerCase().trim();
+            if (email === 'vikram.joshi@rentalpune.com' || email === 'pooja.kulkarni@rentalpune.com' || email === 'rahul.deshmukh@rentalpune.com' || email === 'admin@rentalpune.com' || u.role === 'MAIN_ADMIN' || u.role === 'ADMIN') {
+              continue;
+            }
+            const key = email || String(u.id || '').toLowerCase();
+            if (key) {
+              const existing = agentMap.get(key);
+              const idVal = u.id || existing?.id;
+              const agentId = u.agent_id || existing?.agent_id || `AGENT-${typeof idVal === 'string' ? idVal.substring(idVal.length - 4) : idVal}`;
+              agentMap.set(key, {
+                id: idVal,
+                user_id: u.id ? String(u.id) : (existing?.user_id ? String(existing.user_id) : undefined),
+                agent_id: agentId,
+                name: u.name || existing?.name || (email ? email.split('@')[0] : 'Agent'),
+                email: u.email || existing?.email || '',
+                phone: u.phone || existing?.phone || '',
+                role: 'AGENT' as const,
+                status: u.status || existing?.status || 'ACTIVE',
+                last_login: u.last_login || existing?.last_login || null,
+                notes: u.notes || existing?.notes || '',
+                permissions: u.permissions || existing?.permissions || '',
+                created_at: u.created_at || existing?.created_at || new Date().toISOString()
+              });
             }
           }
         }
@@ -696,11 +804,15 @@ export const supabaseService = {
 
       const result = Array.from(agentMap.values()).filter(a => {
         const email = String(a.email || '').toLowerCase().trim();
-        return email !== 'vikram.joshi@rentalpune.com' && email !== 'pooja.kulkarni@rentalpune.com' && email !== 'rahul.deshmukh@rentalpune.com';
+        return email !== 'vikram.joshi@rentalpune.com' && email !== 'pooja.kulkarni@rentalpune.com' && email !== 'rahul.deshmukh@rentalpune.com' && email !== 'admin@rentalpune.com' && a.role !== 'MAIN_ADMIN' && a.role !== 'ADMIN';
       });
 
-      // Always overwrite local cache with real database truth
-      setLocal('agents', result);
+      // Save directly to local storage cache without firing feedback loop
+      if (typeof window !== 'undefined' && window.localStorage && result.length > 0) {
+        try {
+          localStorage.setItem('rp_agents', JSON.stringify(result));
+        } catch (e) {}
+      }
       return result;
     },
 
@@ -774,14 +886,9 @@ export const supabaseService = {
           }
         } else {
           const errData = await resp.json().catch(() => ({}));
-          if (errData.error) {
-            throw new Error(errData.error);
-          }
+          console.warn('Server create-agent endpoint returned status:', resp.status, errData);
         }
       } catch (err: any) {
-        if (err.message && !err.message.includes('Failed to fetch') && !err.message.includes('fetch')) {
-          throw err;
-        }
         console.warn('Server create-agent endpoint fallback:', err);
       }
 
@@ -796,7 +903,7 @@ export const supabaseService = {
               data: {
                 name: agent.name.trim(),
                 phone: agent.phone || '',
-                role: 'agent',
+                role: 'AGENT',
                 notes: agent.notes || ''
               }
             }
@@ -811,42 +918,38 @@ export const supabaseService = {
           console.warn('Supabase Auth signUp catch in create:', authErr);
         }
         
-        // Upsert into profiles table
+        // Upsert into profiles table with uppercase AGENT
         try {
           await supabase.from('profiles').upsert([{
             id: newUserId,
-            user_id: newUserId,
             name: agent.name.trim(),
             email: cleanEmail,
-            phone: agent.phone || '',
-            role: 'agent',
-            notes: agent.notes || '',
+            role: 'AGENT',
             created_at: new Date().toISOString()
-          }]);
+          }], { onConflict: 'id' });
         } catch (e) {
           console.warn('Profile upsert note:', e);
         }
 
-        // Upsert into users table
+        // Upsert into users table with uppercase AGENT
         try {
           await supabase.from('users').upsert([{
-            id: newUserId,
             name: agent.name.trim(),
             email: cleanEmail,
-            phone: agent.phone || '',
-            role: 'agent',
-            notes: agent.notes || '',
+            role: 'AGENT',
             created_at: new Date().toISOString()
-          }]);
+          }], { onConflict: 'email' });
         } catch (e) {}
 
         createdAgent = {
           id: newUserId,
           user_id: newUserId,
+          agent_id: `AGENT-${Math.floor(1000 + Math.random() * 9000)}`,
           name: agent.name.trim(),
           email: cleanEmail,
           phone: agent.phone,
           role: 'AGENT',
+          status: 'ACTIVE',
           notes: agent.notes,
           created_at: new Date().toISOString()
         };
@@ -863,18 +966,35 @@ export const supabaseService = {
         createdAgent = {
           id: `agent-${Date.now()}`,
           user_id: `agent-${Date.now()}`,
+          agent_id: `AGENT-${Math.floor(1000 + Math.random() * 9000)}`,
           name: agent.name.trim(),
           email: cleanEmail,
           phone: agent.phone,
           role: 'AGENT',
+          status: 'ACTIVE',
           notes: agent.notes,
           created_at: new Date().toISOString()
         };
+
+        fetch('/api/agents/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(createdAgent)
+        }).catch(() => {});
       }
 
       const all = getLocal<User[]>('agents', []);
       const updatedList = [createdAgent, ...all.filter(a => (a.email || '').toLowerCase() !== cleanEmail)];
       setLocal('agents', updatedList);
+      
+      // Save directly to Supabase settings agents_registry for multi-device sync
+      try {
+        await supabase.from('settings').upsert({
+          key: 'agents_registry',
+          value: JSON.stringify(updatedList)
+        }, { onConflict: 'key' });
+      } catch (e) {}
+
       notifyUpdate('agents', createdAgent);
       return createdAgent;
     },
@@ -908,6 +1028,14 @@ export const supabaseService = {
       const all = getLocal<User[]>('agents', []);
       const updated = all.map(a => String(a.id) === String(id) || String(a.user_id) === String(id) ? { ...a, ...updates } : a);
       setLocal('agents', updated);
+
+      try {
+        await supabase.from('settings').upsert({
+          key: 'agents_registry',
+          value: JSON.stringify(updated)
+        }, { onConflict: 'key' });
+      } catch (e) {}
+
       notifyUpdate('agents', updated);
       return updated.find(a => String(a.id) === String(id) || String(a.user_id) === String(id)) || (updates as User);
     },
@@ -931,6 +1059,14 @@ export const supabaseService = {
       const all = getLocal<User[]>('agents', []);
       const remaining = all.filter(a => String(a.id) !== String(id) && String(a.user_id) !== String(id));
       setLocal('agents', remaining);
+
+      try {
+        await supabase.from('settings').upsert({
+          key: 'agents_registry',
+          value: JSON.stringify(remaining)
+        }, { onConflict: 'key' });
+      } catch (e) {}
+
       notifyUpdate('agents', remaining);
     }
   },

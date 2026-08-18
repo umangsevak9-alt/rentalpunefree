@@ -358,6 +358,8 @@ CREATE POLICY "settings_admin_all" ON settings FOR ALL USING (public.is_admin())
 CREATE POLICY "settings_public_select" ON settings FOR SELECT USING (key LIKE 'public_%' OR key IN ('site_title', 'site_description', 'contact_email', 'contact_phone', 'currency', 'company_name', 'address', 'about_text', 'logo_url', 'primary_color', 'social_links'));
 `;
 
+import crypto from 'crypto';
+
 export async function createAuthAgentUser(agentData: {
   name: string;
   email: string;
@@ -374,11 +376,12 @@ export async function createAuthAgentUser(agentData: {
   const cleanPassword = agentData.password || 'PuneRental@2025';
   const shortNum = Math.floor(1000 + Math.random() * 9000);
   const formattedAgentId = `AGENT-${shortNum}`;
-  let authUserId = `agent_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  // Use standard RFC4122 UUID v4 so PostgreSQL UUID columns don't fail syntax checks
+  let authUserId: any = crypto.randomUUID();
   let authUser: any = null;
 
   try {
-    // 1. Try Supabase Admin Auth API (requires service role key or admin capabilities)
+    // 1. Try Supabase Admin Auth API (if service role key is active)
     try {
       const { data: adminData, error: adminError } = await supabase.auth.admin.createUser({
         email: cleanEmail,
@@ -387,7 +390,7 @@ export async function createAuthAgentUser(agentData: {
         user_metadata: {
           name: agentData.name,
           phone: agentData.phone || '',
-          role: 'agent',
+          role: 'AGENT',
           agent_id: formattedAgentId,
           notes: agentData.notes || ''
         }
@@ -398,10 +401,10 @@ export async function createAuthAgentUser(agentData: {
         authUserId = adminData.user.id;
       }
     } catch (adminErr) {
-      console.warn('Admin API not available, trying regular signup:', adminErr);
+      console.warn('Admin API note, falling back to signUp:', adminErr);
     }
 
-    // 2. Fallback to regular signUp if admin API was not available
+    // 2. Fallback to regular signUp
     if (!authUser) {
       try {
         const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
@@ -411,7 +414,7 @@ export async function createAuthAgentUser(agentData: {
             data: {
               name: agentData.name,
               phone: agentData.phone || '',
-              role: 'agent',
+              role: 'AGENT',
               agent_id: formattedAgentId,
               notes: agentData.notes || ''
             }
@@ -429,33 +432,27 @@ export async function createAuthAgentUser(agentData: {
       }
     }
 
-    // 3. Upsert into Supabase profiles table (Guaranteed cloud persistence)
+    // 3. Upsert into Supabase profiles table (uppercase 'AGENT' to satisfy PostgreSQL CHECK constraint)
     try {
       await supabase.from('profiles').upsert([{
         id: authUserId,
-        user_id: authUserId,
         name: agentData.name,
         email: cleanEmail,
-        phone: agentData.phone || '',
-        role: 'agent',
-        notes: agentData.notes || '',
+        role: 'AGENT',
         created_at: new Date().toISOString()
-      }]);
+      }], { onConflict: 'id' });
     } catch (profErr) {
       console.warn('Profiles upsert note:', profErr);
     }
 
-    // 4. Upsert into Supabase users table
+    // 4. Upsert into Supabase users table (fallback)
     try {
       await supabase.from('users').upsert([{
-        id: authUserId,
         name: agentData.name,
         email: cleanEmail,
-        phone: agentData.phone || '',
-        role: 'agent',
-        notes: agentData.notes || '',
+        role: 'AGENT',
         created_at: new Date().toISOString()
-      }]);
+      }], { onConflict: 'email' });
     } catch (uErr) {
       console.warn('Users upsert note:', uErr);
     }

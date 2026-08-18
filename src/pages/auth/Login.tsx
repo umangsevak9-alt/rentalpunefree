@@ -8,19 +8,29 @@ import {
   updateSupabaseCredentials, 
   resetSupabaseCredentials 
 } from '../../services/supabaseService.js';
-import { ShieldCheck, UserPlus, KeyRound, Sparkles, AlertCircle, Settings as SettingsIcon, CheckCircle2, RotateCcw, ExternalLink, Mail, Key, ArrowRight } from 'lucide-react';
+import { 
+  ShieldCheck, 
+  UserPlus, 
+  KeyRound, 
+  Sparkles, 
+  AlertCircle, 
+  Settings as SettingsIcon, 
+  CheckCircle2, 
+  RotateCcw, 
+  ExternalLink, 
+  Mail, 
+  Send
+} from 'lucide-react';
 
 export default function Login() {
-  const [mode, setMode] = useState<'signin' | 'otp' | 'signup'>('signin');
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [name, setName] = useState('Administrator');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [otpCode, setOtpCode] = useState('');
-  const [otpSent, setOtpSent] = useState(false);
-  const [otpNotice, setOtpNotice] = useState('');
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resendingEmail, setResendingEmail] = useState(false);
   
   // Custom Supabase configuration modal
   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -63,58 +73,24 @@ export default function Login() {
     setTimeout(() => setConfigMsg(''), 1500);
   };
 
-  const handleSendOtp = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
+  const handleResendConfirmation = async () => {
     if (!email.trim()) {
-      setError('Please enter your email address first.');
+      setError('Please enter your email address first to resend the confirmation email.');
       return;
     }
-    setError('');
-    setSuccessMsg('');
-    setLoading(true);
-
+    setResendingEmail(true);
     try {
-      const res = await supabaseService.auth.sendOtp(email.trim());
-      if (!res.success) {
-        throw new Error(res.error || 'Failed to send OTP code');
-      }
-      setOtpSent(true);
-      if (res.otpCode) {
-        setOtpNotice(`OTP code: ${res.otpCode} (Valid for 10 mins)`);
-        setSuccessMsg(`OTP code generated! You can enter ${res.otpCode} to sign in.`);
+      const res = await supabaseService.auth.resendConfirmationEmail(email.trim());
+      if (res.success) {
+        setSuccessMsg(res.message || `Confirmation email sent to ${email.trim()}. Please check your inbox and spam folder.`);
+        setError('');
       } else {
-        setSuccessMsg(res.message || 'OTP verification code sent! Please check your email.');
+        setError(res.error || 'Failed to resend confirmation email.');
       }
     } catch (err: any) {
-      setError(err?.message || 'Error requesting OTP verification code');
+      setError(err?.message || 'Error resending confirmation email.');
     } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleVerifyOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!otpCode.trim()) {
-      setError('Please enter the 6-digit verification code.');
-      return;
-    }
-    setError('');
-    setSuccessMsg('');
-    setLoading(true);
-
-    try {
-      const res = await supabaseService.auth.verifyOtp(email.trim(), otpCode.trim());
-      if (!res.success || !res.user) {
-        throw new Error(res.error || 'OTP verification failed. Please try again.');
-      }
-
-      setAuth(res.user, res.token || null, res.session || null);
-      const destination = (location.state as any)?.from?.pathname || '/admin';
-      navigate(destination, { replace: true });
-    } catch (err: any) {
-      setError(err?.message || 'Verification failed');
-    } finally {
-      setLoading(false);
+      setResendingEmail(false);
     }
   };
 
@@ -157,7 +133,7 @@ export default function Login() {
           setAuth(result.user, result.token || null, result.session);
           navigate('/admin', { replace: true });
         } else {
-          setSuccessMsg(result.error || 'Admin account created successfully in Supabase! You can now sign in or use OTP login.');
+          setSuccessMsg('Account registered! A confirmation email has been sent. Please verify your email inbox to activate your account, then sign in below.');
           setMode('signin');
         }
       }
@@ -167,6 +143,10 @@ export default function Login() {
       setLoading(false);
     }
   };
+
+  const isEmailUnconfirmed = error.toLowerCase().includes('email not confirmed') || 
+                             error.toLowerCase().includes('confirm') || 
+                             error.toLowerCase().includes('unconfirmed');
 
   return (
     <div className="min-h-screen bg-[#080f1a] flex items-center justify-center p-4 selection:bg-[#d4a359] selection:text-[#080f1a]">
@@ -185,27 +165,17 @@ export default function Login() {
         <div className="flex bg-[#080f1a] p-1 rounded-xl border border-white/10 mb-6 relative z-10">
           <button
             type="button"
-            onClick={() => { setMode('signin'); setError(''); setSuccessMsg(''); setOtpSent(false); }}
+            onClick={() => { setMode('signin'); setError(''); setSuccessMsg(''); }}
             className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
               mode === 'signin' ? 'bg-[#d4a359] text-[#080f1a] shadow-sm' : 'text-neutral-400 hover:text-white'
             }`}
           >
             <KeyRound className="w-3.5 h-3.5" />
-            <span>Password</span>
+            <span>Sign In</span>
           </button>
           <button
             type="button"
-            onClick={() => { setMode('otp'); setError(''); setSuccessMsg(''); setOtpSent(false); }}
-            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-              mode === 'otp' ? 'bg-[#d4a359] text-[#080f1a] shadow-sm' : 'text-neutral-400 hover:text-white'
-            }`}
-          >
-            <ShieldCheck className="w-3.5 h-3.5" />
-            <span>OTP Login</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => { setMode('signup'); setError(''); setSuccessMsg(''); setOtpSent(false); }}
+            onClick={() => { setMode('signup'); setError(''); setSuccessMsg(''); }}
             className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
               mode === 'signup' ? 'bg-[#d4a359] text-[#080f1a] shadow-sm' : 'text-neutral-400 hover:text-white'
             }`}
@@ -221,18 +191,16 @@ export default function Login() {
               <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
               <span>{error}</span>
             </div>
-            {/* If email not confirmed or login failed, offer 1-click OTP bypass */}
-            {mode === 'signin' && (
+            {/* If email not confirmed, offer 1-click Resend Confirmation Email */}
+            {isEmailUnconfirmed && (
               <button
                 type="button"
-                onClick={() => {
-                  setMode('otp');
-                  handleSendOtp();
-                }}
-                className="self-start px-3 py-1.5 bg-[#d4a359]/20 hover:bg-[#d4a359]/30 text-[#d4a359] rounded-lg text-[11px] font-bold border border-[#d4a359]/40 transition-colors flex items-center gap-1.5 cursor-pointer mt-1"
+                onClick={handleResendConfirmation}
+                disabled={resendingEmail}
+                className="self-start px-3 py-1.5 bg-[#d4a359]/20 hover:bg-[#d4a359]/30 text-[#d4a359] rounded-lg text-[11px] font-bold border border-[#d4a359]/40 transition-colors flex items-center gap-1.5 cursor-pointer mt-1 disabled:opacity-50"
               >
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span>Log In with OTP Code Instead</span>
+                <Send className="w-3.5 h-3.5" />
+                <span>{resendingEmail ? 'Resending...' : 'Resend Confirmation Email'}</span>
               </button>
             )}
             {(error.toLowerCase().includes('api key') || error.toLowerCase().includes('invalid')) && (
@@ -249,160 +217,78 @@ export default function Login() {
         )}
 
         {successMsg && (
-          <div className="mb-4 p-3 bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 rounded-xl text-xs font-semibold flex items-start gap-2">
-            <Sparkles className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <div className="mb-4 p-3.5 bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 rounded-xl text-xs font-semibold flex items-start gap-2">
+            <Sparkles className="w-4 h-4 flex-shrink-0 mt-0.5 text-emerald-400" />
             <span>{successMsg}</span>
           </div>
         )}
 
-        {/* OTP LOGIN FORM */}
-        {mode === 'otp' ? (
-          <div className="space-y-4 relative z-10">
+        {/* PASSWORD LOGIN & SIGNUP FORMS */}
+        <form onSubmit={handleAuth} className="space-y-4 relative z-10">
+          {mode === 'signup' && (
             <div>
-              <label className="block text-xs font-bold text-neutral-300 mb-1.5 uppercase tracking-wider flex items-center gap-1.5">
-                <Mail className="w-3.5 h-3.5 text-[#d4a359]" />
-                <span>Agent / Admin Email Address</span>
-              </label>
-              <div className="flex gap-2">
-                <input 
-                  type="email" 
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="flex-1 px-4 py-2.5 bg-[#080f1a] border border-white/15 text-white placeholder-neutral-500 rounded-xl focus:outline-none focus:border-[#d4a359] text-sm"
-                  placeholder="agent@rentalpune.com"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => handleSendOtp()}
-                  disabled={loading || !email.trim()}
-                  className="px-4 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-white border border-white/10 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-50 flex items-center gap-1 whitespace-nowrap"
-                >
-                  <span>{otpSent ? 'Resend' : 'Get OTP'}</span>
-                </button>
-              </div>
+              <label className="block text-xs font-bold text-neutral-300 mb-1.5 uppercase tracking-wider">Full Name</label>
+              <input 
+                type="text" 
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full px-4 py-2.5 bg-[#080f1a] border border-white/15 text-white placeholder-neutral-500 rounded-xl focus:outline-none focus:border-[#d4a359] text-sm"
+                placeholder="e.g. Administrator or Agent Name"
+                required
+              />
             </div>
+          )}
 
-            {otpSent && (
-              <form onSubmit={handleVerifyOtp} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-neutral-300 mb-1.5 uppercase tracking-wider flex items-center justify-between">
-                    <span className="flex items-center gap-1.5">
-                      <Key className="w-3.5 h-3.5 text-[#d4a359]" />
-                      <span>Enter 6-Digit OTP Code</span>
-                    </span>
-                    {otpNotice && <span className="text-[10px] text-[#d4a359] font-mono">{otpNotice}</span>}
-                  </label>
-                  <input 
-                    type="text" 
-                    maxLength={6}
-                    value={otpCode}
-                    onChange={(e) => setOtpCode(e.target.value)}
-                    className="w-full px-4 py-3 bg-[#080f1a] border border-[#d4a359]/50 text-white placeholder-neutral-500 rounded-xl focus:outline-none focus:border-[#d4a359] text-center text-lg font-mono tracking-widest"
-                    placeholder="123456"
-                    autoFocus
-                    required
-                  />
-                </div>
-
-                <button 
-                  type="submit"
-                  disabled={loading || otpCode.length < 4}
-                  className="w-full py-3.5 px-4 bg-[#d4a359] hover:bg-[#e5b364] text-[#080f1a] rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-lg shadow-[#d4a359]/20 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {loading ? (
-                    <span>Verifying OTP...</span>
-                  ) : (
-                    <>
-                      <ShieldCheck className="w-4 h-4" />
-                      <span>Verify & Sign In</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </>
-                  )}
-                </button>
-              </form>
-            )}
-
-            {!otpSent && (
-              <button 
-                type="button"
-                onClick={() => handleSendOtp()}
-                disabled={loading || !email.trim()}
-                className="w-full py-3.5 px-4 bg-[#d4a359] hover:bg-[#e5b364] text-[#080f1a] rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-lg shadow-[#d4a359]/20 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {loading ? (
-                  <span>Generating OTP Code...</span>
-                ) : (
-                  <>
-                    <ShieldCheck className="w-4 h-4" />
-                    <span>Send Verification Code</span>
-                  </>
-                )}
-              </button>
-            )}
+          <div>
+            <label className="block text-xs font-bold text-neutral-300 mb-1.5 uppercase tracking-wider flex items-center gap-1.5">
+              <Mail className="w-3.5 h-3.5 text-[#d4a359]" />
+              <span>Email Address</span>
+            </label>
+            <input 
+              type="email" 
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full px-4 py-2.5 bg-[#080f1a] border border-white/15 text-white placeholder-neutral-500 rounded-xl focus:outline-none focus:border-[#d4a359] text-sm"
+              placeholder="user@rentalpune.com"
+              required
+            />
           </div>
-        ) : (
-          /* PASSWORD LOGIN & SIGNUP FORMS */
-          <form onSubmit={handleAuth} className="space-y-4 relative z-10">
-            {mode === 'signup' && (
-              <div>
-                <label className="block text-xs font-bold text-neutral-300 mb-1.5 uppercase tracking-wider">Admin Full Name</label>
-                <input 
-                  type="text" 
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-[#080f1a] border border-white/15 text-white placeholder-neutral-500 rounded-xl focus:outline-none focus:border-[#d4a359] text-sm"
-                  placeholder="e.g. Administrator"
-                  required
-                />
-              </div>
+
+          <div>
+            <label className="block text-xs font-bold text-neutral-300 mb-1.5 uppercase tracking-wider flex items-center gap-1.5">
+              <KeyRound className="w-3.5 h-3.5 text-[#d4a359]" />
+              <span>Password</span>
+            </label>
+            <input 
+              type="password" 
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-4 py-2.5 bg-[#080f1a] border border-white/15 text-white placeholder-neutral-500 rounded-xl focus:outline-none focus:border-[#d4a359] text-sm"
+              placeholder="••••••••"
+              required
+            />
+          </div>
+
+          <button 
+            type="submit"
+            disabled={loading}
+            className="w-full py-3.5 px-4 bg-[#d4a359] hover:bg-[#e5b364] text-[#080f1a] rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-lg shadow-[#d4a359]/20 cursor-pointer mt-2 disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {loading ? (
+              <span>Authenticating with Supabase...</span>
+            ) : mode === 'signin' ? (
+              <>
+                <KeyRound className="w-4 h-4" />
+                <span>Sign In with Password</span>
+              </>
+            ) : (
+              <>
+                <ShieldCheck className="w-4 h-4" />
+                <span>Register Account</span>
+              </>
             )}
-
-            <div>
-              <label className="block text-xs font-bold text-neutral-300 mb-1.5 uppercase tracking-wider">Email Address</label>
-              <input 
-                type="email" 
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-2.5 bg-[#080f1a] border border-white/15 text-white placeholder-neutral-500 rounded-xl focus:outline-none focus:border-[#d4a359] text-sm"
-                placeholder="admin@rentalpune.com"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-neutral-300 mb-1.5 uppercase tracking-wider">Password</label>
-              <input 
-                type="password" 
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-2.5 bg-[#080f1a] border border-white/15 text-white placeholder-neutral-500 rounded-xl focus:outline-none focus:border-[#d4a359] text-sm"
-                placeholder="••••••••"
-                required
-              />
-            </div>
-
-            <button 
-              type="submit"
-              disabled={loading}
-              className="w-full py-3.5 px-4 bg-[#d4a359] hover:bg-[#e5b364] text-[#080f1a] rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-lg shadow-[#d4a359]/20 cursor-pointer mt-2 disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {loading ? (
-                <span>Authenticating with Supabase...</span>
-              ) : mode === 'signin' ? (
-                <>
-                  <KeyRound className="w-4 h-4" />
-                  <span>Sign In with Password</span>
-                </>
-              ) : (
-                <>
-                  <ShieldCheck className="w-4 h-4" />
-                  <span>Register Supabase Admin</span>
-                </>
-              )}
-            </button>
-          </form>
-        )}
+          </button>
+        </form>
         
         <div className="mt-6 text-center text-xs text-neutral-300 bg-[#080f1a] p-3 rounded-xl border border-white/10 flex flex-col items-center justify-between gap-2">
           <div className="flex items-center justify-between w-full">
