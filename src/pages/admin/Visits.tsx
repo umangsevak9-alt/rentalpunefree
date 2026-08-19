@@ -4,6 +4,7 @@ import { useAppStore } from '../../store/index.js';
 import { Visit, Lead, Property, User } from '../../types.js';
 import { formatINR } from '../../utils/currency.js';
 import { supabase, supabaseService } from '../../services/supabaseService.js';
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '../../utils/dateFormatter.js';
 import { 
   Plus, 
   Trash2, 
@@ -32,11 +33,11 @@ import {
 
 export default function Visits() {
   const { user, token } = useAppStore();
-  const [visits, setVisits] = useState<Visit[]>([]);
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [properties, setProperties] = useState<Property[]>([]);
-  const [agents, setAgents] = useState<User[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [visits, setVisits] = useState<Visit[]>(() => supabaseService.getLocal<Visit[]>('visits', []));
+  const [leads, setLeads] = useState<Lead[]>(() => supabaseService.getLocal<Lead[]>('leads', []));
+  const [properties, setProperties] = useState<Property[]>(() => supabaseService.getLocal<Property[]>('properties', []));
+  const [agents, setAgents] = useState<User[]>(() => supabaseService.getLocal<User[]>('agents', []));
+  const [loading, setLoading] = useState(() => supabaseService.getLocal<Visit[]>('visits', []).length === 0);
 
   // Filter, Search and Date states
   const [searchTerm, setSearchTerm] = useState('');
@@ -368,7 +369,7 @@ export default function Visits() {
       `"${(v.lead_name || `Lead #${v.lead_id}`).replace(/"/g, '""')}"`,
       `"${(v.lead_phone || '').replace(/"/g, '""')}"`,
       `"${(v.property_title || `Property #${v.property_id}`).replace(/"/g, '""')}"`,
-      `"${v.visit_date || ''}"`,
+      `"${formatDateDDMMYYYY(v.visit_date)}"`,
       `"${v.visit_time || ''}"`,
       `"${(v.agent_name || 'Unassigned').replace(/"/g, '""')}"`,
       `"${v.status || 'Scheduled'}"`,
@@ -720,7 +721,7 @@ export default function Visits() {
                       <td className="px-5 py-4 text-xs font-medium text-white">
                         <div className="flex items-center space-x-1.5 text-white font-bold">
                           <Calendar className="w-3.5 h-3.5 text-[#d4a359]" />
-                          <span>{visit.visit_date}</span>
+                          <span>{formatDateDDMMYYYY(visit.visit_date)}</span>
                         </div>
                         <div className="flex items-center space-x-1.5 text-neutral-400 mt-0.5">
                           <Clock className="w-3 h-3 text-neutral-500" />

@@ -115,6 +115,9 @@ export default function Login() {
         // Update auth state with verified Supabase session
         setAuth(result.user, result.token || null, result.session || null);
         
+        // Immediately warm up background cache so admin panel data reflects in 0ms
+        supabaseService.preloadAll().catch(() => {});
+
         // Immediate clean navigation to /admin
         const destination = (location.state as any)?.from?.pathname || '/admin';
         navigate(destination, { replace: true });

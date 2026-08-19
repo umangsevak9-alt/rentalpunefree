@@ -44,8 +44,38 @@ export type Property = {
   status: string;
   images: string[];
   videos?: string[];
+  furniture?: string[];
   faqs?: PropertyFAQ[];
+  purpose?: 'RENT' | 'SALE' | 'COMMERCIAL' | string;
+  category?: 'RESIDENTIAL' | 'COMMERCIAL' | string;
+  furnishing?: string;
   created_at?: string;
+};
+
+export type OwnerSubmission = {
+  id: number;
+  owner_name: string;
+  owner_phone: string;
+  owner_email?: string;
+  owner_type?: string;
+  property_title: string;
+  property_type: string;
+  bhk_config: string;
+  location: string;
+  address?: string;
+  expected_rent?: number;
+  security_deposit?: number;
+  furnishing?: string;
+  furniture?: string[];
+  available_from?: string;
+  preferred_tenants?: string;
+  amenities?: string[] | string;
+  images?: string[] | string;
+  videos?: string[] | string;
+  notes?: string;
+  status: 'PENDING' | 'CONTACTED' | 'APPROVED' | 'REJECTED';
+  admin_notes?: string;
+  created_at: string;
 };
 
 export type Lead = {
@@ -61,6 +91,31 @@ export type Lead = {
   assigned_agent_name?: string;
   notes?: string;
   created_at?: string;
+};
+
+export type PropertyBooking = {
+  id: number;
+  property_id: number;
+  property_title?: string;
+  property_location?: string;
+  property_price?: number;
+  property_type?: string;
+  property_image?: string;
+  customer_name: string;
+  customer_phone: string;
+  customer_email?: string;
+  preferred_date?: string;
+  preferred_time?: string;
+  move_in_timeline?: string;
+  occupancy_type?: string;
+  status: 'NEW' | 'CONTACTED' | 'VISIT_SCHEDULED' | 'TOKEN_RECEIVED' | 'CONFIRMED' | 'CANCELLED' | string;
+  token_amount?: number;
+  notes?: string;
+  assigned_agent_id?: number | string;
+  assigned_agent_name?: string;
+  source?: string;
+  created_at?: string;
+  updated_at?: string;
 };
 
 export type Visit = {
@@ -126,6 +181,8 @@ export type Settings = {
   address?: string;
   hero_heading?: string;
   hero_subheading?: string;
+  hero_video_url?: string;
+  hero_video_title?: string;
   gstin?: string;
   pan?: string;
   whatsapp_url?: string;

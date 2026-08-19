@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient, User as SupabaseAuthUser } from '@supabase/supabase-js';
-import { Property, Lead, Visit, VisitFeedback, Invoice, User, FAQ, Settings } from '../types.js';
+import { Property, Lead, PropertyBooking, Visit, VisitFeedback, Invoice, User, FAQ, Settings } from '../types.js';
 import { useAppStore } from '../store/index.js';
 
 // Retrieve credentials with local storage override capability
@@ -108,7 +108,7 @@ export function notifyUpdate(key: string, data?: any): void {
 }
 
 // Local storage caching helpers
-function getLocal<T>(key: string, fallback: T): T {
+export function getLocal<T>(key: string, fallback: T): T {
   if (typeof window === 'undefined' || !window.localStorage) return fallback;
   try {
     const val = localStorage.getItem('rp_' + key);
@@ -118,7 +118,7 @@ function getLocal<T>(key: string, fallback: T): T {
   }
 }
 
-function setLocal<T>(key: string, data: T): void {
+export function setLocal<T>(key: string, data: T): void {
   if (typeof window === 'undefined' || !window.localStorage) return;
   try {
     localStorage.setItem('rp_' + key, JSON.stringify(data));
@@ -128,7 +128,7 @@ function setLocal<T>(key: string, data: T): void {
   }
 }
 
-// Initial Seed Properties
+// Initial Seed Properties with Rent, Commercial, and Buy/Sell (Sale) categories
 const SEED_PROPERTIES: Property[] = [
   {
     id: 1,
@@ -139,8 +139,11 @@ const SEED_PROPERTIES: Property[] = [
     bathrooms: 4,
     area: 3400,
     location: 'Koregaon Park, Pune',
-    description: 'Spectacular 4 BHK luxury penthouse with private plunge pool, panoramic greenery views, smart automation, and private elevator.',
+    description: 'Spectacular 4 BHK luxury penthouse with private plunge pool, panoramic greenery views, smart automation, and private elevator for rent.',
     status: 'PUBLISHED',
+    purpose: 'RENT',
+    category: 'RESIDENTIAL',
+    furnishing: 'Fully Furnished',
     images: [
       'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=1200&q=80',
       'https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?auto=format&fit=crop&w=1200&q=80'
@@ -154,6 +157,78 @@ const SEED_PROPERTIES: Property[] = [
   },
   {
     id: 2,
+    title: 'Grade-A Tech Office Tower Hinjewadi',
+    type: 'Commercial Office',
+    price: 320000,
+    bedrooms: 0,
+    bathrooms: 4,
+    area: 5800,
+    location: 'Hinjewadi Phase 1, Pune',
+    description: 'Fully plug & play commercial IT office space with 80+ workstations, 4 executive conference rooms, server room, and high-speed fiber connectivity.',
+    status: 'PUBLISHED',
+    purpose: 'COMMERCIAL',
+    category: 'COMMERCIAL',
+    furnishing: 'Fully Furnished Plug & Play',
+    images: [
+      'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=1200&q=80',
+      'https://images.unsplash.com/photo-1497215728101-856f4ea42174?auto=format&fit=crop&w=1200&q=80'
+    ],
+    videos: [],
+    faqs: [
+      { question: 'Is DG power backup available 24x7?', answer: 'Yes, 100% DG power backup is available round the clock with zero downtime.' }
+    ],
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 3,
+    title: 'Signature 3 BHK Gated Flat For Sale Baner',
+    type: '3 BHK',
+    price: 18500000, // 1.85 Cr
+    bedrooms: 3,
+    bathrooms: 3,
+    area: 1750,
+    location: 'Baner, Pune',
+    description: 'Ultra-modern 3 BHK apartment for purchase/sale in prime Baner high-rise. East-facing, Italian marble flooring, 3 balconies, club house & swimming pool access.',
+    status: 'PUBLISHED',
+    purpose: 'SALE',
+    category: 'RESIDENTIAL',
+    furnishing: 'Semi-Furnished',
+    images: [
+      'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80',
+      'https://images.unsplash.com/photo-1600566753376-12c8ab7fb75b?auto=format&fit=crop&w=1200&q=80'
+    ],
+    videos: [],
+    faqs: [
+      { question: 'Is clear title & OC available?', answer: 'Yes, full Occupation Certificate (OC) and clear bank approved title.' }
+    ],
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 4,
+    title: 'High-Street Retail Showroom FC Road',
+    type: 'Retail Showroom',
+    price: 250000,
+    bedrooms: 0,
+    bathrooms: 2,
+    area: 2100,
+    location: 'FC Road, Shivaji Nagar, Pune',
+    description: 'Prime ground floor retail commercial showroom with 45 ft massive frontage, high footfall zone, ideal for luxury brands, jewelry, or flagship stores.',
+    status: 'PUBLISHED',
+    purpose: 'COMMERCIAL',
+    category: 'COMMERCIAL',
+    furnishing: 'Bare Shell / Customized',
+    images: [
+      'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=1200&q=80',
+      'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=1200&q=80'
+    ],
+    videos: [],
+    faqs: [
+      { question: 'Is frontage visible from main traffic flow?', answer: 'Yes, prime corner location with clear direct visibility.' }
+    ],
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 5,
     title: 'Grand Waterfront Villa Kalyani Nagar',
     type: '4 BHK',
     price: 220000,
@@ -161,8 +236,11 @@ const SEED_PROPERTIES: Property[] = [
     bathrooms: 5,
     area: 4200,
     location: 'Kalyani Nagar, Pune',
-    description: 'Ultra-luxurious standalone villa with manicured private lawn, double-height ceiling living room, designer modular kitchen, and staff quarters.',
+    description: 'Ultra-luxurious standalone villa with manicured private lawn, double-height ceiling living room, designer modular kitchen, and staff quarters for rent.',
     status: 'PUBLISHED',
+    purpose: 'RENT',
+    category: 'RESIDENTIAL',
+    furnishing: 'Fully Furnished',
     images: [
       'https://images.unsplash.com/photo-1613490493576-7fde63acd811?auto=format&fit=crop&w=1200&q=80',
       'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80'
@@ -174,7 +252,31 @@ const SEED_PROPERTIES: Property[] = [
     created_at: new Date().toISOString()
   },
   {
-    id: 3,
+    id: 6,
+    title: 'Luxury 4 BHK Duplex Penthouse For Sale Viman Nagar',
+    type: '4 BHK',
+    price: 29500000, // 2.95 Cr
+    bedrooms: 4,
+    bathrooms: 5,
+    area: 3600,
+    location: 'Viman Nagar, Pune',
+    description: 'Exclusive 4 BHK duplex penthouse for outright purchase. Private terrace deck, double-height foyer, servant quarters, and panoramic airport views.',
+    status: 'PUBLISHED',
+    purpose: 'SALE',
+    category: 'RESIDENTIAL',
+    furnishing: 'Designer Semi-Furnished',
+    images: [
+      'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=1200&q=80',
+      'https://images.unsplash.com/photo-1600566753190-17f0baa2a6c3?auto=format&fit=crop&w=1200&q=80'
+    ],
+    videos: [],
+    faqs: [
+      { question: 'How many car parkings are included in sale?', answer: '3 covered basement reserved slots are deed-allotted.' }
+    ],
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 7,
     title: 'Riverfront Panoramic Suite Boat Club Road',
     type: '3 BHK',
     price: 135000,
@@ -182,11 +284,36 @@ const SEED_PROPERTIES: Property[] = [
     bathrooms: 3,
     area: 2650,
     location: 'Boat Club Road, Pune',
-    description: 'Exclusive 3 BHK riverfront apartment in one of Pune’s most prestigious addresses. Unobstructed Mula-Mutha river vistas, wrap-around balconies, and imported finishes.',
+    description: 'Exclusive 3 BHK riverfront apartment for rent in one of Pune’s most prestigious addresses. Unobstructed Mula-Mutha river vistas and wrap-around balconies.',
     status: 'PUBLISHED',
+    purpose: 'RENT',
+    category: 'RESIDENTIAL',
+    furnishing: 'Fully Furnished',
     images: [
       'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=1200&q=80',
       'https://images.unsplash.com/photo-1600566753190-17f0baa2a6c3?auto=format&fit=crop&w=1200&q=80'
+    ],
+    videos: [],
+    faqs: [],
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 8,
+    title: 'Modern 2 BHK Executive Flat Kothrud',
+    type: '2 BHK',
+    price: 38000,
+    bedrooms: 2,
+    bathrooms: 2,
+    area: 1150,
+    location: 'Kothrud, Pune',
+    description: 'Well-ventilated 2 BHK apartment for rent in peaceful residential pocket near Paud Road metro station, modular kitchen, and covered parking.',
+    status: 'PUBLISHED',
+    purpose: 'RENT',
+    category: 'RESIDENTIAL',
+    furnishing: 'Semi-Furnished',
+    images: [
+      'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=1200&q=80',
+      'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=1200&q=80'
     ],
     videos: [],
     faqs: [],
@@ -241,6 +368,7 @@ const SEED_OWNER_SUBMISSIONS = [
     expected_rent: 38000,
     security_deposit: 100000,
     furnishing: 'Fully Furnished',
+    furniture: ['Ceiling Fans (All Rooms)', 'Master Bedroom Wardrobe', 'Modular Kitchen Cabinets', 'Air Conditioner (AC)', 'Sofa Set (3+2)', 'King Bed with Mattress', 'Geyser / Water Heater', 'Smart TV 55"'],
     available_from: 'Immediate',
     preferred_tenants: 'Family / IT Professionals',
     amenities: ['Power Backup', 'Gymnasium', 'Swimming Pool', '24/7 Security', 'Covered Parking', 'Clubhouse', 'Modular Kitchen'],
@@ -248,6 +376,7 @@ const SEED_OWNER_SUBMISSIONS = [
       'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80',
       'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80'
     ],
+    videos: [],
     notes: 'Premium high-floor flat with valley views, high-speed fiber internet, and 100% power backup. Ideal for tech professionals.',
     status: 'PENDING',
     admin_notes: '',
@@ -267,12 +396,14 @@ const SEED_OWNER_SUBMISSIONS = [
     expected_rent: 32000,
     security_deposit: 80000,
     furnishing: 'Semi-Furnished',
+    furniture: ['Ceiling Fans (All Rooms)', 'Cupboards / Wardrobes in 2 Bedrooms', 'Modular Kitchen', 'Geyser in 2 Bathrooms'],
     available_from: 'Next Month',
     preferred_tenants: 'Any',
     amenities: ['24/7 Security', 'Covered Parking', 'Modular Kitchen', 'Elevator / Lift', 'Piped MNGL Gas'],
     images: [
       'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80'
     ],
+    videos: [],
     notes: 'NRI owner based in Dubai. Society management has keys for inspection walkthroughs.',
     status: 'CONTACTED',
     admin_notes: 'Spoke with owner on WhatsApp. Walkthrough key with society office.',
@@ -292,12 +423,14 @@ const SEED_OWNER_SUBMISSIONS = [
     expected_rent: 85000,
     security_deposit: 250000,
     furnishing: 'Fully Furnished',
+    furniture: ['Designer Ceiling Fans & Lights', 'Full Wall Walk-in Wardrobes', 'Italian Modular Kitchen & Chimney', 'VRV Air Conditioning in all rooms', 'Imported Leather Sofa Set', 'King Bed & Queen Beds (4 sets)', 'Dining Table (6 Seater)', 'Microwave & Double Door Refrigerator', 'Washing Machine', 'Smart Home Automation'],
     available_from: 'Immediate',
     preferred_tenants: 'Family',
     amenities: ['Swimming Pool', 'Clubhouse', '24/7 Security', 'Power Backup', 'Gymnasium', 'Children Play Area', 'Pet Friendly'],
     images: [
       'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=80'
     ],
+    videos: [],
     notes: 'Ultra luxury duplex penthouse with designer interiors, Italian marble, and world class clubhouse.',
     status: 'APPROVED',
     admin_notes: 'Agreement signed. Verified owner credentials.',
@@ -635,175 +768,176 @@ export const supabaseService = {
         }
       }
 
-      // 1. Fetch live agents directly from Supabase Cloud settings registry
-      try {
-        const { data: supaSetting, error: supaErr } = await supabase
-          .from('settings')
-          .select('value')
-          .eq('key', 'agents_registry')
-          .maybeSingle();
-
-        if (!supaErr && supaSetting?.value) {
+      // Fetch from all sources in parallel (Supabase Cloud registry, Admin API, Profiles, Users)
+      await Promise.allSettled([
+        // 1. Fetch live agents directly from Supabase Cloud settings registry
+        (async () => {
           try {
-            const parsed = JSON.parse(supaSetting.value);
-            if (Array.isArray(parsed)) {
-              for (const u of parsed) {
-                if (!u) continue;
-                const email = String(u.email || '').toLowerCase().trim();
-                if (email === 'vikram.joshi@rentalpune.com' || email === 'pooja.kulkarni@rentalpune.com' || email === 'rahul.deshmukh@rentalpune.com' || email === 'admin@rentalpune.com' || u.role === 'MAIN_ADMIN' || u.role === 'ADMIN') {
+            const { data: supaSetting, error: supaErr } = await supabase
+              .from('settings')
+              .select('value')
+              .eq('key', 'agents_registry')
+              .maybeSingle();
+
+            if (!supaErr && supaSetting?.value) {
+              const parsed = JSON.parse(supaSetting.value);
+              if (Array.isArray(parsed)) {
+                for (const u of parsed) {
+                  if (!u) continue;
+                  const email = String(u.email || '').toLowerCase().trim();
+                  if (email === 'vikram.joshi@rentalpune.com' || email === 'pooja.kulkarni@rentalpune.com' || email === 'rahul.deshmukh@rentalpune.com' || email === 'admin@rentalpune.com' || u.role === 'MAIN_ADMIN' || u.role === 'ADMIN') {
+                    continue;
+                  }
+                  const key = email || String(u.id || u.user_id || '').toLowerCase();
+                  if (key) {
+                    const idVal = u.id || u.user_id;
+                    const agentId = u.agent_id || `AGENT-${typeof idVal === 'string' ? idVal.substring(idVal.length - 4) : idVal}`;
+                    agentMap.set(key, {
+                      id: idVal,
+                      user_id: u.user_id ? String(u.user_id) : String(u.id),
+                      agent_id: agentId,
+                      name: u.name || (email ? email.split('@')[0] : 'Agent'),
+                      email: u.email || '',
+                      phone: u.phone || '',
+                      role: 'AGENT' as const,
+                      status: u.status || 'ACTIVE',
+                      last_login: u.last_login || null,
+                      notes: u.notes || '',
+                      permissions: u.permissions || '',
+                      created_at: u.created_at || new Date().toISOString()
+                    });
+                  }
+                }
+              }
+            }
+          } catch (err) {}
+        })(),
+
+        // 2. Fetch from server-side admin endpoint (syncs Cloud Supabase + Auth list + Server JSON)
+        (async () => {
+          try {
+            const { data: { session } } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }));
+            const storeToken = typeof useAppStore !== 'undefined' ? useAppStore.getState()?.token : null;
+            const localToken = typeof localStorage !== 'undefined' ? (localStorage.getItem('supabase_auth_token') || localStorage.getItem('rp_auth_token')) : null;
+            const activeToken = session?.access_token || storeToken || localToken;
+
+            const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+            if (activeToken) {
+              headers['Authorization'] = `Bearer ${activeToken}`;
+            }
+            const resp = await fetch('/api/admin/agents', { headers }).catch(() => null);
+            if (resp && resp.ok) {
+              const data = await resp.json();
+              if (Array.isArray(data) && data.length > 0) {
+                for (const u of data) {
+                  const email = String(u.email || '').toLowerCase().trim();
+                  if (email === 'vikram.joshi@rentalpune.com' || email === 'pooja.kulkarni@rentalpune.com' || email === 'rahul.deshmukh@rentalpune.com' || email === 'admin@rentalpune.com' || u.role === 'MAIN_ADMIN' || u.role === 'ADMIN') {
+                    continue;
+                  }
+                  const key = email || String(u.id || u.user_id || '').toLowerCase();
+                  if (key) {
+                    const idVal = u.id || u.user_id;
+                    const agentId = u.agent_id || `AGENT-${typeof idVal === 'string' ? idVal.substring(idVal.length - 4) : idVal}`;
+                    agentMap.set(key, {
+                      id: idVal,
+                      user_id: u.user_id ? String(u.user_id) : String(u.id),
+                      agent_id: agentId,
+                      name: u.name || (email ? email.split('@')[0] : 'Agent'),
+                      email: u.email || '',
+                      phone: u.phone || '',
+                      role: 'AGENT' as const,
+                      status: u.status || 'ACTIVE',
+                      last_login: u.last_login || null,
+                      notes: u.notes || '',
+                      permissions: u.permissions || '',
+                      created_at: u.created_at || new Date().toISOString()
+                    });
+                  }
+                }
+              }
+            }
+          } catch (err) {}
+        })(),
+
+        // 3. Query Supabase profiles table directly
+        (async () => {
+          try {
+            const { data: profiles, error } = await supabase
+              .from('profiles')
+              .select('*')
+              .order('created_at', { ascending: false });
+
+            if (!error && profiles && profiles.length > 0) {
+              for (const p of profiles) {
+                const email = String(p.email || '').toLowerCase().trim();
+                if (email === 'vikram.joshi@rentalpune.com' || email === 'pooja.kulkarni@rentalpune.com' || email === 'rahul.deshmukh@rentalpune.com' || email === 'admin@rentalpune.com' || p.role === 'MAIN_ADMIN' || p.role === 'ADMIN') {
                   continue;
                 }
-                const key = email || String(u.id || u.user_id || '').toLowerCase();
+                const key = email || String(p.id || p.user_id || '').toLowerCase();
                 if (key) {
-                  const idVal = u.id || u.user_id;
-                  const agentId = u.agent_id || `AGENT-${typeof idVal === 'string' ? idVal.substring(idVal.length - 4) : idVal}`;
+                  const existing = agentMap.get(key);
+                  const idVal = p.id || p.user_id || existing?.id;
+                  const agentId = p.agent_id || existing?.agent_id || `AGENT-${typeof idVal === 'string' ? idVal.substring(idVal.length - 4) : idVal}`;
                   agentMap.set(key, {
                     id: idVal,
-                    user_id: u.user_id ? String(u.user_id) : String(u.id),
+                    user_id: p.user_id ? String(p.user_id) : (p.id ? String(p.id) : (existing?.user_id ? String(existing.user_id) : undefined)),
                     agent_id: agentId,
-                    name: u.name || (email ? email.split('@')[0] : 'Agent'),
-                    email: u.email || '',
-                    phone: u.phone || '',
+                    name: p.name || existing?.name || (email ? email.split('@')[0] : 'Agent'),
+                    email: p.email || existing?.email || '',
+                    phone: p.phone || existing?.phone || '',
                     role: 'AGENT' as const,
-                    status: u.status || 'ACTIVE',
-                    last_login: u.last_login || null,
-                    notes: u.notes || '',
-                    permissions: u.permissions || '',
-                    created_at: u.created_at || new Date().toISOString()
+                    status: p.status || existing?.status || 'ACTIVE',
+                    last_login: p.last_login || existing?.last_login || null,
+                    notes: p.notes || existing?.notes || '',
+                    permissions: p.permissions || existing?.permissions || '',
+                    created_at: p.created_at || existing?.created_at || new Date().toISOString()
                   });
                 }
               }
             }
-          } catch (parseErr) {}
-        }
-      } catch (err) {
-        console.warn('Supabase settings agents fetch note:', err);
-      }
+          } catch (e) {}
+        })(),
 
-      // 2. Fetch from server-side admin endpoint (syncs Cloud Supabase + Auth list + Server JSON)
-      try {
-        const { data: { session } } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }));
-        const storeToken = typeof useAppStore !== 'undefined' ? useAppStore.getState()?.token : null;
-        const localToken = typeof localStorage !== 'undefined' ? (localStorage.getItem('supabase_auth_token') || localStorage.getItem('rp_auth_token')) : null;
-        const activeToken = session?.access_token || storeToken || localToken;
+        // 4. Query Supabase users table directly (only role=AGENT)
+        (async () => {
+          try {
+            const { data: users, error: uError } = await supabase
+              .from('users')
+              .select('*')
+              .eq('role', 'AGENT')
+              .order('created_at', { ascending: false });
 
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (activeToken) {
-          headers['Authorization'] = `Bearer ${activeToken}`;
-        }
-        const resp = await fetch('/api/admin/agents', { headers }).catch(() => null);
-        if (resp && resp.ok) {
-          const data = await resp.json();
-          if (Array.isArray(data) && data.length > 0) {
-            for (const u of data) {
-              const email = String(u.email || '').toLowerCase().trim();
-              if (email === 'vikram.joshi@rentalpune.com' || email === 'pooja.kulkarni@rentalpune.com' || email === 'rahul.deshmukh@rentalpune.com' || email === 'admin@rentalpune.com' || u.role === 'MAIN_ADMIN' || u.role === 'ADMIN') {
-                continue;
-              }
-              const key = email || String(u.id || u.user_id || '').toLowerCase();
-              if (key) {
-                const idVal = u.id || u.user_id;
-                const agentId = u.agent_id || `AGENT-${typeof idVal === 'string' ? idVal.substring(idVal.length - 4) : idVal}`;
-                agentMap.set(key, {
-                  id: idVal,
-                  user_id: u.user_id ? String(u.user_id) : String(u.id),
-                  agent_id: agentId,
-                  name: u.name || (email ? email.split('@')[0] : 'Agent'),
-                  email: u.email || '',
-                  phone: u.phone || '',
-                  role: 'AGENT' as const,
-                  status: u.status || 'ACTIVE',
-                  last_login: u.last_login || null,
-                  notes: u.notes || '',
-                  permissions: u.permissions || '',
-                  created_at: u.created_at || new Date().toISOString()
-                });
+            if (!uError && users && users.length > 0) {
+              for (const u of users) {
+                const email = String(u.email || '').toLowerCase().trim();
+                if (email === 'vikram.joshi@rentalpune.com' || email === 'pooja.kulkarni@rentalpune.com' || email === 'rahul.deshmukh@rentalpune.com' || email === 'admin@rentalpune.com' || u.role === 'MAIN_ADMIN' || u.role === 'ADMIN') {
+                  continue;
+                }
+                const key = email || String(u.id || '').toLowerCase();
+                if (key) {
+                  const existing = agentMap.get(key);
+                  const idVal = u.id || existing?.id;
+                  const agentId = u.agent_id || existing?.agent_id || `AGENT-${typeof idVal === 'string' ? idVal.substring(idVal.length - 4) : idVal}`;
+                  agentMap.set(key, {
+                    id: idVal,
+                    user_id: u.id ? String(u.id) : (existing?.user_id ? String(existing.user_id) : undefined),
+                    agent_id: agentId,
+                    name: u.name || existing?.name || (email ? email.split('@')[0] : 'Agent'),
+                    email: u.email || existing?.email || '',
+                    phone: u.phone || existing?.phone || '',
+                    role: 'AGENT' as const,
+                    status: u.status || existing?.status || 'ACTIVE',
+                    last_login: u.last_login || existing?.last_login || null,
+                    notes: u.notes || existing?.notes || '',
+                    permissions: u.permissions || existing?.permissions || '',
+                    created_at: u.created_at || existing?.created_at || new Date().toISOString()
+                  });
+                }
               }
             }
-          }
-        }
-      } catch (err) {
-        console.warn('API agents fetch warning:', err);
-      }
-
-      // 3. Query Supabase profiles table directly
-      try {
-        const { data: profiles, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .order('created_at', { ascending: false });
-
-        if (!error && profiles && profiles.length > 0) {
-          for (const p of profiles) {
-            const email = String(p.email || '').toLowerCase().trim();
-            if (email === 'vikram.joshi@rentalpune.com' || email === 'pooja.kulkarni@rentalpune.com' || email === 'rahul.deshmukh@rentalpune.com' || email === 'admin@rentalpune.com' || p.role === 'MAIN_ADMIN' || p.role === 'ADMIN') {
-              continue;
-            }
-            const key = email || String(p.id || p.user_id || '').toLowerCase();
-            if (key) {
-              const existing = agentMap.get(key);
-              const idVal = p.id || p.user_id || existing?.id;
-              const agentId = p.agent_id || existing?.agent_id || `AGENT-${typeof idVal === 'string' ? idVal.substring(idVal.length - 4) : idVal}`;
-              agentMap.set(key, {
-                id: idVal,
-                user_id: p.user_id ? String(p.user_id) : (p.id ? String(p.id) : (existing?.user_id ? String(existing.user_id) : undefined)),
-                agent_id: agentId,
-                name: p.name || existing?.name || (email ? email.split('@')[0] : 'Agent'),
-                email: p.email || existing?.email || '',
-                phone: p.phone || existing?.phone || '',
-                role: 'AGENT' as const,
-                status: p.status || existing?.status || 'ACTIVE',
-                last_login: p.last_login || existing?.last_login || null,
-                notes: p.notes || existing?.notes || '',
-                permissions: p.permissions || existing?.permissions || '',
-                created_at: p.created_at || existing?.created_at || new Date().toISOString()
-              });
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('Supabase profiles fetch error:', e);
-      }
-
-      // 4. Query Supabase users table directly (only role=AGENT)
-      try {
-        const { data: users, error: uError } = await supabase
-          .from('users')
-          .select('*')
-          .eq('role', 'AGENT')
-          .order('created_at', { ascending: false });
-
-        if (!uError && users && users.length > 0) {
-          for (const u of users) {
-            const email = String(u.email || '').toLowerCase().trim();
-            if (email === 'vikram.joshi@rentalpune.com' || email === 'pooja.kulkarni@rentalpune.com' || email === 'rahul.deshmukh@rentalpune.com' || email === 'admin@rentalpune.com' || u.role === 'MAIN_ADMIN' || u.role === 'ADMIN') {
-              continue;
-            }
-            const key = email || String(u.id || '').toLowerCase();
-            if (key) {
-              const existing = agentMap.get(key);
-              const idVal = u.id || existing?.id;
-              const agentId = u.agent_id || existing?.agent_id || `AGENT-${typeof idVal === 'string' ? idVal.substring(idVal.length - 4) : idVal}`;
-              agentMap.set(key, {
-                id: idVal,
-                user_id: u.id ? String(u.id) : (existing?.user_id ? String(existing.user_id) : undefined),
-                agent_id: agentId,
-                name: u.name || existing?.name || (email ? email.split('@')[0] : 'Agent'),
-                email: u.email || existing?.email || '',
-                phone: u.phone || existing?.phone || '',
-                role: 'AGENT' as const,
-                status: u.status || existing?.status || 'ACTIVE',
-                last_login: u.last_login || existing?.last_login || null,
-                notes: u.notes || existing?.notes || '',
-                permissions: u.permissions || existing?.permissions || '',
-                created_at: u.created_at || existing?.created_at || new Date().toISOString()
-              });
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('Supabase users fetch error:', e);
-      }
+          } catch (e) {}
+        })()
+      ]);
 
       const result = Array.from(agentMap.values()).filter(a => {
         const email = String(a.email || '').toLowerCase().trim();
@@ -1110,6 +1244,10 @@ export const supabaseService = {
             area: Number(p.area || 0),
             location: p.location || 'Pune',
             status: p.status || 'PUBLISHED',
+            purpose: p.purpose || (p.type?.toLowerCase().includes('office') || p.type?.toLowerCase().includes('retail') || p.type?.toLowerCase().includes('commercial') ? 'COMMERCIAL' : (Number(p.price) > 5000000 ? 'SALE' : 'RENT')),
+            category: p.category || (p.type?.toLowerCase().includes('office') || p.type?.toLowerCase().includes('retail') || p.type?.toLowerCase().includes('commercial') ? 'COMMERCIAL' : 'RESIDENTIAL'),
+            furnishing: p.furnishing || 'Semi-Furnished',
+            furniture: safeJsonParse<string[]>(p.furniture, Array.isArray(p.furniture) ? p.furniture : []),
             images: safeJsonParse<string[]>(p.images, Array.isArray(p.images) ? p.images : []),
             videos: safeJsonParse<string[]>(p.videos, Array.isArray(p.videos) ? p.videos : []),
             faqs: safeJsonParse<any[]>(p.faqs, Array.isArray(p.faqs) ? p.faqs : []),
@@ -1144,6 +1282,10 @@ export const supabaseService = {
             area: Number(data.area),
             location: data.location,
             status: data.status,
+            purpose: data.purpose,
+            category: data.category,
+            furnishing: data.furnishing,
+            furniture: safeJsonParse<string[]>(data.furniture, Array.isArray(data.furniture) ? data.furniture : []),
             images: safeJsonParse<string[]>(data.images, Array.isArray(data.images) ? data.images : []),
             videos: safeJsonParse<string[]>(data.videos, Array.isArray(data.videos) ? data.videos : []),
             faqs: safeJsonParse<any[]>(data.faqs, Array.isArray(data.faqs) ? data.faqs : []),
@@ -1167,6 +1309,10 @@ export const supabaseService = {
         area: property.area,
         location: property.location,
         status: property.status || 'PUBLISHED',
+        purpose: property.purpose || 'RENT',
+        category: property.category || 'RESIDENTIAL',
+        furnishing: property.furnishing || 'Semi-Furnished',
+        furniture: JSON.stringify(property.furniture || []),
         images: JSON.stringify(property.images || []),
         videos: JSON.stringify(property.videos || []),
         faqs: JSON.stringify(property.faqs || [])
@@ -1210,6 +1356,7 @@ export const supabaseService = {
       if (updates.images) payload.images = JSON.stringify(updates.images);
       if (updates.videos) payload.videos = JSON.stringify(updates.videos);
       if (updates.faqs) payload.faqs = JSON.stringify(updates.faqs);
+      if (updates.furniture) payload.furniture = JSON.stringify(updates.furniture);
 
       try {
         await supabase
@@ -1242,6 +1389,26 @@ export const supabaseService = {
   // --- LEADS ---
   leads: {
     async getAll(): Promise<Lead[]> {
+      // 1. Instant fetch from backend API with session token
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const headers: Record<string, string> = {};
+        if (session?.access_token) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
+        const apiRes = await fetch('/api/leads', { headers });
+        if (apiRes.ok) {
+          const apiData = await apiRes.json();
+          if (Array.isArray(apiData)) {
+            setLocal('leads', apiData);
+            return apiData;
+          }
+        }
+      } catch (err) {
+        console.warn('API leads fetch error:', err);
+      }
+
+      // 2. Direct Supabase query fallback
       try {
         const [leadsRes, propsRes, agentsRes] = await Promise.allSettled([
           supabase.from('leads').select('*').order('id', { ascending: false }),
@@ -1275,20 +1442,8 @@ export const supabaseService = {
           });
         }
       } catch (err) {
-        console.warn('supabaseService.leads.getAll error:', err);
+        console.warn('supabaseService.leads.getAll direct error:', err);
       }
-
-      // Fallback: try fetching from /api/leads if available
-      try {
-        const apiRes = await fetch('/api/leads');
-        if (apiRes.ok) {
-          const apiData = await apiRes.json();
-          if (Array.isArray(apiData) && apiData.length > 0) {
-            setLocal('leads', apiData);
-            return apiData;
-          }
-        }
-      } catch {}
 
       return getLocal<Lead[]>('leads', []);
     },
@@ -1380,6 +1535,181 @@ export const supabaseService = {
       } catch {}
       const all = getLocal<Lead[]>('leads', []);
       setLocal('leads', all.filter(l => !ids.includes(l.id)));
+    }
+  },
+
+  // --- PROPERTY BOOKINGS (Dedicated "Property Booked" Section) ---
+  bookings: {
+    async getAll(): Promise<PropertyBooking[]> {
+      // 1. Try server API endpoint
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const headers: Record<string, string> = {};
+        if (session?.access_token) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
+        const res = await fetch('/api/bookings', { headers });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) {
+            setLocal('property_bookings', data);
+            return data;
+          }
+        }
+      } catch {}
+
+      // 2. Fallback to Supabase direct query
+      try {
+        const { data, error } = await supabase.from('property_bookings').select('*').order('id', { ascending: false });
+        if (!error && data && data.length > 0) {
+          setLocal('property_bookings', data);
+          return data;
+        }
+      } catch {}
+
+      return getLocal<PropertyBooking[]>('property_bookings', [
+        {
+          id: 101,
+          property_id: 101,
+          property_title: '3 BHK Luxury Penthouse in Amar Landmark',
+          property_location: 'Baner, Pune',
+          property_price: 65000,
+          property_type: 'Penthouse',
+          property_image: 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=80',
+          customer_name: 'Vikramaditya Patil',
+          customer_phone: '+91 98230 45678',
+          customer_email: 'vikram.patil@tcs.com',
+          preferred_date: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0],
+          preferred_time: '11:00 AM',
+          move_in_timeline: 'Within 7 Days',
+          occupancy_type: 'Family (3 Members)',
+          status: 'VISIT_SCHEDULED',
+          token_amount: 10000,
+          notes: 'Interested in immediate agreement and move-in.',
+          source: 'PROPERTY_BOOKED',
+          created_at: new Date(Date.now() - 3600000 * 3).toISOString()
+        },
+        {
+          id: 102,
+          property_id: 104,
+          property_title: '2 BHK Premium Smart Home in Rohan Leher',
+          property_location: 'Baner, Pune',
+          property_price: 32000,
+          property_type: 'Apartment',
+          property_image: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=800&q=80',
+          customer_name: 'Dr. Ananya Deshmukh',
+          customer_phone: '+91 97654 32100',
+          customer_email: 'ananya.deshmukh@gmail.com',
+          preferred_date: new Date(Date.now() + 86400000 * 4).toISOString().split('T')[0],
+          preferred_time: '04:30 PM',
+          move_in_timeline: 'Immediate',
+          occupancy_type: 'Self & Spouse',
+          status: 'NEW',
+          token_amount: 0,
+          notes: 'Requested private property walkthrough and lease terms review.',
+          source: 'PROPERTY_BOOKED',
+          created_at: new Date(Date.now() - 3600000 * 8).toISOString()
+        }
+      ]);
+    },
+
+    async create(booking: Partial<PropertyBooking>): Promise<PropertyBooking> {
+      // 1. Try server API
+      try {
+        const res = await fetch('/api/bookings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(booking)
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.booking) {
+            const all = getLocal<PropertyBooking[]>('property_bookings', []);
+            setLocal('property_bookings', [data.booking, ...all]);
+            window.dispatchEvent(new CustomEvent('bookings_updated'));
+            return data.booking;
+          }
+        }
+      } catch {}
+
+      // 2. Direct local save
+      const all = getLocal<PropertyBooking[]>('property_bookings', []);
+      const newBooking: PropertyBooking = {
+        id: Date.now(),
+        property_id: booking.property_id || 0,
+        property_title: booking.property_title,
+        property_location: booking.property_location,
+        property_price: booking.property_price,
+        property_type: booking.property_type,
+        property_image: booking.property_image,
+        customer_name: booking.customer_name || '',
+        customer_phone: booking.customer_phone || '',
+        customer_email: booking.customer_email || '',
+        preferred_date: booking.preferred_date || '',
+        preferred_time: booking.preferred_time || '',
+        move_in_timeline: booking.move_in_timeline || '',
+        occupancy_type: booking.occupancy_type || '',
+        status: booking.status || 'NEW',
+        token_amount: booking.token_amount || 0,
+        notes: booking.notes || '',
+        source: 'PROPERTY_BOOKED',
+        created_at: new Date().toISOString()
+      };
+      setLocal('property_bookings', [newBooking, ...all]);
+      window.dispatchEvent(new CustomEvent('bookings_updated'));
+      return newBooking;
+    },
+
+    async update(id: number, updates: Partial<PropertyBooking>): Promise<void> {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        await fetch(`/api/bookings/${id}`, {
+          method: 'PUT',
+          headers: { 
+            'Content-Type': 'application/json',
+            ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {})
+          },
+          body: JSON.stringify(updates)
+        });
+      } catch {}
+
+      const all = getLocal<PropertyBooking[]>('property_bookings', []);
+      setLocal('property_bookings', all.map(b => b.id === id ? { ...b, ...updates } : b));
+      window.dispatchEvent(new CustomEvent('bookings_updated'));
+    },
+
+    async delete(id: number): Promise<void> {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        await fetch(`/api/bookings/${id}`, {
+          method: 'DELETE',
+          headers: {
+            ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {})
+          }
+        });
+      } catch {}
+
+      const all = getLocal<PropertyBooking[]>('property_bookings', []);
+      setLocal('property_bookings', all.filter(b => b.id !== id));
+      window.dispatchEvent(new CustomEvent('bookings_updated'));
+    },
+
+    async bulkDelete(ids: number[]): Promise<void> {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        await fetch('/api/bookings/bulk-delete', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {})
+          },
+          body: JSON.stringify({ ids })
+        });
+      } catch {}
+
+      const all = getLocal<PropertyBooking[]>('property_bookings', []);
+      setLocal('property_bookings', all.filter(b => !ids.includes(b.id)));
+      window.dispatchEvent(new CustomEvent('bookings_updated'));
     }
   },
 
@@ -2173,10 +2503,12 @@ export const supabaseService = {
                   expected_rent: Number(s.expected_rent || 0),
                   security_deposit: Number(s.security_deposit || 0),
                   furnishing: s.furnishing || 'Semi-Furnished',
+                  furniture: safeJsonParse<string[]>(s.furniture, Array.isArray(s.furniture) ? s.furniture : []),
                   available_from: s.available_from || '',
                   preferred_tenants: s.preferred_tenants || 'Any',
                   amenities: safeJsonParse<string[]>(s.amenities, Array.isArray(s.amenities) ? s.amenities : []),
                   images: safeJsonParse<string[]>(s.images, Array.isArray(s.images) ? s.images : []),
+                  videos: safeJsonParse<string[]>(s.videos, Array.isArray(s.videos) ? s.videos : []),
                   notes: s.notes || '',
                   status: s.status || 'PENDING',
                   admin_notes: s.admin_notes || '',
@@ -2214,10 +2546,12 @@ export const supabaseService = {
                 expected_rent: Number(s.expected_rent || 0),
                 security_deposit: Number(s.security_deposit || 0),
                 furnishing: s.furnishing || 'Semi-Furnished',
+                furniture: safeJsonParse<string[]>(s.furniture, Array.isArray(s.furniture) ? s.furniture : []),
                 available_from: s.available_from || '',
                 preferred_tenants: s.preferred_tenants || 'Any',
                 amenities: safeJsonParse<string[]>(s.amenities, Array.isArray(s.amenities) ? s.amenities : []),
                 images: safeJsonParse<string[]>(s.images, Array.isArray(s.images) ? s.images : []),
+                videos: safeJsonParse<string[]>(s.videos, Array.isArray(s.videos) ? s.videos : []),
                 notes: s.notes || '',
                 status: s.status || 'PENDING',
                 admin_notes: s.admin_notes || '',
@@ -2257,10 +2591,12 @@ export const supabaseService = {
         expected_rent: sub.expected_rent ? Number(sub.expected_rent) : null,
         security_deposit: sub.security_deposit ? Number(sub.security_deposit) : null,
         furnishing: sub.furnishing || 'Semi-Furnished',
+        furniture: Array.isArray(sub.furniture) ? JSON.stringify(sub.furniture) : (sub.furniture || '[]'),
         available_from: sub.available_from || '',
         preferred_tenants: sub.preferred_tenants || 'Any',
         amenities: Array.isArray(sub.amenities) ? JSON.stringify(sub.amenities) : (sub.amenities || '[]'),
         images: Array.isArray(sub.images) ? JSON.stringify(sub.images) : (sub.images || '[]'),
+        videos: Array.isArray(sub.videos) ? JSON.stringify(sub.videos) : (sub.videos || '[]'),
         notes: sub.notes || '',
         status: 'PENDING'
       };
@@ -2270,8 +2606,11 @@ export const supabaseService = {
         ...sub,
         expected_rent: sub.expected_rent ? Number(sub.expected_rent) : 0,
         security_deposit: sub.security_deposit ? Number(sub.security_deposit) : 0,
+        furnishing: sub.furnishing || 'Semi-Furnished',
+        furniture: Array.isArray(sub.furniture) ? sub.furniture : safeJsonParse(sub.furniture, []),
         amenities: Array.isArray(sub.amenities) ? sub.amenities : safeJsonParse(sub.amenities, []),
         images: Array.isArray(sub.images) ? sub.images : safeJsonParse(sub.images, []),
+        videos: Array.isArray(sub.videos) ? sub.videos : safeJsonParse(sub.videos, []),
         status: 'PENDING',
         created_at: new Date().toISOString()
       };
@@ -2357,16 +2696,18 @@ export const supabaseService = {
       if (autoPublish) {
         await supabaseService.properties.create({
           title: sub.property_title,
-          description: `Prime ${sub.bhk_config} luxury rental residence in ${sub.location}. Features ${sub.furnishing} interiors, superior cross-ventilation, and verified ownership.`,
+          description: sub.notes ? `${sub.notes} (Furnishing: ${sub.furnishing}, Preferred Tenants: ${sub.preferred_tenants})` : `Prime ${sub.bhk_config} luxury rental residence in ${sub.location}. Features ${sub.furnishing} interiors, superior cross-ventilation, and verified ownership.`,
           price: sub.expected_rent || 50000,
           type: sub.property_type || 'Apartment',
-          bedrooms: sub.bhk_config?.includes('3') ? 3 : (sub.bhk_config?.includes('4') ? 4 : 2),
-          bathrooms: sub.bhk_config?.includes('3') ? 3 : (sub.bhk_config?.includes('4') ? 4 : 2),
-          area: 1650,
+          bedrooms: sub.bhk_config?.includes('1') ? 1 : (sub.bhk_config?.includes('3') ? 3 : (sub.bhk_config?.includes('4') ? 4 : 2)),
+          bathrooms: sub.bhk_config?.includes('1') ? 1 : (sub.bhk_config?.includes('3') ? 3 : (sub.bhk_config?.includes('4') ? 4 : 2)),
+          area: sub.bhk_config?.includes('1') ? 850 : (sub.bhk_config?.includes('3') ? 1750 : (sub.bhk_config?.includes('4') ? 2400 : 1250)),
           location: sub.location || 'Pune',
           status: 'PUBLISHED',
+          furnishing: sub.furnishing || 'Semi-Furnished',
+          furniture: Array.isArray(sub.furniture) ? sub.furniture : [],
           images: sub.images && sub.images.length > 0 ? sub.images : ['https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80'],
-          videos: [],
+          videos: Array.isArray(sub.videos) ? sub.videos : [],
           faqs: []
         });
       }
@@ -2468,8 +2809,127 @@ export const supabaseService = {
 
   // --- DASHBOARD METRICS ---
   dashboard: {
+    getCachedStats(): any {
+      const cached = getLocal<any>('dashboard_stats', null);
+      if (cached && cached.summary) return cached;
+
+      const properties = getLocal<Property[]>('properties', SEED_PROPERTIES);
+      const leads = getLocal<Lead[]>('leads', []);
+      const visits = getLocal<Visit[]>('visits', []);
+      const feedbacks = getLocal<VisitFeedback[]>('feedbacks', []);
+      const invoices = getLocal<Invoice[]>('invoices', []);
+      const submissions = getLocal<any[]>('submissions', SEED_OWNER_SUBMISSIONS);
+      const agents = getLocal<User[]>('agents', []);
+
+      const hotLeads = feedbacks.filter(f => f.interest_level === 'Hot').length;
+      const warmLeads = feedbacks.filter(f => f.interest_level === 'Warm').length;
+      const coldLeads = feedbacks.filter(f => f.interest_level === 'Cold').length;
+
+      const totalInvoiced = invoices.reduce((sum, inv) => sum + (Number(inv.total) || 0), 0);
+      const totalCollected = invoices.reduce((sum, inv) => sum + (Number(inv.amount_paid) || 0), 0);
+      const totalDue = invoices.reduce((sum, inv) => sum + (Number(inv.balance_due) || 0), 0);
+
+      const totalPortfolioValue = properties.reduce((sum, p) => sum + (Number(p.price) || 0), 0);
+      const publishedProperties = properties.filter(p => p.status === 'PUBLISHED');
+      const publishedPortfolioValue = publishedProperties.reduce((sum, p) => sum + (Number(p.price) || 0), 0);
+
+      const typeMap: Record<string, number> = {};
+      properties.forEach(p => {
+        const t = p.type || 'Other';
+        typeMap[t] = (typeMap[t] || 0) + 1;
+      });
+      const typeBreakdown = Object.entries(typeMap).map(([type, count]) => ({ type, count }));
+
+      const stageMap: Record<string, number> = {};
+      leads.forEach(l => {
+        const s = l.status || 'New';
+        stageMap[s] = (stageMap[s] || 0) + 1;
+      });
+      const stageBreakdown = Object.entries(stageMap).map(([status, count]) => ({ status, count }));
+
+      const budgetsWithValues = feedbacks.filter(f => f.budget && Number(f.budget) > 0);
+      const averageBudget = budgetsWithValues.length > 0
+        ? Math.round(budgetsWithValues.reduce((sum, f) => sum + Number(f.budget), 0) / budgetsWithValues.length)
+        : (feedbacks.length > 0 ? 120000 : 0);
+
+      return {
+        serverTime: new Date().toISOString(),
+        summary: {
+          propertiesCount: properties.length,
+          leadsCount: leads.length,
+          scheduledVisits: visits.filter(v => v.status === 'Scheduled').length,
+          completedVisits: visits.filter(v => v.status === 'Completed').length,
+          pendingInvoices: invoices.filter(i => i.status === 'Pending' || i.status === 'Partially Paid').length,
+          ownerSubmissionsCount: submissions.length,
+          totalRevenue: totalCollected
+        },
+        properties: {
+          total: properties.length,
+          published: publishedProperties.length,
+          sold: properties.filter(p => p.status === 'SOLD').length,
+          draft: properties.filter(p => p.status !== 'PUBLISHED' && p.status !== 'SOLD').length,
+          totalPortfolioValue,
+          publishedPortfolioValue,
+          typeBreakdown
+        },
+        leads: {
+          total: leads.length,
+          active: leads.filter(l => l.status !== 'Converted' && l.status !== 'Lost' && l.status !== 'Dropped').length,
+          converted: leads.filter(l => l.status === 'Converted').length,
+          new: leads.filter(l => l.status === 'New').length,
+          contacted: leads.filter(l => l.status === 'Contacted').length,
+          qualified: leads.filter(l => l.status === 'Qualified').length,
+          stageBreakdown,
+          recent: leads.slice(0, 6)
+        },
+        visits: {
+          total: visits.length,
+          scheduled: visits.filter(v => v.status === 'Scheduled').length,
+          completed: visits.filter(v => v.status === 'Completed').length,
+          cancelled: visits.filter(v => v.status === 'Cancelled').length,
+          recent: visits.slice(0, 6)
+        },
+        agents: {
+          total: agents.length
+        },
+        feedbacks: {
+          total: feedbacks.length,
+          hotLeads,
+          warmLeads,
+          coldLeads,
+          averageBudget,
+          recent: feedbacks.slice(0, 6)
+        },
+        feedback: {
+          total: feedbacks.length,
+          hotLeads,
+          warmLeads,
+          coldLeads,
+          averageBudget,
+          recent: feedbacks.slice(0, 6)
+        },
+        invoices: {
+          total: invoices.length,
+          paid: invoices.filter(i => i.status === 'Paid').length,
+          pending: invoices.filter(i => i.status === 'Pending' || i.status === 'Partially Paid').length,
+          totalInvoiced,
+          totalCollected,
+          totalDue
+        }
+      };
+    },
+
+    hasCachedStats(): boolean {
+      if (typeof window === 'undefined' || !window.localStorage) return false;
+      const cached = getLocal<any>('dashboard_stats', null);
+      if (cached && cached.summary) return true;
+      const p = getLocal<any[]>('properties', []);
+      const l = getLocal<any[]>('leads', []);
+      return p.length > 0 || l.length > 0;
+    },
+
     async getStats(): Promise<any> {
-      const [properties, leads, visits, feedbacks, invoices, submissions, agents] = await Promise.all([
+      const results = await Promise.allSettled([
         supabaseService.properties.getAll(),
         supabaseService.leads.getAll(),
         supabaseService.visits.getAll(),
@@ -2478,6 +2938,14 @@ export const supabaseService = {
         supabaseService.ownerSubmissions.getAll(),
         supabaseService.agents.getAll()
       ]);
+
+      const properties = results[0].status === 'fulfilled' ? results[0].value : getLocal<Property[]>('properties', SEED_PROPERTIES);
+      const leads = results[1].status === 'fulfilled' ? results[1].value : getLocal<Lead[]>('leads', []);
+      const visits = results[2].status === 'fulfilled' ? results[2].value : getLocal<Visit[]>('visits', []);
+      const feedbacks = results[3].status === 'fulfilled' ? results[3].value : getLocal<VisitFeedback[]>('feedbacks', []);
+      const invoices = results[4].status === 'fulfilled' ? results[4].value : getLocal<Invoice[]>('invoices', []);
+      const submissions = results[5].status === 'fulfilled' ? results[5].value : getLocal<any[]>('submissions', SEED_OWNER_SUBMISSIONS);
+      const agents = results[6].status === 'fulfilled' ? results[6].value : getLocal<User[]>('agents', []);
 
       const hotLeads = feedbacks.filter(f => f.interest_level === 'Hot').length;
       const warmLeads = feedbacks.filter(f => f.interest_level === 'Warm').length;
@@ -2579,8 +3047,30 @@ export const supabaseService = {
         }
       };
 
+      setLocal('dashboard_stats', statsData);
       return statsData;
     }
+  },
+
+  // Helper methods attached to supabaseService
+  getLocal: getLocal,
+  setLocal: setLocal,
+
+  // Background concurrent preload
+  async preloadAll(): Promise<void> {
+    try {
+      await Promise.allSettled([
+        supabaseService.properties.getAll(),
+        supabaseService.leads.getAll(),
+        supabaseService.visits.getAll(),
+        supabaseService.feedbacks.getAll(),
+        supabaseService.invoices.getAll(),
+        supabaseService.ownerSubmissions.getAll(),
+        supabaseService.agents.getAll(),
+        supabaseService.settings.get(),
+        supabaseService.faqs.getAll()
+      ]);
+    } catch {}
   },
 
   // --- SUPABASE STORAGE MEDIA UPLOAD ---
@@ -2648,6 +3138,142 @@ export const supabaseService = {
         };
         reader.readAsDataURL(file);
       });
+    }
+  },
+
+  // --- REALTIME SUBSCRIPTIONS & SYNCHRONIZATION ---
+  realtime: {
+    activeChannel: null as any,
+    
+    init(): () => void {
+      if (typeof window === 'undefined') return () => {};
+      
+      try {
+        if (this.activeChannel) {
+          supabase.removeChannel(this.activeChannel);
+        }
+
+        const channel = supabase
+          .channel('rp-global-realtime')
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'properties' },
+            async (payload) => {
+              console.log('[Supabase Realtime] properties changed:', payload);
+              const data = await supabaseService.properties.getAll();
+              notifyUpdate('properties', data);
+            }
+          )
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'leads' },
+            async (payload) => {
+              console.log('[Supabase Realtime] leads changed:', payload);
+              const data = await supabaseService.leads.getAll();
+              notifyUpdate('leads', data);
+            }
+          )
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'settings' },
+            async (payload) => {
+              console.log('[Supabase Realtime] settings changed:', payload);
+              const data = await supabaseService.settings.get();
+              try {
+                // Dynamically update global store settings
+                window.dispatchEvent(new CustomEvent('rp_settings_synced', { detail: data }));
+              } catch {}
+              notifyUpdate('settings', data);
+            }
+          )
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'site_visits' },
+            async (payload) => {
+              console.log('[Supabase Realtime] site_visits changed:', payload);
+              const data = await supabaseService.visits.getAll();
+              notifyUpdate('visits', data);
+            }
+          )
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'site_visit_feedback' },
+            async (payload) => {
+              console.log('[Supabase Realtime] site_visit_feedback changed:', payload);
+              const data = await supabaseService.feedbacks.getAll();
+              notifyUpdate('feedbacks', data);
+            }
+          )
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'owner_submissions' },
+            async (payload) => {
+              console.log('[Supabase Realtime] owner_submissions changed:', payload);
+              const data = await supabaseService.ownerSubmissions.getAll();
+              notifyUpdate('submissions', data);
+            }
+          )
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'faqs' },
+            async (payload) => {
+              console.log('[Supabase Realtime] faqs changed:', payload);
+              const data = await supabaseService.faqs.getAll();
+              notifyUpdate('faqs', data);
+            }
+          )
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'invoices' },
+            async (payload) => {
+              console.log('[Supabase Realtime] invoices changed:', payload);
+              const data = await supabaseService.invoices.getAll();
+              notifyUpdate('invoices', data);
+            }
+          )
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'profiles' },
+            async (payload) => {
+              console.log('[Supabase Realtime] profiles changed:', payload);
+              const data = await supabaseService.agents.getAll();
+              notifyUpdate('agents', data);
+            }
+          )
+          .subscribe((status, err) => {
+            if (err) {
+              console.warn('[Supabase Realtime] note:', status, err);
+            } else {
+              console.log('[Supabase Realtime] active status:', status);
+            }
+          });
+
+        this.activeChannel = channel;
+
+        return () => {
+          if (this.activeChannel) {
+            supabase.removeChannel(this.activeChannel);
+            this.activeChannel = null;
+          }
+        };
+      } catch (err) {
+        console.warn('[Supabase Realtime] Init error:', err);
+        return () => {};
+      }
+    },
+
+    async testConnection(): Promise<{ ok: boolean; message: string; latencyMs: number }> {
+      const start = Date.now();
+      try {
+        const { error } = await supabase.from('settings').select('count', { count: 'exact', head: true });
+        const latencyMs = Date.now() - start;
+        if (error && error.code !== 'PGRST205' && !error.message?.includes('schema cache')) {
+          return { ok: false, message: error.message, latencyMs };
+        }
+        return { ok: true, message: 'Connected to Supabase Cloud Database with Realtime sync', latencyMs };
+      } catch (err: any) {
+        return { ok: false, message: err?.message || 'Connection error', latencyMs: Date.now() - start };
+      }
     }
   }
 };

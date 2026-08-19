@@ -28,21 +28,24 @@ import {
   CheckCircle2,
   Layers,
   Star,
-  Share2
+  Share2,
+  Eye
 } from 'lucide-react';
 import SharePropertyModal from '../../components/common/SharePropertyModal.js';
+import PropertyDetailsModal from '../../components/common/PropertyDetailsModal.js';
 
 const MAX_PHOTOS = 10;
 const MAX_VIDEOS = 4;
 
 export default function Properties() {
   const { token, settings } = useAppStore();
-  const [properties, setProperties] = useState<Property[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [properties, setProperties] = useState<Property[]>(() => supabaseService.getLocal<Property[]>('properties', []));
+  const [loading, setLoading] = useState(() => supabaseService.getLocal<Property[]>('properties', []).length === 0);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
 
   // Modal states
+  const [previewProperty, setPreviewProperty] = useState<Property | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProperty, setEditingProperty] = useState<Property | null>(null);
   const [sharingProperty, setSharingProperty] = useState<Property | null>(null);
@@ -558,13 +561,17 @@ export default function Properties() {
 
                   return (
                     <tr key={p.id} className="hover:bg-neutral-900/60 transition-colors">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center space-x-3">
+                      <td 
+                        className="px-6 py-4 cursor-pointer"
+                        onClick={() => setPreviewProperty(p)}
+                        title="Click to view all photos, videos & amenities"
+                      >
+                        <div className="flex items-center space-x-3 group/item">
                           {heroImg ? (
                             <img 
                               src={heroImg} 
                               alt={p.title} 
-                              className="w-14 h-14 rounded-xl object-cover border border-neutral-800 flex-shrink-0"
+                              className="w-14 h-14 rounded-xl object-cover border border-neutral-800 flex-shrink-0 group-hover/item:scale-105 group-hover/item:border-[#d4a359]/60 transition-all"
                             />
                           ) : (
                             <div className="w-14 h-14 rounded-xl bg-neutral-900 border border-neutral-800 flex items-center justify-center text-neutral-500 flex-shrink-0">
@@ -572,7 +579,7 @@ export default function Properties() {
                             </div>
                           )}
                           <div className="min-w-0">
-                            <h3 className="font-bold text-white text-base truncate max-w-xs">{p.title}</h3>
+                            <h3 className="font-bold text-white text-base truncate max-w-xs group-hover/item:text-[#d4a359] transition-colors">{p.title}</h3>
                             <div className="flex items-center text-xs text-neutral-400 mt-0.5 truncate">
                               <MapPin className="w-3 h-3 mr-1 text-red-500 flex-shrink-0" />
                               <span className="truncate">{p.location || 'Location upon request'}</span>
@@ -629,6 +636,14 @@ export default function Properties() {
 
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end space-x-2">
+                          <button
+                            id={`btn-preview-property-${p.id}`}
+                            onClick={() => setPreviewProperty(p)}
+                            className="p-2 bg-neutral-900 hover:bg-[#d4a359]/20 border border-neutral-800 hover:border-[#d4a359]/50 text-neutral-300 hover:text-[#d4a359] rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                            title="Preview Luxury Showcase View"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
                           <button
                             id={`btn-share-property-${p.id}`}
                             onClick={() => setSharingProperty(p)}
@@ -1232,6 +1247,21 @@ export default function Properties() {
         property={sharingProperty}
         settings={settings}
         onClose={() => setSharingProperty(null)}
+      />
+
+      {/* LUXURY PROPERTY SHOWCASE MODAL */}
+      <PropertyDetailsModal
+        property={previewProperty}
+        settings={settings}
+        isOpen={!!previewProperty}
+        onClose={() => setPreviewProperty(null)}
+        onBookVisit={(prop) => {
+          setPreviewProperty(null);
+          // Can open share or edit if needed
+        }}
+        onShare={(prop) => {
+          setSharingProperty(prop);
+        }}
       />
     </div>
   );

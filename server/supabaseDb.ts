@@ -6,6 +6,7 @@ const DATA_DIR = path.join(process.cwd(), 'data');
 const SUBMISSIONS_FILE = path.join(DATA_DIR, 'owner_submissions.json');
 const AGENTS_FILE = path.join(DATA_DIR, 'agents.json');
 const LEADS_FILE = path.join(DATA_DIR, 'leads.json');
+const BOOKINGS_FILE = path.join(DATA_DIR, 'bookings.json');
 const VISITS_FILE = path.join(DATA_DIR, 'visits.json');
 const FEEDBACKS_FILE = path.join(DATA_DIR, 'feedbacks.json');
 const INVOICES_FILE = path.join(DATA_DIR, 'invoices.json');
@@ -69,6 +70,7 @@ const DEFAULT_OWNER_SUBMISSIONS = [
     expected_rent: 38000,
     security_deposit: 100000,
     furnishing: 'Fully Furnished',
+    furniture: ['Ceiling Fans (All Rooms)', 'Master Bedroom Wardrobe', 'Modular Kitchen Cabinets', 'Air Conditioner (AC)', 'Sofa Set (3+2)', 'King Bed with Mattress', 'Geyser / Water Heater', 'Smart TV 55"'],
     available_from: 'Immediate',
     preferred_tenants: 'Family / IT Professionals',
     amenities: ['Power Backup', 'Gymnasium', 'Swimming Pool', '24/7 Security', 'Covered Parking', 'Clubhouse', 'Modular Kitchen'],
@@ -76,6 +78,7 @@ const DEFAULT_OWNER_SUBMISSIONS = [
       'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80',
       'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80'
     ],
+    videos: [],
     notes: 'Premium high-floor flat with valley views, high-speed fiber internet, and 100% power backup. Ideal for tech professionals.',
     status: 'PENDING',
     admin_notes: '',
@@ -95,12 +98,14 @@ const DEFAULT_OWNER_SUBMISSIONS = [
     expected_rent: 32000,
     security_deposit: 80000,
     furnishing: 'Semi-Furnished',
+    furniture: ['Ceiling Fans (All Rooms)', 'Cupboards / Wardrobes in 2 Bedrooms', 'Modular Kitchen', 'Geyser in 2 Bathrooms'],
     available_from: 'Next Month',
     preferred_tenants: 'Any',
     amenities: ['24/7 Security', 'Covered Parking', 'Modular Kitchen', 'Elevator / Lift', 'Piped MNGL Gas'],
     images: [
       'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=800&q=80'
     ],
+    videos: [],
     notes: 'NRI owner based in Dubai. Society management has keys for inspection walkthroughs.',
     status: 'CONTACTED',
     admin_notes: 'Spoke with owner on WhatsApp. Walkthrough key with society office.',
@@ -120,12 +125,14 @@ const DEFAULT_OWNER_SUBMISSIONS = [
     expected_rent: 85000,
     security_deposit: 250000,
     furnishing: 'Fully Furnished',
+    furniture: ['Designer Ceiling Fans & Lights', 'Full Wall Walk-in Wardrobes', 'Italian Modular Kitchen & Chimney', 'VRV Air Conditioning in all rooms', 'Imported Leather Sofa Set', 'King Bed & Queen Beds (4 sets)', 'Dining Table (6 Seater)', 'Microwave & Double Door Refrigerator', 'Washing Machine', 'Smart Home Automation'],
     available_from: 'Immediate',
     preferred_tenants: 'Family',
     amenities: ['Swimming Pool', 'Clubhouse', '24/7 Security', 'Power Backup', 'Gymnasium', 'Children Play Area', 'Pet Friendly'],
     images: [
       'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=80'
     ],
+    videos: [],
     notes: 'Ultra luxury duplex penthouse with designer interiors, Italian marble, and world class clubhouse.',
     status: 'APPROVED',
     admin_notes: 'Agreement signed. Verified owner credentials.',
@@ -360,6 +367,153 @@ export const supabaseDb = {
     if (error) {
       throw new Error(`Supabase bulk deletion failed (Leads): ${error.message} (Code: ${error.code})`);
     }
+    return true;
+  },
+
+  // --- PROPERTY BOOKINGS (Dedicated "Property Booked" pipeline) ---
+  async getBookings(): Promise<any[]> {
+    const supabase = getClient();
+    let bookingsFromDb: any[] = [];
+    try {
+      const { data, error } = await supabase.from('property_bookings').select('*').order('id', { ascending: false });
+      if (!error && data) {
+        bookingsFromDb = data;
+      }
+    } catch {
+      // Table may not exist yet in custom schema
+    }
+
+    const localBookings = loadJsonFile<any[]>(BOOKINGS_FILE, [
+      {
+        id: 101,
+        property_id: 101,
+        customer_name: 'Vikramaditya Patil',
+        customer_phone: '+91 98230 45678',
+        customer_email: 'vikram.patil@tcs.com',
+        preferred_date: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0],
+        preferred_time: '11:00 AM',
+        move_in_timeline: 'Within 7 Days',
+        occupancy_type: 'Family (3 Members)',
+        status: 'VISIT_SCHEDULED',
+        token_amount: 10000,
+        notes: 'Interested in immediate agreement and move-in.',
+        source: 'PROPERTY_BOOKED',
+        created_at: new Date(Date.now() - 3600000 * 3).toISOString()
+      },
+      {
+        id: 102,
+        property_id: 104,
+        customer_name: 'Dr. Ananya Deshmukh',
+        customer_phone: '+91 97654 32100',
+        customer_email: 'ananya.deshmukh@gmail.com',
+        preferred_date: new Date(Date.now() + 86400000 * 4).toISOString().split('T')[0],
+        preferred_time: '04:30 PM',
+        move_in_timeline: 'Immediate',
+        occupancy_type: 'Self & Spouse',
+        status: 'NEW',
+        token_amount: 0,
+        notes: 'Requested private property walkthrough and lease terms review.',
+        source: 'PROPERTY_BOOKED',
+        created_at: new Date(Date.now() - 3600000 * 8).toISOString()
+      }
+    ]);
+
+    // Merge or prioritize
+    const map = new Map<any, any>();
+    localBookings.forEach(b => map.set(String(b.id), b));
+    bookingsFromDb.forEach(b => map.set(String(b.id), b));
+    return Array.from(map.values()).sort((a, b) => Number(b.id) - Number(a.id));
+  },
+
+  async createBooking(b: any): Promise<any> {
+    const supabase = getClient();
+    const newId = Date.now();
+    const payload = {
+      id: newId,
+      property_id: b.property_id ? Number(b.property_id) : null,
+      property_title: b.property_title || '',
+      property_location: b.property_location || '',
+      property_price: b.property_price ? Number(b.property_price) : null,
+      property_type: b.property_type || '',
+      property_image: b.property_image || '',
+      customer_name: String(b.customer_name || '').trim(),
+      customer_phone: String(b.customer_phone || '').trim(),
+      customer_email: b.customer_email ? String(b.customer_email).trim() : '',
+      preferred_date: b.preferred_date || '',
+      preferred_time: b.preferred_time || '',
+      move_in_timeline: b.move_in_timeline || '',
+      occupancy_type: b.occupancy_type || '',
+      status: b.status || 'NEW',
+      token_amount: b.token_amount ? Number(b.token_amount) : 0,
+      notes: b.notes || '',
+      assigned_agent_id: b.assigned_agent_id ? String(b.assigned_agent_id) : null,
+      assigned_agent_name: b.assigned_agent_name || '',
+      source: 'PROPERTY_BOOKED',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    // 1. Save to local JSON storage
+    const current = loadJsonFile<any[]>(BOOKINGS_FILE, []);
+    saveJsonFile(BOOKINGS_FILE, [payload, ...current]);
+
+    // 2. Also try inserting to Supabase if table exists
+    try {
+      await supabase.from('property_bookings').insert([payload]);
+    } catch (e) {
+      console.warn('Supabase property_bookings insert fallback to local:', e);
+    }
+
+    return payload;
+  },
+
+  async updateBooking(id: any, updates: any): Promise<boolean> {
+    const supabase = getClient();
+    const current = loadJsonFile<any[]>(BOOKINGS_FILE, []);
+    const updated = current.map(item => {
+      if (String(item.id) === String(id)) {
+        return {
+          ...item,
+          ...updates,
+          updated_at: new Date().toISOString()
+        };
+      }
+      return item;
+    });
+    saveJsonFile(BOOKINGS_FILE, updated);
+
+    try {
+      await supabase.from('property_bookings').update({ ...updates, updated_at: new Date().toISOString() }).eq('id', id);
+    } catch {}
+
+    return true;
+  },
+
+  async deleteBooking(id: any): Promise<boolean> {
+    const supabase = getClient();
+    const current = loadJsonFile<any[]>(BOOKINGS_FILE, []);
+    const filtered = current.filter(item => String(item.id) !== String(id));
+    saveJsonFile(BOOKINGS_FILE, filtered);
+
+    try {
+      await supabase.from('property_bookings').delete().eq('id', id);
+    } catch {}
+
+    return true;
+  },
+
+  async bulkDeleteBookings(ids: any[]): Promise<boolean> {
+    if (!ids || ids.length === 0) return true;
+    const strIds = ids.map(i => String(i));
+    const current = loadJsonFile<any[]>(BOOKINGS_FILE, []);
+    const filtered = current.filter(item => !strIds.includes(String(item.id)));
+    saveJsonFile(BOOKINGS_FILE, filtered);
+
+    const supabase = getClient();
+    try {
+      await supabase.from('property_bookings').delete().in('id', ids);
+    } catch {}
+
     return true;
   },
 
@@ -866,8 +1020,10 @@ export const supabaseDb = {
       if (!error && Array.isArray(data) && data.length > 0) {
         cloudData = data.map(s => ({
           ...s,
+          furniture: safeParseJSON(s.furniture, Array.isArray(s.furniture) ? s.furniture : [], `owner_submissions.furniture (ID ${s.id})`),
           amenities: safeParseJSON(s.amenities, Array.isArray(s.amenities) ? s.amenities : [], `owner_submissions.amenities (ID ${s.id})`),
-          images: safeParseJSON(s.images, Array.isArray(s.images) ? s.images : [], `owner_submissions.images (ID ${s.id})`)
+          images: safeParseJSON(s.images, Array.isArray(s.images) ? s.images : [], `owner_submissions.images (ID ${s.id})`),
+          videos: safeParseJSON(s.videos, Array.isArray(s.videos) ? s.videos : [], `owner_submissions.videos (ID ${s.id})`)
         }));
       }
     } catch (e) {
@@ -916,10 +1072,12 @@ export const supabaseDb = {
       expected_rent: os.expected_rent ? Number(os.expected_rent) : null,
       security_deposit: os.security_deposit ? Number(os.security_deposit) : null,
       furnishing: os.furnishing || 'Semi-Furnished',
+      furniture: typeof os.furniture === 'string' ? os.furniture : JSON.stringify(os.furniture || []),
       available_from: os.available_from || '',
       preferred_tenants: os.preferred_tenants || 'Any',
       amenities: typeof os.amenities === 'string' ? os.amenities : JSON.stringify(os.amenities || []),
       images: typeof os.images === 'string' ? os.images : JSON.stringify(os.images || []),
+      videos: typeof os.videos === 'string' ? os.videos : JSON.stringify(os.videos || []),
       notes: os.notes || '',
       status: os.status || 'PENDING',
       admin_notes: os.admin_notes || ''
@@ -946,8 +1104,10 @@ export const supabaseDb = {
 
     const formatted = {
       ...createdRecord,
+      furniture: safeParseJSON(createdRecord.furniture, Array.isArray(createdRecord.furniture) ? createdRecord.furniture : []),
       amenities: safeParseJSON(createdRecord.amenities, Array.isArray(createdRecord.amenities) ? createdRecord.amenities : []),
-      images: safeParseJSON(createdRecord.images, Array.isArray(createdRecord.images) ? createdRecord.images : [])
+      images: safeParseJSON(createdRecord.images, Array.isArray(createdRecord.images) ? createdRecord.images : []),
+      videos: safeParseJSON(createdRecord.videos, Array.isArray(createdRecord.videos) ? createdRecord.videos : [])
     };
 
     // Prepend to memory cache and persist to file
@@ -975,10 +1135,12 @@ export const supabaseDb = {
       expected_rent: os.expected_rent ? Number(os.expected_rent) : undefined,
       security_deposit: os.security_deposit ? Number(os.security_deposit) : undefined,
       furnishing: os.furnishing,
+      furniture: typeof os.furniture === 'string' ? os.furniture : os.furniture ? JSON.stringify(os.furniture) : undefined,
       available_from: os.available_from,
       preferred_tenants: os.preferred_tenants,
       amenities: typeof os.amenities === 'string' ? os.amenities : os.amenities ? JSON.stringify(os.amenities) : undefined,
       images: typeof os.images === 'string' ? os.images : os.images ? JSON.stringify(os.images) : undefined,
+      videos: typeof os.videos === 'string' ? os.videos : os.videos ? JSON.stringify(os.videos) : undefined,
       notes: os.notes,
       status: os.status,
       admin_notes: os.admin_notes

@@ -595,14 +595,24 @@ router.put('/settings', authenticate, requireAdmin, async (req, res) => {
   }
 });
 
-// --- UPLOAD HANDLERS (SUPABASE STORAGE EXCLUSIVE) ---
-router.post('/upload/image', authenticate, upload.single('file'), async (req: any, res: any) => {
+// --- UPLOAD HANDLERS (SUPABASE STORAGE & LOCAL DISK FALLBACK) ---
+const optionalAuth = (req: any, res: any, next: any) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+    if (token) {
+      try {
+        const decoded: any = jwt.verify(token, JWT_SECRET);
+        req.user = decoded;
+      } catch (e) {}
+    }
+  }
+  next();
+};
+
+router.post('/upload/image', optionalAuth, upload.single('file'), async (req: any, res: any) => {
   try {
     const supabase = getSupabase();
-    if (!supabase) {
-      return res.status(500).json({ error: 'Supabase client is not configured on the server.' });
-    }
-
     let inputBuffer: Buffer;
     let originalName = 'photo';
     let originalSize = 0;
@@ -629,34 +639,44 @@ router.post('/upload/image', authenticate, upload.single('file'), async (req: an
     const cleanBaseName = path.parse(originalName).name.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 30);
     const filename = `photo-${Date.now()}-${cleanBaseName}.webp`;
 
-    // Ensure bucket exists or try to create it
-    try {
-      await supabase.storage.createBucket('property-images', { public: true });
-    } catch (e) {
-      // safe to ignore
+    let finalPublicUrl = '';
+
+    if (supabase) {
+      try {
+        await supabase.storage.createBucket('property-images', { public: true });
+      } catch (e) {}
+
+      const { data, error } = await supabase.storage
+        .from('property-images')
+        .upload(filename, webpBuffer, {
+          contentType: 'image/webp',
+          upsert: true
+        });
+
+      if (!error) {
+        const { data: { publicUrl } } = supabase.storage
+          .from('property-images')
+          .getPublicUrl(filename);
+        finalPublicUrl = publicUrl;
+      }
     }
 
-    const { data, error } = await supabase.storage
-      .from('property-images')
-      .upload(filename, webpBuffer, {
-        contentType: 'image/webp',
-        upsert: true
-      });
-
-    if (error) {
-      throw new Error(`Failed to upload image to Supabase Storage: ${error.message}`);
+    // If Supabase wasn't configured or threw an error, save to local uploads directory
+    if (!finalPublicUrl) {
+      const uploadsDir = path.join(process.cwd(), 'uploads');
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+      fs.writeFileSync(path.join(uploadsDir, filename), webpBuffer);
+      finalPublicUrl = `/uploads/${filename}`;
     }
-
-    const { data: { publicUrl } } = supabase.storage
-      .from('property-images')
-      .getPublicUrl(filename);
 
     const savedBytes = originalSize > webpBuffer.length ? originalSize - webpBuffer.length : 0;
     const savedPercent = originalSize > 0 ? Math.round((savedBytes / originalSize) * 100) : 0;
 
     res.json({
       success: true,
-      url: publicUrl,
+      url: finalPublicUrl,
       format: 'webp',
       filename,
       originalSize,
@@ -669,13 +689,9 @@ router.post('/upload/image', authenticate, upload.single('file'), async (req: an
   }
 });
 
-router.post('/upload/video', authenticate, upload.single('file'), async (req: any, res: any) => {
+router.post('/upload/video', optionalAuth, upload.single('file'), async (req: any, res: any) => {
   try {
     const supabase = getSupabase();
-    if (!supabase) {
-      return res.status(500).json({ error: 'Supabase client is not configured on the server.' });
-    }
-
     if (!req.file) {
       return res.status(400).json({ error: 'No video file provided.' });
     }
@@ -684,31 +700,40 @@ router.post('/upload/video', authenticate, upload.single('file'), async (req: an
     const cleanBaseName = path.parse(req.file.originalname).name.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 30);
     const filename = `video-${Date.now()}-${cleanBaseName}${ext}`;
 
-    // Ensure bucket exists or try to create it
-    try {
-      await supabase.storage.createBucket('property-images', { public: true });
-    } catch (e) {
-      // safe to ignore
+    let finalPublicUrl = '';
+
+    if (supabase) {
+      try {
+        await supabase.storage.createBucket('property-images', { public: true });
+      } catch (e) {}
+
+      const { data, error } = await supabase.storage
+        .from('property-images')
+        .upload(filename, req.file.buffer, {
+          contentType: req.file.mimetype || 'video/mp4',
+          upsert: true
+        });
+
+      if (!error) {
+        const { data: { publicUrl } } = supabase.storage
+          .from('property-images')
+          .getPublicUrl(filename);
+        finalPublicUrl = publicUrl;
+      }
     }
 
-    const { data, error } = await supabase.storage
-      .from('property-images')
-      .upload(filename, req.file.buffer, {
-        contentType: req.file.mimetype || 'video/mp4',
-        upsert: true
-      });
-
-    if (error) {
-      throw new Error(`Failed to upload video to Supabase Storage: ${error.message}`);
+    if (!finalPublicUrl) {
+      const uploadsDir = path.join(process.cwd(), 'uploads');
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+      fs.writeFileSync(path.join(uploadsDir, filename), req.file.buffer);
+      finalPublicUrl = `/uploads/${filename}`;
     }
-
-    const { data: { publicUrl } } = supabase.storage
-      .from('property-images')
-      .getPublicUrl(filename);
 
     res.json({
       success: true,
-      url: publicUrl,
+      url: finalPublicUrl,
       filename,
       size: req.file.size
     });
@@ -1173,6 +1198,159 @@ router.post('/leads/bulk-delete', authenticate, requireAdmin, async (req, res) =
   } catch (err: any) {
     console.error('Error bulk deleting leads:', err);
     res.status(500).json({ error: err?.message || 'Failed to bulk delete leads' });
+  }
+});
+
+// --- PROPERTY BOOKINGS (Dedicated "Property Booked" System) ---
+router.post('/bookings', async (req, res) => {
+  try {
+    const { 
+      property_id, 
+      property_title, 
+      property_location, 
+      property_price, 
+      property_type,
+      property_image,
+      customer_name, 
+      customer_phone, 
+      customer_email, 
+      preferred_date, 
+      preferred_time, 
+      move_in_timeline, 
+      occupancy_type, 
+      notes,
+      token_amount
+    } = req.body;
+
+    if (!customer_name || !customer_phone) {
+      return res.status(400).json({ error: 'Name and phone number are required to book property.' });
+    }
+
+    let resolvedTitle = property_title;
+    let resolvedLocation = property_location;
+    let resolvedPrice = property_price;
+    let resolvedImage = property_image;
+
+    if (property_id) {
+      try {
+        const properties = await supabaseDb.getProperties();
+        const found = properties.find(p => String(p.id) === String(property_id));
+        if (found) {
+          resolvedTitle = resolvedTitle || found.title;
+          resolvedLocation = resolvedLocation || found.location;
+          resolvedPrice = resolvedPrice || found.price;
+          resolvedImage = resolvedImage || found.images?.[0] || '';
+        }
+      } catch {}
+    }
+
+    const booking = await supabaseDb.createBooking({
+      property_id,
+      property_title: resolvedTitle,
+      property_location: resolvedLocation,
+      property_price: resolvedPrice,
+      property_type,
+      property_image: resolvedImage,
+      customer_name,
+      customer_phone,
+      customer_email,
+      preferred_date,
+      preferred_time,
+      move_in_timeline,
+      occupancy_type,
+      notes,
+      token_amount: token_amount || 0,
+      status: 'NEW',
+      source: 'PROPERTY_BOOKED'
+    });
+
+    return res.status(201).json({
+      success: true,
+      booking,
+      message: 'Property booking request submitted successfully. Our executive will reach out shortly!'
+    });
+  } catch (err: any) {
+    console.error('Error creating property booking:', err);
+    res.status(500).json({ error: err?.message || 'Failed to submit property booking' });
+  }
+});
+
+router.get('/bookings', authenticate, async (req: any, res: any) => {
+  try {
+    const userRole = String(req.user?.role || '').toUpperCase();
+    const userId = req.user?.id || req.user?.user_id;
+
+    let bookings = await supabaseDb.getBookings();
+
+    // If agent, filter by assigned agent
+    if (userRole === 'AGENT' && userId) {
+      bookings = bookings.filter(b => String(b.assigned_agent_id) === String(userId));
+    }
+
+    let properties: any[] = [];
+    let agents: any[] = [];
+    try {
+      properties = await supabaseDb.getProperties();
+    } catch {}
+    try {
+      agents = await supabaseDb.getAgents();
+    } catch {}
+
+    const enriched = bookings.map(b => {
+      const prop = properties.find(p => String(p.id) === String(b.property_id));
+      const agent = agents.find(a => String(a.id || a.user_id) === String(b.assigned_agent_id));
+      return {
+        ...b,
+        property_title: b.property_title || prop?.title || 'Luxury Property',
+        property_location: b.property_location || prop?.location || 'Pune',
+        property_price: b.property_price || prop?.price || 0,
+        property_type: b.property_type || prop?.type || 'Apartment',
+        property_image: b.property_image || prop?.images?.[0] || '',
+        assigned_agent_name: b.assigned_agent_name || agent?.name || ''
+      };
+    });
+
+    res.json(enriched);
+  } catch (err: any) {
+    console.error('Error fetching property bookings:', err);
+    res.status(500).json({ error: err?.message || 'Server error fetching bookings' });
+  }
+});
+
+router.put('/bookings/:id', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+    await supabaseDb.updateBooking(id, updates);
+    res.json({ success: true, message: 'Property booking updated successfully' });
+  } catch (err: any) {
+    console.error('Error updating booking:', err);
+    res.status(500).json({ error: err?.message || 'Failed to update booking' });
+  }
+});
+
+router.delete('/bookings/:id', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await supabaseDb.deleteBooking(id);
+    res.json({ success: true, message: 'Property booking deleted successfully' });
+  } catch (err: any) {
+    console.error('Error deleting booking:', err);
+    res.status(500).json({ error: err?.message || 'Failed to delete booking' });
+  }
+});
+
+router.post('/bookings/bulk-delete', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'No booking IDs provided for deletion.' });
+    }
+    await supabaseDb.bulkDeleteBookings(ids);
+    res.json({ success: true, count: ids.length, message: `${ids.length} bookings deleted successfully.` });
+  } catch (err: any) {
+    console.error('Error bulk deleting bookings:', err);
+    res.status(500).json({ error: err?.message || 'Failed to bulk delete bookings' });
   }
 });
 
@@ -1814,10 +1992,12 @@ router.post('/owner-submissions', async (req, res) => {
       expected_rent,
       security_deposit,
       furnishing = 'Semi-Furnished',
+      furniture = [],
       available_from,
       preferred_tenants = 'Any',
       amenities = [],
       images = [],
+      videos = [],
       notes
     } = req.body;
 
@@ -1838,10 +2018,12 @@ router.post('/owner-submissions', async (req, res) => {
       expected_rent,
       security_deposit,
       furnishing,
+      furniture,
       available_from,
       preferred_tenants,
       amenities,
       images,
+      videos,
       notes
     });
 
@@ -1870,9 +2052,9 @@ router.get('/owner-submissions', async (req, res) => {
 router.put('/owner-submissions/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, admin_notes } = req.body;
+    const { status, admin_notes, furniture, amenities, images, videos } = req.body;
 
-    await supabaseDb.updateOwnerSubmission(id, { status, admin_notes });
+    await supabaseDb.updateOwnerSubmission(id, { status, admin_notes, furniture, amenities, images, videos });
     return res.json({ success: true, message: 'Submission updated' });
   } catch (err) {
     console.error('Error updating owner submission:', err);
@@ -1935,6 +2117,20 @@ router.post('/owner-submissions/:id/approve', async (req, res) => {
       imagesArr = ['https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80'];
     }
 
+    let videosArr: string[] = [];
+    try {
+      videosArr = typeof sub.videos === 'string' ? JSON.parse(sub.videos) : (sub.videos || []);
+    } catch (e) {
+      videosArr = [];
+    }
+
+    let furnitureArr: string[] = [];
+    try {
+      furnitureArr = typeof sub.furniture === 'string' ? JSON.parse(sub.furniture) : (sub.furniture || []);
+    } catch (e) {
+      furnitureArr = [];
+    }
+
     let amenitiesArr: string[] = [];
     try {
       amenitiesArr = typeof sub.amenities === 'string' ? JSON.parse(sub.amenities) : (sub.amenities || []);
@@ -1957,6 +2153,9 @@ router.post('/owner-submissions/:id/approve', async (req, res) => {
       location: sub.location,
       status: 'PUBLISHED',
       images: imagesArr,
+      videos: videosArr,
+      furniture: furnitureArr,
+      furnishing: sub.furnishing || 'Semi-Furnished',
       amenities: amenitiesArr
     });
 

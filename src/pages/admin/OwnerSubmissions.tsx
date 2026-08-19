@@ -26,11 +26,18 @@ import {
   FileSpreadsheet,
   AlertTriangle,
   RefreshCw,
-  Activity
+  Activity,
+  Image as ImageIcon,
+  Film,
+  Video,
+  Armchair,
+  Maximize2,
+  ShieldCheck
 } from 'lucide-react';
 import { useAppStore } from '../../store/index.js';
 import { getWhatsAppUrl } from '../../utils/whatsapp.js';
 import { supabase, supabaseService } from '../../services/supabaseService.js';
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY, formatDateComponents } from '../../utils/dateFormatter.js';
 
 export interface OwnerSubmission {
   id: number;
@@ -46,20 +53,41 @@ export interface OwnerSubmission {
   expected_rent?: number;
   security_deposit?: number;
   furnishing?: string;
+  furniture?: string[] | string;
   available_from?: string;
   preferred_tenants?: string;
-  amenities?: string;
-  images?: string;
+  amenities?: string[] | string;
+  images?: string[] | string;
+  videos?: string[] | string;
   notes?: string;
   status: 'PENDING' | 'CONTACTED' | 'APPROVED' | 'REJECTED';
   admin_notes?: string;
   created_at: string;
 }
 
+// Robust parser for array or string fields
+const parseArrayField = (field?: string[] | string): string[] => {
+  if (!field) return [];
+  if (Array.isArray(field)) return field.filter(Boolean);
+  if (typeof field === 'string') {
+    const trimmed = field.trim();
+    if (!trimmed) return [];
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) return parsed.filter(Boolean);
+      } catch {}
+    }
+    return trimmed.split(',').map(s => s.trim()).filter(Boolean);
+  }
+  return [];
+};
+
+
 export default function OwnerSubmissions() {
   const { token, user, settings } = useAppStore();
-  const [submissions, setSubmissions] = useState<OwnerSubmission[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [submissions, setSubmissions] = useState<OwnerSubmission[]>(() => supabaseService.getLocal<OwnerSubmission[]>('submissions', []));
+  const [loading, setLoading] = useState(() => supabaseService.getLocal<OwnerSubmission[]>('submissions', []).length === 0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<Date>(new Date());
 
@@ -82,6 +110,7 @@ export default function OwnerSubmissions() {
   const [actionMessage, setActionMessage] = useState('');
   const [approvingId, setApprovingId] = useState<number | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [lightboxImg, setLightboxImg] = useState<string | null>(null);
 
   const fetchSubmissions = async (isManual = false) => {
     if (isManual) {
@@ -331,6 +360,7 @@ export default function OwnerSubmissions() {
       'Expected Rent',
       'Deposit',
       'Furnishing',
+      'Preferred Tenants / Purpose',
       'Status',
       'Date Submitted'
     ];
@@ -348,8 +378,9 @@ export default function OwnerSubmissions() {
       s.expected_rent || 0,
       s.security_deposit || 0,
       `"${(s.furnishing || '').replace(/"/g, '""')}"`,
+      `"${(s.preferred_tenants || 'Any').replace(/"/g, '""')}"`,
       `"${s.status}"`,
-      `"${s.created_at || ''}"`
+      `"${formatDateDDMMYYYY(s.created_at)}"`
     ]);
 
     const csvContent = [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
@@ -735,12 +766,60 @@ export default function OwnerSubmissions() {
                       </td>
 
                       <td className="px-4 py-4 space-y-1">
-                        <p className="font-bold text-white text-sm max-w-xs truncate">{s.property_title}</p>
-                        <p className="text-[11px] text-neutral-400 flex items-center gap-1">
-                          <MapPin className="w-3 h-3 text-[#d4a359]" />
-                          <span>{s.location} • {s.bhk_config} ({s.furnishing || 'Semi-Furnished'})</span>
-                        </p>
+                        <div className="flex items-start gap-2.5">
+                          {(() => {
+                            const subImages = parseArrayField(s.images);
+                            return subImages.length > 0 ? (
+                              <div className="w-12 h-12 rounded-lg bg-[#080f1a] border border-white/15 overflow-hidden flex-shrink-0 relative group">
+                                <img src={subImages[0]} alt="Thumbnail" className="w-full h-full object-cover" />
+                                {subImages.length > 1 && (
+                                  <span className="absolute bottom-0 right-0 bg-black/80 text-white text-[9px] px-1 font-mono rounded-tl">
+                                    +{subImages.length - 1}
+                                  </span>
+                                )}
+                              </div>
+                            ) : null;
+                          })()}
+                          <div>
+                            <p className="font-bold text-white text-sm max-w-xs truncate">{s.property_title}</p>
+                            <p className="text-[11px] text-neutral-400 flex items-center gap-1">
+                              <MapPin className="w-3 h-3 text-[#d4a359]" />
+                              <span>{s.location} • {s.bhk_config} ({s.furnishing || 'Semi-Furnished'})</span>
+                            </p>
+                            {/* Badges for media & furniture */}
+                            <div className="flex items-center gap-2 mt-1">
+                              {(() => {
+                                const subImages = parseArrayField(s.images);
+                                const subVideos = parseArrayField(s.videos);
+                                const subFurniture = parseArrayField(s.furniture);
+                                return (
+                                  <>
+                                    {subImages.length > 0 && (
+                                      <span className="text-[10px] bg-white/10 text-neutral-300 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                        <ImageIcon className="w-2.5 h-2.5 text-[#d4a359]" />
+                                        <span>{subImages.length}</span>
+                                      </span>
+                                    )}
+                                    {subVideos.length > 0 && (
+                                      <span className="text-[10px] bg-sky-950/80 border border-sky-500/30 text-sky-300 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                        <Film className="w-2.5 h-2.5 text-sky-400" />
+                                        <span>{subVideos.length}</span>
+                                      </span>
+                                    )}
+                                    {subFurniture.length > 0 && (
+                                      <span className="text-[10px] bg-[#d4a359]/15 text-[#d4a359] px-1.5 py-0.5 rounded flex items-center gap-1">
+                                        <Armchair className="w-2.5 h-2.5" />
+                                        <span>{subFurniture.length} items</span>
+                                      </span>
+                                    )}
+                                  </>
+                                );
+                              })()}
+                            </div>
+                          </div>
+                        </div>
                       </td>
+
 
                       <td className="px-4 py-4 font-mono">
                         <p className="text-sm font-bold text-[#d4a359]">
@@ -757,7 +836,7 @@ export default function OwnerSubmissions() {
                         <div className="flex items-center space-x-1.5 text-white font-bold">
                           <Calendar className="w-3.5 h-3.5 text-[#d4a359]" />
                           <span>
-                            {s.created_at ? new Date(s.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Recently'}
+                            {s.created_at ? formatDateDDMMYYYY(s.created_at) : 'Recently'}
                           </span>
                         </div>
                         {s.created_at && (
@@ -833,59 +912,197 @@ export default function OwnerSubmissions() {
             </div>
 
             {/* Content Details */}
-            <div className="space-y-4 text-sm">
+            <div className="space-y-5 text-sm">
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-4 rounded-xl bg-[#080f1a] border border-white/10">
                 <div>
-                  <span className="text-neutral-500 block">Owner Name</span>
+                  <span className="text-neutral-500 block text-xs">Owner Name</span>
                   <span className="font-bold text-white">{selectedSub.owner_name} ({selectedSub.owner_type || 'OWNER'})</span>
                 </div>
                 <div>
-                  <span className="text-neutral-500 block">Phone</span>
+                  <span className="text-neutral-500 block text-xs">Phone</span>
                   <a href={`tel:${selectedSub.owner_phone}`} className="font-bold text-[#d4a359]">{selectedSub.owner_phone}</a>
                 </div>
                 <div>
-                  <span className="text-neutral-500 block">Email</span>
+                  <span className="text-neutral-500 block text-xs">Email</span>
                   <span className="font-bold text-neutral-300 truncate block">{selectedSub.owner_email || 'N/A'}</span>
                 </div>
                 <div>
-                  <span className="text-neutral-500 block">Expected Rent</span>
+                  <span className="text-neutral-500 block text-xs">Expected Rent</span>
                   <span className="font-bold text-emerald-400">₹{Number(selectedSub.expected_rent || 0).toLocaleString('en-IN')}/mo</span>
                 </div>
                 <div>
-                  <span className="text-neutral-500 block">Deposit</span>
+                  <span className="text-neutral-500 block text-xs">Deposit</span>
                   <span className="font-bold text-white">₹{Number(selectedSub.security_deposit || 0).toLocaleString('en-IN')}</span>
                 </div>
                 <div>
-                  <span className="text-neutral-500 block">Configuration</span>
+                  <span className="text-neutral-500 block text-xs">Configuration</span>
                   <span className="font-bold text-white">{selectedSub.bhk_config}</span>
                 </div>
                 <div>
-                  <span className="text-neutral-500 block">Furnishing</span>
+                  <span className="text-neutral-500 block text-xs">Furnishing</span>
                   <span className="font-bold text-white">{selectedSub.furnishing || 'N/A'}</span>
                 </div>
                 <div>
-                  <span className="text-neutral-500 block">Preferred Tenant</span>
-                  <span className="font-bold text-white">{selectedSub.preferred_tenants || 'Any'}</span>
+                  <span className="text-neutral-500 block text-xs">Preferred Tenant / Purpose</span>
+                  {selectedSub.preferred_tenants === 'For Management Purpose' ? (
+                    <span className="inline-flex items-center gap-1 font-bold text-[#d4a359] bg-[#d4a359]/15 border border-[#d4a359]/30 px-2 py-0.5 rounded-lg text-xs mt-0.5">
+                      <ShieldCheck className="w-3 h-3 text-[#d4a359]" />
+                      <span>For Management Purpose</span>
+                    </span>
+                  ) : (
+                    <span className="font-bold text-white">{selectedSub.preferred_tenants || 'Any'}</span>
+                  )}
                 </div>
+
                 <div>
-                  <span className="text-neutral-500 block">Available From</span>
+                  <span className="text-neutral-500 block text-xs">Available From</span>
                   <span className="font-bold text-white">{selectedSub.available_from || 'Immediate'}</span>
                 </div>
               </div>
 
               {selectedSub.address && (
-                <p className="text-neutral-300">
+                <p className="text-neutral-300 text-xs">
                   <strong className="text-neutral-400">Address:</strong> {selectedSub.address}
                 </p>
               )}
 
+              {/* Furniture & Fixtures Included */}
+              {(() => {
+                const subFurniture = parseArrayField(selectedSub.furniture);
+                return (
+                  <div className="bg-[#080f1a] p-4 rounded-xl border border-white/10 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-neutral-300 flex items-center gap-1.5 uppercase tracking-wider">
+                        <Armchair className="w-3.5 h-3.5 text-[#d4a359]" />
+                        <span>Furniture & Fixtures Included ({subFurniture.length})</span>
+                      </span>
+                    </div>
+                    {subFurniture.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {subFurniture.map((f, i) => (
+                          <span key={i} className="px-2.5 py-1 rounded-lg bg-[#d4a359]/15 border border-[#d4a359]/30 text-[#d4a359] text-xs font-semibold flex items-center gap-1">
+                            <Check className="w-3 h-3 text-[#d4a359]" />
+                            <span>{f}</span>
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-neutral-500 italic">No specific furniture items selected.</p>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Society Amenities */}
+              {(() => {
+                const subAmenities = parseArrayField(selectedSub.amenities);
+                if (subAmenities.length === 0) return null;
+                return (
+                  <div className="bg-[#080f1a] p-4 rounded-xl border border-white/10 space-y-2">
+                    <span className="text-xs font-bold text-neutral-300 flex items-center gap-1.5 uppercase tracking-wider">
+                      <Sparkles className="w-3.5 h-3.5 text-sky-400" />
+                      <span>Society Amenities ({subAmenities.length})</span>
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {subAmenities.map((a, i) => (
+                        <span key={i} className="px-2.5 py-1 rounded-lg bg-sky-950/80 border border-sky-500/30 text-sky-300 text-xs font-medium">
+                          {a}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Owner Uploaded Photos Gallery */}
+              {(() => {
+                const subImages = parseArrayField(selectedSub.images);
+                return (
+                  <div className="bg-[#080f1a] p-4 rounded-xl border border-white/10 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-white flex items-center gap-1.5 uppercase tracking-wider">
+                        <ImageIcon className="w-4 h-4 text-[#d4a359]" />
+                        <span>Owner Uploaded Photos ({subImages.length})</span>
+                      </span>
+                    </div>
+                    {subImages.length > 0 ? (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
+                        {subImages.map((img, i) => (
+                          <div 
+                            key={i} 
+                            onClick={() => setLightboxImg(img)}
+                            className="relative group rounded-xl overflow-hidden border border-white/15 h-28 bg-black/40 cursor-pointer shadow-md"
+                          >
+                            <img src={img} alt={`Upload ${i + 1}`} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" />
+                            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                              <span className="p-1.5 bg-[#d4a359] text-[#080f1a] rounded-full">
+                                <Maximize2 className="w-3.5 h-3.5" />
+                              </span>
+                            </div>
+                            <span className="absolute bottom-1 left-1 bg-black/75 text-white font-mono text-[9px] px-1.5 py-0.5 rounded">
+                              #{i + 1}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-neutral-500 italic">No photos uploaded by owner.</p>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Owner Uploaded Videos Walkthrough */}
+              {(() => {
+                const subVideos = parseArrayField(selectedSub.videos);
+                return (
+                  <div className="bg-[#080f1a] p-4 rounded-xl border border-white/10 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-white flex items-center gap-1.5 uppercase tracking-wider">
+                        <Film className="w-4 h-4 text-sky-400" />
+                        <span>Owner Uploaded Walkthrough Videos ({subVideos.length})</span>
+                      </span>
+                    </div>
+                    {subVideos.length > 0 ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {subVideos.map((vid, i) => (
+                          <div key={i} className="rounded-xl overflow-hidden border border-white/15 bg-black p-2 space-y-1.5 shadow-md">
+                            <video 
+                              src={vid} 
+                              controls 
+                              playsInline 
+                              className="w-full h-44 rounded-lg bg-black object-cover" 
+                            />
+                            <div className="flex items-center justify-between text-[11px] px-1 text-neutral-400">
+                              <span className="font-mono text-white font-semibold">Video Tour #{i + 1}</span>
+                              <a 
+                                href={vid} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-sky-400 hover:underline flex items-center gap-1"
+                              >
+                                <ExternalLink className="w-3 h-3" />
+                                <span>Open Raw</span>
+                              </a>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-neutral-500 italic">No walkthrough video uploaded by owner.</p>
+                    )}
+                  </div>
+                );
+              })()}
+
               {selectedSub.notes && (
-                <div className="bg-[#080f1a] p-3 rounded-xl border border-white/10 leading-relaxed">
-                  <strong className="text-neutral-400 block mb-1">Owner Notes:</strong>
+                <div className="bg-[#080f1a] p-3.5 rounded-xl border border-white/10 leading-relaxed text-xs">
+                  <strong className="text-neutral-400 block mb-1">Owner Notes / Comments:</strong>
                   <p className="text-neutral-200">{selectedSub.notes}</p>
                 </div>
               )}
             </div>
+
 
             {/* Status Change & Approve Actions */}
             <div className="pt-4 border-t border-white/10 space-y-3">
@@ -1023,6 +1240,40 @@ export default function OwnerSubmissions() {
         </div>
       )}
 
+      {/* LIGHTBOX MODAL */}
+      {lightboxImg && (
+        <div 
+          className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center p-4"
+          onClick={() => setLightboxImg(null)}
+        >
+          <div className="relative max-w-4xl max-h-[90vh] flex flex-col items-center" onClick={e => e.stopPropagation()}>
+            <button 
+              onClick={() => setLightboxImg(null)}
+              className="absolute -top-12 right-0 p-2 text-white/80 hover:text-white bg-white/10 hover:bg-white/20 rounded-full cursor-pointer transition-colors"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <img 
+              src={lightboxImg} 
+              alt="Enlarged property photo" 
+              className="max-w-full max-h-[85vh] rounded-2xl object-contain shadow-2xl border border-white/20"
+            />
+            <div className="mt-3 flex items-center gap-3">
+              <a 
+                href={lightboxImg} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="px-4 py-1.5 rounded-xl bg-[#d4a359] hover:bg-[#c2934a] text-[#080f1a] font-bold text-xs flex items-center gap-1.5 transition-colors"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Open Full Resolution</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
+

@@ -26,8 +26,8 @@ import {
 
 export default function Agents() {
   const { token, user: currentUser } = useAppStore();
-  const [agents, setAgents] = useState<User[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [agents, setAgents] = useState<User[]>(() => supabaseService.getLocal<User[]>('agents', []));
+  const [loading, setLoading] = useState(() => supabaseService.getLocal<User[]>('agents', []).length === 0);
   const [searchTerm, setSearchTerm] = useState('');
 
   // Modals

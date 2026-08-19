@@ -16,7 +16,14 @@ import {
   Activity,
   RefreshCw,
   Server,
-  AlertCircle
+  AlertCircle,
+  Video,
+  Film,
+  Upload,
+  Play,
+  Trash2,
+  Eye,
+  Loader2
 } from 'lucide-react';
 import { getWhatsAppUrl } from '../../utils/whatsapp.js';
 import { 
@@ -275,6 +282,63 @@ export default function Settings() {
     }, 1000);
   };
 
+  const [uploadingVideo, setUploadingVideo] = useState(false);
+  const [videoUploadMsg, setVideoUploadMsg] = useState('');
+
+  const handleVideoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('video/')) {
+      setVideoUploadMsg('Please select a valid video file (MP4, WebM, MOV).');
+      return;
+    }
+
+    // Size limit check (max 100MB)
+    if (file.size > 100 * 1024 * 1024) {
+      setVideoUploadMsg('Video file size exceeds 100MB limit.');
+      return;
+    }
+
+    setUploadingVideo(true);
+    setVideoUploadMsg('Uploading and processing video...');
+
+    try {
+      const uploadFormData = new FormData();
+      uploadFormData.append('file', file);
+
+      const response = await fetch('/api/upload/video', {
+        method: 'POST',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: uploadFormData
+      });
+
+      const data = await response.json();
+      if (response.ok && data.url) {
+        setFormData(prev => ({
+          ...prev,
+          hero_video_url: data.url
+        }));
+        setVideoUploadMsg('Hero video uploaded successfully! Click "Save Settings" below to publish.');
+      } else {
+        throw new Error(data.error || 'Upload failed');
+      }
+    } catch (err: any) {
+      console.error('Video upload error:', err);
+      // Fallback: Read as object URL or local data for preview
+      const localUrl = URL.createObjectURL(file);
+      setFormData(prev => ({
+        ...prev,
+        hero_video_url: localUrl
+      }));
+      setVideoUploadMsg('Video loaded for session preview. (Make sure backend is connected for persistent cloud storage)');
+    } finally {
+      setUploadingVideo(false);
+    }
+  };
+
   useEffect(() => {
     setFormData(settings || {});
   }, [settings]);
@@ -529,7 +593,178 @@ export default function Settings() {
 
         </div>
 
-        {/* 2. GENERAL & LEGAL ENTITY */}
+        {/* 2. HERO BANNER & VIDEO SHOWCASE (BACKGROUND LOOP & FULL VIDEO WALKTHROUGH) */}
+        <div className="p-6 rounded-2xl bg-gradient-to-b from-[#111f33] to-[#0a1220] border border-[#d4a359]/30 space-y-6 shadow-xl relative">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-xl bg-[#d4a359]/20 border border-[#d4a359]/40 flex items-center justify-center text-[#d4a359]">
+                <Film className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold font-serif text-white flex items-center gap-2">
+                  <span>Hero Background Video & Walkthrough Showcase</span>
+                </h2>
+                <p className="text-xs text-neutral-300">
+                  Uploaded hero video plays on a muted continuous loop in the background, with a "Watch Full Video" button.
+                </p>
+              </div>
+            </div>
+            {formData.hero_video_url ? (
+              <span className="text-xs px-3 py-1 bg-[#d4a359]/20 border border-[#d4a359]/40 text-[#d4a359] font-bold rounded-full inline-flex items-center gap-1.5 self-start sm:self-auto">
+                <Video className="w-3.5 h-3.5" />
+                Custom Video Active
+              </span>
+            ) : (
+              <span className="text-xs px-3 py-1 bg-white/10 text-neutral-300 font-bold rounded-full inline-flex items-center gap-1.5 self-start sm:self-auto">
+                Default Slideshow
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
+            
+            {/* Left: Video Upload & URL Input */}
+            <div className="space-y-4">
+              
+              {/* Direct File Upload Box */}
+              <div>
+                <label className="block text-xs font-bold uppercase text-neutral-300 mb-1.5 flex items-center justify-between">
+                  <span>Upload Hero Video File (.MP4, .WebM)</span>
+                  <span className="text-[11px] text-[#d4a359]">Up to 100MB</span>
+                </label>
+                <div className="relative">
+                  <label className="border-2 border-dashed border-white/20 hover:border-[#d4a359] bg-[#080f1a] rounded-xl p-4 flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:bg-[#080f1a]/80 group">
+                    <input 
+                      type="file" 
+                      accept="video/mp4,video/webm,video/quicktime" 
+                      onChange={handleVideoFileUpload} 
+                      disabled={uploadingVideo}
+                      className="hidden" 
+                    />
+                    {uploadingVideo ? (
+                      <div className="flex flex-col items-center py-2 text-[#d4a359]">
+                        <Loader2 className="w-6 h-6 animate-spin mb-2" />
+                        <span className="text-xs font-bold">Uploading & Optimizing Video...</span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center py-1">
+                        <div className="w-10 h-10 rounded-full bg-[#d4a359]/15 flex items-center justify-center text-[#d4a359] group-hover:scale-110 transition-transform mb-2">
+                          <Upload className="w-5 h-5" />
+                        </div>
+                        <span className="text-xs font-bold text-white group-hover:text-[#d4a359] transition-colors">
+                          Click to select or drag & drop video
+                        </span>
+                        <span className="text-[10px] text-neutral-400 mt-0.5">
+                          Supports MP4 & WebM with auto-looping on the homepage
+                        </span>
+                      </div>
+                    )}
+                  </label>
+                </div>
+                {videoUploadMsg && (
+                  <p className={`text-xs mt-1.5 font-medium ${videoUploadMsg.includes('failed') || videoUploadMsg.includes('exceeds') ? 'text-rose-400' : 'text-emerald-400'}`}>
+                    {videoUploadMsg}
+                  </p>
+                )}
+              </div>
+
+              {/* Or Paste Video URL */}
+              <div>
+                <label className="block text-xs font-bold uppercase text-neutral-300 mb-1.5 flex items-center justify-between">
+                  <span>Or Enter Video URL (MP4, YouTube, Vimeo)</span>
+                </label>
+                <div className="relative">
+                  <input 
+                    type="text" 
+                    value={formData.hero_video_url || ''} 
+                    onChange={e => setFormData({...formData, hero_video_url: e.target.value})} 
+                    placeholder="https://.../video.mp4 or https://youtube.com/watch?v=..." 
+                    className="w-full pl-3 pr-20 py-2.5 bg-[#080f1a] border border-white/20 text-white rounded-xl focus:outline-none focus:border-[#d4a359] text-sm font-mono" 
+                  />
+                  {formData.hero_video_url && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFormData({...formData, hero_video_url: ''});
+                        setVideoUploadMsg('Hero video cleared. Reverted to default photo slideshow.');
+                      }}
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 px-2.5 py-1 text-xs bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                      title="Clear custom video"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Clear</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Video Title / Description */}
+              <div>
+                <label className="block text-xs font-bold uppercase text-neutral-300 mb-1">
+                  Video Modal Title / Headline
+                </label>
+                <input 
+                  type="text" 
+                  value={formData.hero_video_title || ''} 
+                  onChange={e => setFormData({...formData, hero_video_title: e.target.value})} 
+                  placeholder="Experience Luxury Architecture & Walkthrough" 
+                  className="w-full px-3 py-2.5 bg-[#080f1a] border border-white/15 text-white rounded-xl focus:outline-none focus:border-[#d4a359] text-sm" 
+                />
+              </div>
+
+            </div>
+
+            {/* Right: Live Video Preview */}
+            <div className="bg-[#080f1a] p-4 rounded-xl border border-white/15 flex flex-col items-center justify-center min-h-[220px]">
+              <div className="w-full flex items-center justify-between mb-2">
+                <span className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Play className="w-3.5 h-3.5 text-[#d4a359]" />
+                  <span>Homepage Background Live Preview</span>
+                </span>
+                <span className="text-[10px] text-emerald-400 font-mono">Loop + Mute Auto</span>
+              </div>
+
+              {formData.hero_video_url ? (
+                <div className="w-full aspect-video rounded-xl overflow-hidden bg-black relative border border-white/10 shadow-inner">
+                  {formData.hero_video_url.includes('youtube.com') || formData.hero_video_url.includes('youtu.be') ? (
+                    <iframe
+                      src={
+                        formData.hero_video_url.includes('embed') 
+                          ? formData.hero_video_url 
+                          : `https://www.youtube.com/embed/${formData.hero_video_url.match(/(?:youtu\.be\/|watch\?v=)([\w-]{11})/)?.[1] || ''}?autoplay=1&mute=1&loop=1&controls=0`
+                      }
+                      title="Hero Video Preview"
+                      className="w-full h-full border-0 pointer-events-none"
+                    />
+                  ) : (
+                    <video 
+                      src={formData.hero_video_url} 
+                      autoPlay 
+                      muted 
+                      loop 
+                      playsInline 
+                      className="w-full h-full object-cover"
+                    />
+                  )}
+                  <div className="absolute bottom-2 left-2 bg-[#080f1a]/80 backdrop-blur-md px-2 py-1 rounded text-[10px] text-[#d4a359] font-bold">
+                    Playing on Mute & Loop
+                  </div>
+                </div>
+              ) : (
+                <div className="w-full aspect-video rounded-xl border-2 border-dashed border-white/15 flex flex-col items-center justify-center text-neutral-500 p-4 text-center">
+                  <Film className="w-8 h-8 mb-2 opacity-50 text-[#d4a359]" />
+                  <span className="text-xs font-semibold text-neutral-300">No Custom Video Set</span>
+                  <span className="text-[11px] text-neutral-500 mt-0.5">
+                    Upload a video to see the live muted loop background preview
+                  </span>
+                </div>
+              )}
+            </div>
+
+          </div>
+        </div>
+
+        {/* 3. GENERAL & LEGAL ENTITY */}
         <div>
           <h2 className="text-base font-bold font-serif mb-4 border-b border-white/10 pb-2 text-[#d4a359] flex items-center gap-2">
             <Building2 className="w-4 h-4" />

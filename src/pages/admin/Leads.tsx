@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useAppStore } from '../../store/index.js';
 import { Lead, Property, User } from '../../types.js';
 import { supabaseService, supabase } from '../../services/supabaseService.js';
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY, formatDateComponents } from '../../utils/dateFormatter.js';
 import { 
   Users, 
   Search, 
@@ -20,15 +21,17 @@ import {
   Square,
   Clock,
   ArrowUpDown,
-  Filter
+  Filter,
+  RefreshCw
 } from 'lucide-react';
 
 export default function Leads() {
   const { token, user } = useAppStore();
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [properties, setProperties] = useState<Property[]>([]);
-  const [agents, setAgents] = useState<User[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [leads, setLeads] = useState<Lead[]>(() => supabaseService.getLocal<Lead[]>('leads', []));
+  const [properties, setProperties] = useState<Property[]>(() => supabaseService.getLocal<Property[]>('properties', []));
+  const [agents, setAgents] = useState<User[]>(() => supabaseService.getLocal<User[]>('agents', []));
+  const [loading, setLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
 
@@ -64,8 +67,9 @@ export default function Leads() {
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const fetchData = async (showLoading = true) => {
-    if (showLoading) setLoading(true);
+  const fetchData = async (showLoading = false) => {
+    if (showLoading && leads.length === 0) setLoading(true);
+    setIsRefreshing(true);
     setErrorMsg(null);
     try {
       const [leadsData, propsData, agentsData] = await Promise.all([
@@ -82,11 +86,12 @@ export default function Leads() {
       if (showLoading) setErrorMsg('Failed to load leads. Please check your connection.');
     } finally {
       if (showLoading) setLoading(false);
+      setIsRefreshing(false);
     }
   };
 
   useEffect(() => {
-    fetchData(true);
+    fetchData(false);
 
     const handleUpdate = () => {
       fetchData(false);
@@ -94,29 +99,9 @@ export default function Leads() {
     window.addEventListener('leads_updated', handleUpdate);
     window.addEventListener('storage', handleUpdate);
 
-    const interval = setInterval(() => {
-      fetchData(false);
-    }, 3000);
-
-    let channel: any = null;
-    try {
-      channel = supabase
-        .channel('leads-realtime')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => {
-          fetchData(false);
-        })
-        .subscribe();
-    } catch (e) {
-      console.warn('Realtime subscription note:', e);
-    }
-
     return () => {
       window.removeEventListener('leads_updated', handleUpdate);
       window.removeEventListener('storage', handleUpdate);
-      clearInterval(interval);
-      if (channel) {
-        supabase.removeChannel(channel).catch(() => {});
-      }
     };
   }, [token, user]);
 
@@ -325,7 +310,7 @@ export default function Leads() {
         `"${(lead.status || 'New').replace(/"/g, '""')}"`,
         `"${(lead.source || 'Website').replace(/"/g, '""')}"`,
         `"${(assignedAgent ? assignedAgent.name : 'Unassigned').replace(/"/g, '""')}"`,
-        `"${lead.created_at ? new Date(lead.created_at).toLocaleString('en-IN') : ''}"`,
+        `"${formatDateTimeDDMMYYYY(lead.created_at)}"`,
         `"${(lead.notes || '').replace(/"/g, '""')}"`
       ];
     });
@@ -362,17 +347,7 @@ export default function Leads() {
   };
 
   const formatDateDisplay = (dateStr?: string) => {
-    if (!dateStr) return { date: 'Recent', time: '' };
-    try {
-      const d = new Date(dateStr);
-      if (isNaN(d.getTime())) return { date: dateStr, time: '' };
-      return {
-        date: d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
-        time: d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
-      };
-    } catch {
-      return { date: dateStr, time: '' };
-    }
+    return formatDateComponents(dateStr);
   };
 
   return (
@@ -392,6 +367,16 @@ export default function Leads() {
         </div>
 
         <div className="flex items-center space-x-3">
+          <button
+            onClick={() => fetchData(false)}
+            disabled={isRefreshing}
+            className="inline-flex items-center space-x-2 px-3.5 py-2.5 bg-white/5 hover:bg-white/10 text-neutral-300 border border-white/10 rounded-xl font-bold text-xs transition-all cursor-pointer"
+            title="Refresh Leads Data"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-[#d4a359]' : ''}`} />
+            <span>Refresh</span>
+          </button>
+
           <button
             onClick={exportToCSV}
             className="inline-flex items-center space-x-2 px-4 py-2.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 rounded-xl font-bold text-xs transition-all shadow-md cursor-pointer hover:border-emerald-500/60"

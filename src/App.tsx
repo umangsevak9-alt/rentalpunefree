@@ -23,6 +23,7 @@ import Dashboard from './pages/admin/Dashboard.js';
 import Properties from './pages/admin/Properties.js';
 import OwnerSubmissions from './pages/admin/OwnerSubmissions.js';
 import Leads from './pages/admin/Leads.js';
+import Bookings from './pages/admin/Bookings.js';
 import Settings from './pages/admin/Settings.js';
 import HeroSection from './pages/admin/HeroSection.js';
 import Visits from './pages/admin/Visits.js';
@@ -67,14 +68,24 @@ export default function App() {
   const { setAuth, logout, setSettings } = useAppStore();
 
   useEffect(() => {
-    // 1. Fetch public settings
+    // 1. Fetch public settings & preload data from Supabase
     supabaseService.settings.get()
       .then(data => setSettings(data))
       .catch(console.error);
 
+    // 2. Initialize Realtime Subscriptions for live updates across all clients
+    const unsubscribeRealtime = supabaseService.realtime.init();
+
+    const handleSettingsSynced = (e: any) => {
+      if (e.detail) {
+        setSettings(e.detail);
+      }
+    };
+    window.addEventListener('rp_settings_synced', handleSettingsSynced);
+
     let isSubscribed = true;
 
-    // 2. On application/page load: verify existing session via getSession()
+    // 3. On application/page load: verify existing session via getSession()
     supabase.auth.getSession().then(async ({ data: { session }, error }) => {
       if (!isSubscribed) return;
       if (error || !session?.user) {
@@ -95,7 +106,7 @@ export default function App() {
       if (isSubscribed) logout();
     });
 
-    // 3. Reliable auth state listener using onAuthStateChange
+    // 4. Reliable auth state listener using onAuthStateChange
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!isSubscribed) return;
 
@@ -116,6 +127,8 @@ export default function App() {
     return () => {
       isSubscribed = false;
       subscription.unsubscribe();
+      window.removeEventListener('rp_settings_synced', handleSettingsSynced);
+      unsubscribeRealtime();
     };
   }, [setAuth, logout, setSettings]);
 
@@ -144,6 +157,7 @@ export default function App() {
           <Route path="properties" element={<ProtectedRoute requireAdmin><Properties /></ProtectedRoute>} />
           <Route path="owner-submissions" element={<ProtectedRoute requireAdmin><OwnerSubmissions /></ProtectedRoute>} />
           <Route path="faqs" element={<ProtectedRoute requireAdmin><Faqs /></ProtectedRoute>} />
+          <Route path="bookings" element={<Bookings />} />
           <Route path="leads" element={<ProtectedRoute requireAdmin><Leads /></ProtectedRoute>} />
           <Route path="settings" element={<ProtectedRoute requireAdmin><Settings /></ProtectedRoute>} />
           <Route path="agents" element={<ProtectedRoute requireAdmin><Agents /></ProtectedRoute>} />

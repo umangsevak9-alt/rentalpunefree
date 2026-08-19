@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAppStore } from '../../store/index.js';
 import { FAQ } from '../../types.js';
+import { supabaseService } from '../../services/supabaseService.js';
 import HomeFaqSection from '../../components/home/HomeFaqSection.js';
 import { 
   HelpCircle, 
@@ -32,8 +33,8 @@ export const DEFAULT_FAQ_CATEGORIES = [
 
 export default function Faqs() {
   const { token, settings } = useAppStore();
-  const [faqs, setFaqs] = useState<FAQ[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [faqs, setFaqs] = useState<FAQ[]>(() => supabaseService.getLocal<FAQ[]>('faqs', []));
+  const [loading, setLoading] = useState(() => supabaseService.getLocal<FAQ[]>('faqs', []).length === 0);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [viewMode, setViewMode] = useState<'editor' | 'preview'>('editor');
   const [isResetting, setIsResetting] = useState(false);

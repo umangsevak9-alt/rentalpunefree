@@ -3,6 +3,7 @@ import { useAppStore } from '../../store/index.js';
 import { Invoice, InvoiceItem, Property, Lead } from '../../types.js';
 import { formatINR, numberToWordsINR } from '../../utils/currency.js';
 import { supabaseService, supabase } from '../../services/supabaseService.js';
+import { formatDateDDMMYYYY } from '../../utils/dateFormatter.js';
 import {
   FileText,
   Plus,
@@ -45,10 +46,10 @@ const PRESET_LINE_ITEMS = [
 
 export default function Invoices() {
   const { token, user, settings } = useAppStore();
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [properties, setProperties] = useState<Property[]>([]);
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [invoices, setInvoices] = useState<Invoice[]>(() => supabaseService.getLocal<Invoice[]>('invoices', []));
+  const [properties, setProperties] = useState<Property[]>(() => supabaseService.getLocal<Property[]>('properties', []));
+  const [leads, setLeads] = useState<Lead[]>(() => supabaseService.getLocal<Lead[]>('leads', []));
+  const [loading, setLoading] = useState(() => supabaseService.getLocal<Invoice[]>('invoices', []).length === 0);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
 
@@ -695,7 +696,7 @@ export default function Invoices() {
                         </div>
                         <div className="text-[11px] text-neutral-500 mt-0.5 flex items-center space-x-1">
                           <Calendar className="w-3 h-3 text-neutral-600" />
-                          <span>{inv.issue_date || inv.created_at?.split(' ')[0]}</span>
+                          <span>{formatDateDDMMYYYY(inv.issue_date || inv.created_at)}</span>
                         </div>
                       </td>
 
@@ -1465,8 +1466,8 @@ export default function Invoices() {
                   </span>
                   <div className="text-xs space-y-1">
                     <p><span className="font-bold text-neutral-500">Invoice No:</span> <span className="font-mono font-extrabold text-neutral-900">{selectedInvoice.invoice_number}</span></p>
-                    <p><span className="font-bold text-neutral-500">Date of Issue:</span> <span className="font-bold text-neutral-800">{selectedInvoice.issue_date || selectedInvoice.created_at?.split(' ')[0]}</span></p>
-                    <p><span className="font-bold text-neutral-500">Due Date:</span> <span className="font-bold text-neutral-800">{selectedInvoice.due_date || 'Immediate'}</span></p>
+                    <p><span className="font-bold text-neutral-500">Date of Issue:</span> <span className="font-bold text-neutral-800">{formatDateDDMMYYYY(selectedInvoice.issue_date || selectedInvoice.created_at)}</span></p>
+                    <p><span className="font-bold text-neutral-500">Due Date:</span> <span className="font-bold text-neutral-800">{selectedInvoice.due_date ? formatDateDDMMYYYY(selectedInvoice.due_date) : 'Immediate'}</span></p>
                     <p><span className="font-bold text-neutral-500">Place of Supply:</span> <span className="font-semibold">Maharashtra (27)</span></p>
                   </div>
                 </div>

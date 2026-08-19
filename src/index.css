@@ -1,47 +1,54 @@
 @import "tailwindcss";
 
 @theme {
-  --color-gold-primary: #d4a359;
-  --color-gold-dark: #b8863b;
-  --color-gold-light: #f3d79b;
-  --color-gold-accent: #e5b364;
+  --color-gold-primary: #b8863b;
+  --color-gold-dark: #9e712a;
+  --color-gold-light: #d8aa6b;
+  --color-gold-accent: #c89a58;
+  --color-gold-muted: #e8d7be;
   
-  --color-dark-navy: #080f1a;
-  --color-dark-surface: #0e1726;
-  --color-dark-card: #131f33;
-  --color-dark-border: #1e2d47;
+  --color-dark-obsidian: #111625;
+  --color-dark-surface: #171f33;
+  --color-dark-card: #1d273f;
+  --color-dark-border: #293654;
 
-  --color-cream-bg: #f8f6f0;
+  --color-cream-bg: #faf8f5;
+  --color-cream-surface: #f7f4ed;
   --color-cream-card: #ffffff;
-  --color-cream-border: #e8e4db;
+  --color-cream-border: #ece7dc;
+  --color-charcoal-text: #1a202c;
 }
 
 @layer base {
   body {
-    background-color: #080f1a;
-    color: #ffffff;
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background-color: #ffffff;
+    color: #1a202c;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  h1, h2, h3, .font-serif {
+    font-family: 'Playfair Display', Georgia, Cambria, 'Times New Roman', serif;
   }
 
   ::selection {
-    background-color: #d4a359;
-    color: #080f1a;
+    background-color: #b8863b;
+    color: #ffffff;
   }
 
   /* Custom Luxury Scrollbar */
   ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 7px;
+    height: 7px;
   }
   ::-webkit-scrollbar-track {
-    background: #080f1a;
+    background: #f7f4ed;
   }
   ::-webkit-scrollbar-thumb {
-    background: #1e2d47;
+    background: #c89a58;
     border-radius: 4px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #d4a359;
+    background: #9e712a;
   }
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "Rental Pune",
-  "description": "Premium rental real estate portal in Pune featuring curated apartments, luxury amenities, site visit scheduling, and CRM workflows.",
+  "description": "Premium real estate portal in Pune covering residential rentals, commercial office & retail spaces, and properties for buying & selling, featuring smart search, interactive filters, site visit scheduling, and CRM workflows.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

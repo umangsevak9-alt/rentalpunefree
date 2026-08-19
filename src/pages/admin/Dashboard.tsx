@@ -28,59 +28,17 @@ import {
   Plus
 } from 'lucide-react';
 import { formatINR, formatCompactINR } from '../../utils/currency.js';
+import { formatDateDDMMYYYY } from '../../utils/dateFormatter.js';
 import { supabaseService } from '../../services/supabaseService.js';
 
 export default function Dashboard() {
   const { user, token } = useAppStore();
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !supabaseService.dashboard.hasCachedStats());
   const [refreshing, setRefreshing] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
 
-  const [stats, setStats] = useState({
-    serverTime: new Date().toISOString(),
-    properties: {
-      total: 0,
-      published: 0,
-      sold: 0,
-      draft: 0,
-      totalPortfolioValue: 0,
-      publishedPortfolioValue: 0,
-      typeBreakdown: [] as { type: string; count: number }[]
-    },
-    leads: {
-      total: 0,
-      active: 0,
-      converted: 0,
-      new: 0,
-      stageBreakdown: [] as { status: string; count: number }[],
-      recent: [] as any[]
-    },
-    visits: {
-      total: 0,
-      scheduled: 0,
-      completed: 0
-    },
-    agents: {
-      total: 0
-    },
-    feedbacks: {
-      total: 0,
-      hotLeads: 0,
-      warmLeads: 0,
-      coldLeads: 0,
-      averageBudget: 0,
-      recent: [] as any[]
-    },
-    invoices: {
-      total: 0,
-      paid: 0,
-      pending: 0,
-      totalInvoiced: 0,
-      totalCollected: 0,
-      totalDue: 0
-    }
-  });
+  const [stats, setStats] = useState(() => supabaseService.dashboard.getCachedStats());
 
   const fetchDashboardStats = async (isManual = false) => {
     if (isManual) setRefreshing(true);
@@ -88,15 +46,15 @@ export default function Dashboard() {
     try {
       const data = await supabaseService.dashboard.getStats();
       if (data) {
-        setStats((prev) => ({
+        setStats((prev: any) => ({
           ...prev,
           ...data,
-          properties: { ...prev.properties, ...(data.properties || {}) },
-          leads: { ...prev.leads, ...(data.leads || {}) },
-          visits: { ...prev.visits, ...(data.visits || {}) },
-          agents: { ...prev.agents, ...(data.agents || {}) },
-          feedbacks: { ...prev.feedbacks, ...(data.feedbacks || data.feedback || {}) },
-          invoices: { ...prev.invoices, ...(data.invoices || {}) }
+          properties: { ...prev?.properties, ...(data.properties || {}) },
+          leads: { ...prev?.leads, ...(data.leads || {}) },
+          visits: { ...prev?.visits, ...(data.visits || {}) },
+          agents: { ...prev?.agents, ...(data.agents || {}) },
+          feedbacks: { ...prev?.feedbacks, ...(data.feedbacks || data.feedback || {}) },
+          invoices: { ...prev?.invoices, ...(data.invoices || {}) }
         }));
       }
       setLastUpdated(new Date());
@@ -573,7 +531,7 @@ export default function Dashboard() {
                       </p>
                     </div>
                     <span className="text-[11px] text-neutral-500 font-medium whitespace-nowrap">
-                      {fb.visit_date}
+                      {formatDateDDMMYYYY(fb.visit_date)}
                     </span>
                   </div>
 

@@ -16,6 +16,7 @@ import {
   MessageSquareQuote,
   FileText,
   HelpCircle,
+  BookmarkCheck,
   X
 } from 'lucide-react';
 
@@ -37,17 +38,19 @@ export default function AdminLayout() {
 
   const navItems = user?.role === 'AGENT' ? [
     { name: 'Dashboard', path: '/admin', icon: Home },
+    { name: 'Property Booked', path: '/admin/bookings', icon: BookmarkCheck },
     { name: 'My Visits', path: '/admin/visits', icon: CalendarDays },
     { name: 'My Feedback', path: '/admin/feedback', icon: MessageSquareQuote },
   ] : [
     { name: 'Dashboard', path: '/admin', icon: Home },
+    { name: 'Property Booked', path: '/admin/bookings', icon: BookmarkCheck },
+    { name: 'Leads', path: '/admin/leads', icon: Phone },
     { name: 'Owner Listings', path: '/admin/owner-submissions', icon: Building2 },
     { name: 'Invoices (₹)', path: '/admin/invoices', icon: FileText },
     { name: 'Agent Feedback', path: '/admin/feedback', icon: MessageSquareQuote },
     { name: 'Site Visits', path: '/admin/visits', icon: CalendarDays },
     { name: 'Properties', path: '/admin/properties', icon: Building },
     { name: 'Property FAQs', path: '/admin/faqs', icon: HelpCircle },
-    { name: 'Leads', path: '/admin/leads', icon: Phone },
     { name: 'Agents', path: '/admin/agents', icon: Users },
     { name: 'Hero Section', path: '/admin/hero', icon: Image },
     { name: 'Settings', path: '/admin/settings', icon: Settings },

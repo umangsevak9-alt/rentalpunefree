@@ -3,6 +3,7 @@ import { useAppStore } from '../../store/index.js';
 import { VisitFeedback } from '../../types.js';
 import { formatINR } from '../../utils/currency.js';
 import { supabase, supabaseService } from '../../services/supabaseService.js';
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '../../utils/dateFormatter.js';
 import { 
   Flame, 
   Search, 
@@ -30,8 +31,8 @@ import {
 
 export default function Feedback() {
   const { user, token } = useAppStore();
-  const [feedbacks, setFeedbacks] = useState<VisitFeedback[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [feedbacks, setFeedbacks] = useState<VisitFeedback[]>(() => supabaseService.getLocal<VisitFeedback[]>('feedbacks', []));
+  const [loading, setLoading] = useState(() => supabaseService.getLocal<VisitFeedback[]>('feedbacks', []).length === 0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [interestFilter, setInterestFilter] = useState<string>('ALL');
@@ -416,7 +417,7 @@ export default function Feedback() {
                   </span>
                   <span className="flex items-center">
                     <Calendar className="w-3 h-3 mr-1 text-neutral-400" />
-                    {item.visit_date} {item.visit_time ? `• ${item.visit_time}` : ''}
+                    {formatDateDDMMYYYY(item.visit_date)} {item.visit_time ? `• ${item.visit_time}` : ''}
                   </span>
                 </div>
               </div>
@@ -543,7 +544,7 @@ export default function Feedback() {
                   {getInterestBadge(selectedFeedback.interest_level)}
                 </div>
                 <p className="text-xs text-neutral-400 mt-1">
-                  Submitted for Site Visit #{selectedFeedback.visit_id} on {selectedFeedback.created_at ? new Date(selectedFeedback.created_at).toLocaleDateString() : selectedFeedback.visit_date}
+                  Submitted for Site Visit #{selectedFeedback.visit_id} on {formatDateDDMMYYYY(selectedFeedback.created_at || selectedFeedback.visit_date)}
                 </p>
               </div>
               <button 
