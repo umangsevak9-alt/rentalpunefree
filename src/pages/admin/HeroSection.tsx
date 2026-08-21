@@ -415,15 +415,34 @@ export default function HeroSection() {
                   </div>
 
                   {videoUploadMsg && (
-                    <div className={`p-3.5 rounded-xl border text-xs flex items-center space-x-2 ${
-                      videoUploadMsg.type === 'success' 
-                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' 
-                        : videoUploadMsg.type === 'error'
-                        ? 'bg-red-500/10 border-red-500/30 text-red-400'
-                        : 'bg-blue-500/10 border-blue-500/30 text-blue-400'
-                    }`}>
-                      {videoUploadMsg.type === 'success' ? <Check className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
-                      <span className="font-medium">{videoUploadMsg.text}</span>
+                    <div className="space-y-3">
+                      <div className={`p-3.5 rounded-xl border text-xs flex items-center space-x-2 ${
+                        videoUploadMsg.type === 'success' 
+                          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' 
+                          : videoUploadMsg.type === 'error'
+                          ? 'bg-red-500/10 border-red-500/30 text-red-400'
+                          : 'bg-blue-500/10 border-blue-500/30 text-blue-400'
+                      }`}>
+                        {videoUploadMsg.type === 'success' ? <Check className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+                        <span className="font-medium">{videoUploadMsg.text}</span>
+                      </div>
+
+                      {videoUploadMsg.type === 'error' && videoUploadMsg.text.toLowerCase().includes('bucket') && (
+                        <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs space-y-2">
+                          <div className="font-bold flex items-center gap-1.5 text-amber-300">
+                            <Sparkles className="w-4 h-4" />
+                            <span>1-Step Setup for Supabase Video & Image Storage:</span>
+                          </div>
+                          <ol className="list-decimal list-inside space-y-1 text-neutral-300">
+                            <li>Open your <a href="https://supabase.com/dashboard" target="_blank" rel="noreferrer" className="text-amber-400 underline font-bold">Supabase Dashboard</a> and go to <strong>Storage</strong>.</li>
+                            <li>Click <strong>New Bucket</strong>, enter name <code className="bg-black/60 px-1 py-0.5 rounded text-amber-300 font-mono">property-images</code>.</li>
+                            <li>Toggle <strong>Public bucket</strong> to <strong className="text-emerald-400">ON</strong> and click Save.</li>
+                          </ol>
+                          <p className="text-[11px] text-neutral-400 pt-1">
+                            Tip: You can also paste any YouTube, Vimeo, or external MP4 URL below to go live immediately on Cloudflare!
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -488,17 +507,46 @@ export default function HeroSection() {
                   <div className="relative rounded-2xl overflow-hidden border border-neutral-800 bg-black min-h-[220px] flex items-center justify-center">
                     {formData.hero_video_url ? (
                       <div className="relative w-full h-full">
-                        <video 
-                          key={formData.hero_video_url}
-                          src={formData.hero_video_url} 
-                          autoPlay 
-                          loop 
-                          muted 
-                          playsInline 
-                          controls
-                          className="w-full h-56 object-cover"
-                        />
-                        <div className="absolute top-2 right-2 px-2.5 py-1 bg-black/80 backdrop-blur-md rounded-lg text-[10px] font-bold text-neutral-300 border border-neutral-700 flex items-center space-x-1">
+                        {(() => {
+                          const url = formData.hero_video_url;
+                          const ytMatch = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))([\w-]{11})/);
+                          if (ytMatch && ytMatch[1]) {
+                            return (
+                              <iframe
+                                src={`https://www.youtube-nocookie.com/embed/${ytMatch[1]}?autoplay=1&mute=1&loop=1&playlist=${ytMatch[1]}&controls=1`}
+                                title="YouTube Hero Video Preview"
+                                className="w-full h-56 border-0"
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                allowFullScreen
+                              />
+                            );
+                          }
+                          const vimeoMatch = url.match(/(?:vimeo\.com\/)(\d+)/);
+                          if (vimeoMatch && vimeoMatch[1]) {
+                            return (
+                              <iframe
+                                src={`https://player.vimeo.com/video/${vimeoMatch[1]}?autoplay=1&muted=1&loop=1`}
+                                title="Vimeo Hero Video Preview"
+                                className="w-full h-56 border-0"
+                                allow="autoplay; fullscreen"
+                                allowFullScreen
+                              />
+                            );
+                          }
+                          return (
+                            <video 
+                              key={url}
+                              src={url} 
+                              autoPlay 
+                              loop 
+                              muted 
+                              playsInline 
+                              controls
+                              className="w-full h-56 object-cover"
+                            />
+                          );
+                        })()}
+                        <div className="absolute top-2 right-2 px-2.5 py-1 bg-black/80 backdrop-blur-md rounded-lg text-[10px] font-bold text-neutral-300 border border-neutral-700 flex items-center space-x-1 pointer-events-none">
                           <VolumeX className="w-3 h-3 text-neutral-400" />
                           <span>Autoplays Muted on Landing</span>
                         </div>

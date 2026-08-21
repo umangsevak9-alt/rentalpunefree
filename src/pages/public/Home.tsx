@@ -76,16 +76,19 @@ function parseVideoSource(rawUrl?: string, mediaType?: string) {
   const effectiveUrl = (rawUrl && rawUrl.trim()) ? rawUrl.trim() : DEFAULT_SAMPLE_HERO_VIDEO;
   const url = effectiveUrl;
   
-  // YouTube Detection
-  const ytMatch = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
+  // YouTube Detection (matches youtube.com, youtu.be, embed, shorts)
+  const ytMatch = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))([\w-]{11})/);
   if (ytMatch && ytMatch[1]) {
     const id = ytMatch[1];
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const bgUrl = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&mute=1&loop=1&playlist=${id}&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&disablekb=1&enablejsapi=1&playsinline=1${origin ? `&origin=${encodeURIComponent(origin)}` : ''}`;
+    const modalUrl = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&controls=1&rel=0&playsinline=1`;
     return {
       type: 'youtube' as const,
       url,
       id,
-      bgUrl: `https://www.youtube.com/embed/${id}?autoplay=1&mute=1&loop=1&playlist=${id}&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&disablekb=1&enablejsapi=1`,
-      modalUrl: `https://www.youtube.com/embed/${id}?autoplay=1&controls=1&rel=0`,
+      bgUrl,
+      modalUrl,
       isDirect: false,
       isYouTube: true
     };
@@ -106,7 +109,7 @@ function parseVideoSource(rawUrl?: string, mediaType?: string) {
     };
   }
 
-  // Direct MP4 / WebM / Blob / Upload Video File
+  // Direct MP4 / WebM / Supabase Storage Video File
   return {
     type: 'direct' as const,
     url,
@@ -144,6 +147,11 @@ export default function Home() {
   const [activeMediaTab, setActiveMediaTab] = useState<'photos' | 'videos'>('photos');
   const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
   const [heroVideoFailed, setHeroVideoFailed] = useState(false);
+
+  // Automatically reset failed state whenever user updates video URL or switches media format
+  useEffect(() => {
+    setHeroVideoFailed(false);
+  }, [settings?.hero_video_url, settings?.hero_media_type]);
   const [activeGalleryImage, setActiveGalleryImage] = useState<string | null>(null);
   const [activeGalleryItem, setActiveGalleryItem] = useState<GalleryItem | null>(null);
   const [galleryCategoryFilter, setGalleryCategoryFilter] = useState<string>('ALL');
@@ -757,21 +765,17 @@ export default function Home() {
                     loop 
                     playsInline 
                     preload="auto"
-                    crossOrigin="anonymous"
                     onError={() => {
-                      console.warn('Hero video failed to load or cross-origin blocked, falling back to architectural backdrop.');
+                      console.warn('Hero video failed to load or unsupported format, falling back to architectural backdrop.');
                       setHeroVideoFailed(true);
                     }}
                     ref={(el) => {
                       if (el) {
-                        try {
-                          (el as any).referrerPolicy = 'no-referrer';
-                        } catch {}
                         el.muted = true;
                         el.defaultMuted = true;
                         el.loop = true;
                         el.play().catch(() => {
-                          // Autoplay policy prevented silent play or media error
+                          // Browser autoplay permission catch
                         });
                       }
                     }}
@@ -782,8 +786,9 @@ export default function Home() {
                     <iframe
                       src={heroVideoInfo.bgUrl}
                       title="Hero Video Background"
-                      className="w-[160%] h-[160%] absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 object-cover border-0 pointer-events-none brightness-70"
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      className="w-[160%] h-[160%] min-w-full min-h-full absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 object-cover border-0 pointer-events-none brightness-70"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                      allowFullScreen
                     />
                   </div>
                 ) : heroVideoInfo.type === 'vimeo' ? (
@@ -791,8 +796,9 @@ export default function Home() {
                     <iframe
                       src={heroVideoInfo.bgUrl}
                       title="Hero Video Background"
-                      className="w-[160%] h-[160%] absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 object-cover border-0 pointer-events-none brightness-70"
+                      className="w-[160%] h-[160%] min-w-full min-h-full absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 object-cover border-0 pointer-events-none brightness-70"
                       allow="autoplay; fullscreen"
+                      allowFullScreen
                     />
                   </div>
                 ) : (

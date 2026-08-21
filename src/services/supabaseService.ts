@@ -3180,21 +3180,6 @@ export const supabaseService = {
   // --- SETTINGS ---
   settings: {
     async get(): Promise<Settings> {
-      try {
-        const { data, error } = await supabase
-          .from('settings')
-          .select('*');
-
-        if (!error && data && data.length > 0) {
-          const settingsObj: Settings = {};
-          data.forEach((row: any) => {
-            if (row.key) settingsObj[row.key] = row.value;
-          });
-          setLocal('settings', settingsObj);
-          return settingsObj;
-        }
-      } catch {}
-
       const defaultSettings: Settings = {
         website_name: 'Rental Pune',
         company_name: 'Rental Pune Luxury Real Estate Pvt. Ltd.',
@@ -3220,6 +3205,24 @@ export const supabaseService = {
         whatsapp_number: '+919822012345',
         whatsapp_message: 'Hello Rental Pune, I am looking for a luxury rental property in Pune.'
       };
+
+      try {
+        const { data, error } = await supabase
+          .from('settings')
+          .select('*');
+
+        if (!error && data && data.length > 0) {
+          const settingsObj: Settings = {};
+          data.forEach((row: any) => {
+            if (row.key) settingsObj[row.key] = row.value;
+          });
+          const merged = { ...defaultSettings, ...settingsObj };
+          setLocal('settings', merged);
+          return merged;
+        }
+      } catch (err) {
+        console.warn('Supabase settings fetch note:', err);
+      }
 
       const cached = getLocal<Settings>('settings', defaultSettings);
       const merged = { ...defaultSettings, ...cached };
@@ -3604,50 +3607,44 @@ export const supabaseService = {
      * Generates a permanent public HTTPS URL optimized for HTML5 streaming and Cloudflare CDN.
      */
     async uploadVideo(file: File, filename?: string): Promise<{ url: string }> {
-      try {
-        const rawName = filename || file.name || 'video.mp4';
-        const fileExt = (rawName.split('.').pop() || 'mp4').toLowerCase();
-        const baseName = rawName.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 40);
-        const uniquePath = `videos/hero_video_${Date.now()}_${baseName || 'showcase'}.${fileExt}`;
-        
-        let mimeType = file.type || 'video/mp4';
-        if (fileExt === 'webm') mimeType = 'video/webm';
-        if (fileExt === 'mov') mimeType = 'video/quicktime';
+      const rawName = filename || file.name || 'video.mp4';
+      const fileExt = (rawName.split('.').pop() || 'mp4').toLowerCase();
+      const baseName = rawName.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 40);
+      const uniquePath = `videos/hero_video_${Date.now()}_${baseName || 'showcase'}.${fileExt}`;
+      
+      let mimeType = file.type || 'video/mp4';
+      if (fileExt === 'webm') mimeType = 'video/webm';
+      if (fileExt === 'mov') mimeType = 'video/quicktime';
+      if (fileExt === 'm4v') mimeType = 'video/x-m4v';
+      if (fileExt === 'ogg' || fileExt === 'ogv') mimeType = 'video/ogg';
 
-        const bucketsToTry = [BUCKET_NAME, 'property-images', 'media', 'videos', 'public'];
-        let lastError: any = null;
+      const bucketsToTry = [BUCKET_NAME, 'property-images', 'media', 'videos', 'public'];
+      let lastError: any = null;
 
-        for (const bucket of bucketsToTry) {
-          try {
-            const { data, error } = await supabase.storage
+      for (const bucket of bucketsToTry) {
+        try {
+          const { data, error } = await supabase.storage
+            .from(bucket)
+            .upload(uniquePath, file, {
+              contentType: mimeType,
+              cacheControl: '31536000',
+              upsert: true
+            });
+
+          if (!error && data) {
+            const { data: publicData } = supabase.storage
               .from(bucket)
-              .upload(uniquePath, file, {
-                contentType: mimeType,
-                cacheControl: '31536000',
-                upsert: true
-              });
+              .getPublicUrl(data.path);
 
-            if (!error && data) {
-              const { data: publicData } = supabase.storage
-                .from(bucket)
-                .getPublicUrl(data.path);
-
-              if (publicData?.publicUrl) {
-                return { url: publicData.publicUrl };
-              }
-            } else if (error) {
-              lastError = error;
+            if (publicData?.publicUrl) {
+              return { url: publicData.publicUrl };
             }
-          } catch (bucketErr) {
-            lastError = bucketErr;
+          } else if (error) {
+            lastError = error;
           }
+        } catch (bucketErr) {
+          lastError = bucketErr;
         }
-
-        if (lastError) {
-          console.warn('Supabase storage direct upload warning:', lastError);
-        }
-      } catch (e) {
-        console.warn('Direct uploadVideo error:', e);
       }
 
       // Try server upload endpoint if in Node full-stack environment
@@ -3666,14 +3663,11 @@ export const supabaseService = {
         }
       } catch {}
 
-      // Resilient fallback: data URL for persistent offline session
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          resolve({ url: reader.result as string });
-        };
-        reader.readAsDataURL(file);
-      });
+      if (lastError?.statusCode === '404' || lastError?.code === 'NoSuchBucket' || lastError?.message?.includes('Bucket not found')) {
+        throw new Error("Supabase Storage bucket 'property-images' not found. Please create a public bucket named 'property-images' in your Supabase dashboard (Storage -> New Bucket -> 'property-images' -> Check 'Public bucket').");
+      }
+
+      throw new Error(lastError?.message || 'Failed to upload video to Supabase cloud storage. Check your Supabase Storage bucket settings.');
     }
   },
 
