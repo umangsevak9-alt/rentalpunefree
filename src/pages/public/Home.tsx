@@ -143,6 +143,7 @@ export default function Home() {
   const [activeMediaIndex, setActiveMediaIndex] = useState(0);
   const [activeMediaTab, setActiveMediaTab] = useState<'photos' | 'videos'>('photos');
   const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
+  const [heroVideoFailed, setHeroVideoFailed] = useState(false);
   const [activeGalleryImage, setActiveGalleryImage] = useState<string | null>(null);
   const [activeGalleryItem, setActiveGalleryItem] = useState<GalleryItem | null>(null);
   const [galleryCategoryFilter, setGalleryCategoryFilter] = useState<string>('ALL');
@@ -740,7 +741,11 @@ export default function Home() {
             'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=2000&q=85'
           ];
 
-          if (heroVideoInfo.type !== 'none') {
+          const activeHeroImage = (settings?.hero_image_url && settings.hero_image_url.trim())
+            ? settings.hero_image_url.trim()
+            : heroSlides[heroSlideIndex % heroSlides.length];
+
+          if (heroVideoInfo.type !== 'none' && !heroVideoFailed) {
             return (
               <div className="absolute inset-0 z-0 overflow-hidden">
                 {heroVideoInfo.isDirect ? (
@@ -751,12 +756,23 @@ export default function Home() {
                     muted 
                     loop 
                     playsInline 
+                    preload="auto"
+                    crossOrigin="anonymous"
+                    onError={() => {
+                      console.warn('Hero video failed to load or cross-origin blocked, falling back to architectural backdrop.');
+                      setHeroVideoFailed(true);
+                    }}
                     ref={(el) => {
                       if (el) {
+                        try {
+                          (el as any).referrerPolicy = 'no-referrer';
+                        } catch {}
                         el.muted = true;
                         el.defaultMuted = true;
                         el.loop = true;
-                        el.play().catch(() => {});
+                        el.play().catch(() => {
+                          // Autoplay policy prevented silent play or media error
+                        });
                       }
                     }}
                     className="w-full h-full object-cover object-center brightness-70 scale-105 transition-all duration-1000 ease-out pointer-events-none"
@@ -781,7 +797,7 @@ export default function Home() {
                   </div>
                 ) : (
                   <img 
-                    src={heroSlides[heroSlideIndex % heroSlides.length]} 
+                    src={activeHeroImage} 
                     alt="Luxury Living Architecture" 
                     className="w-full h-full object-cover object-center brightness-70 scale-105 transition-all duration-1000 ease-out"
                   />
@@ -796,7 +812,7 @@ export default function Home() {
           return (
             <div className="absolute inset-0 z-0">
               <img 
-                src={heroSlides[heroSlideIndex % heroSlides.length]} 
+                src={activeHeroImage} 
                 alt="Luxury Living Architecture" 
                 className="w-full h-full object-cover object-center brightness-70 scale-105 transition-all duration-1000 ease-out"
               />

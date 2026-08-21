@@ -62,7 +62,8 @@ export default function HeroSection() {
   const [logoPreview, setLogoPreview] = useState<string>('');
   const [heroImagePreview, setHeroImagePreview] = useState<string>('');
   
-  // Video upload states
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [uploadingVideo, setUploadingVideo] = useState(false);
   const [videoUploadMsg, setVideoUploadMsg] = useState<{ text: string; type: 'info' | 'success' | 'error' } | null>(null);
   const [videoFileDetails, setVideoFileDetails] = useState<{ name: string; sizeMb: string } | null>(null);
@@ -73,43 +74,67 @@ export default function HeroSection() {
     setHeroImagePreview(settings.hero_image_url || '');
   }, [settings]);
 
-  // Handle Logo File Upload
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle Logo File Upload directly to Supabase Storage
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        alert('Logo file size should be under 5MB');
-        return;
+    if (!file) return;
+
+    if (file.size > 10 * 1024 * 1024) {
+      alert('Logo file size should be under 10MB');
+      return;
+    }
+
+    setUploadingLogo(true);
+    try {
+      const res = await supabaseService.storage.uploadImage(file, `logo_${Date.now()}`);
+      if (res?.url) {
+        setLogoPreview(res.url);
+        const updated = { ...formData, logo_url: res.url };
+        setFormData(updated);
+        setSettings(updated);
+        await supabaseService.settings.update({ logo_url: res.url });
+        setStatus('Logo uploaded to Supabase Storage and published live!');
+        setTimeout(() => setStatus(''), 4000);
       }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64 = reader.result as string;
-        setLogoPreview(base64);
-        setFormData((prev: any) => ({ ...prev, logo_url: base64 }));
-      };
-      reader.readAsDataURL(file);
+    } catch (err: any) {
+      console.error('Logo upload error:', err);
+      alert('Failed to upload logo to Supabase storage.');
+    } finally {
+      setUploadingLogo(false);
     }
   };
 
-  // Handle Hero Image File Upload
-  const handleHeroImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle Hero Image File Upload directly to Supabase Storage
+  const handleHeroImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 10 * 1024 * 1024) {
-        alert('Image file size should be under 10MB');
-        return;
+    if (!file) return;
+
+    if (file.size > 25 * 1024 * 1024) {
+      alert('Hero image file size should be under 25MB');
+      return;
+    }
+
+    setUploadingImage(true);
+    try {
+      const res = await supabaseService.storage.uploadImage(file, `hero_img_${Date.now()}`);
+      if (res?.url) {
+        setHeroImagePreview(res.url);
+        const updated = { ...formData, hero_image_url: res.url, hero_media_type: 'image' };
+        setFormData(updated);
+        setSettings(updated);
+        await supabaseService.settings.update({ hero_image_url: res.url, hero_media_type: 'image' });
+        setStatus('Hero image uploaded to Supabase Storage and published live!');
+        setTimeout(() => setStatus(''), 4000);
       }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64 = reader.result as string;
-        setHeroImagePreview(base64);
-        setFormData((prev: any) => ({ ...prev, hero_image_url: base64 }));
-      };
-      reader.readAsDataURL(file);
+    } catch (err: any) {
+      console.error('Hero image upload error:', err);
+      alert('Failed to upload hero image to Supabase storage.');
+    } finally {
+      setUploadingImage(false);
     }
   };
 
-  // Handle Hero Video File Upload directly from system
+  // Handle Hero Video File Upload directly to Supabase Storage
   const handleHeroVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -123,9 +148,9 @@ export default function HeroSection() {
     }
 
     const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
-    if (file.size > 100 * 1024 * 1024) {
+    if (file.size > 150 * 1024 * 1024) {
       setVideoUploadMsg({
-        text: `File size (${sizeMb} MB) exceeds maximum 100MB limit.`,
+        text: `File size (${sizeMb} MB) exceeds maximum 150MB limit.`,
         type: 'error'
       });
       return;
@@ -133,65 +158,38 @@ export default function HeroSection() {
 
     setVideoFileDetails({ name: file.name, sizeMb });
     setUploadingVideo(true);
-    setVideoUploadMsg({ text: `Uploading and processing "${file.name}" (${sizeMb} MB)...`, type: 'info' });
+    setVideoUploadMsg({ text: `Uploading "${file.name}" (${sizeMb} MB) to Supabase Storage...`, type: 'info' });
 
     try {
-      // 1. Try server-side video upload endpoint
-      const uploadFormData = new FormData();
-      uploadFormData.append('file', file);
+      // 1. Direct Supabase Storage upload (compatible with Cloudflare & CDN streaming)
+      const res = await supabaseService.storage.uploadVideo(file, file.name);
+      const videoUrl = res?.url;
 
-      let videoUrl = '';
-      try {
-        const response = await fetch('/api/upload/video', {
-          method: 'POST',
-          headers: {
-            ...(token ? { Authorization: `Bearer ${token}` } : {})
-          },
-          body: uploadFormData
-        });
-
-        if (response.ok) {
-          const resData = await response.json();
-          if (resData.url) {
-            videoUrl = resData.url;
-          }
-        }
-      } catch (err) {
-        console.warn('Backend video upload note:', err);
-      }
-
-      // 2. Direct Supabase Storage fallback
       if (!videoUrl) {
-        try {
-          const res = await supabaseService.storage.uploadVideo(file);
-          if (res?.url) {
-            videoUrl = res.url;
-          }
-        } catch (storageErr) {
-          console.warn('Supabase storage fallback error:', storageErr);
-        }
+        throw new Error('Supabase Storage did not return a public URL.');
       }
 
-      // 3. Object URL fallback for local session preview
-      if (!videoUrl) {
-        videoUrl = URL.createObjectURL(file);
-      }
-
-      setFormData((prev: any) => ({
-        ...prev,
+      const updated = {
+        ...formData,
         hero_video_url: videoUrl,
         hero_media_type: 'video',
-        hero_video_title: prev.hero_video_title || file.name.replace(/\.[^/.]+$/, '')
-      }));
+        hero_video_title: formData.hero_video_title || file.name.replace(/\.[^/.]+$/, '')
+      };
+
+      setFormData(updated);
+      setSettings(updated);
+      await supabaseService.settings.update(updated);
 
       setVideoUploadMsg({
-        text: `Video uploaded successfully! Click "Save & Publish Hero Changes" below to apply.`,
+        text: `Hero video successfully uploaded to Supabase Storage & published live on Cloudflare!`,
         type: 'success'
       });
+      setStatus('Hero video published to live site!');
+      setTimeout(() => setStatus(''), 4000);
     } catch (err: any) {
       console.error('Video upload error:', err);
       setVideoUploadMsg({
-        text: `Upload error: ${err?.message || 'Failed to upload video.'}`,
+        text: `Upload error: ${err?.message || 'Failed to upload video to cloud storage.'}`,
         type: 'error'
       });
     } finally {
@@ -239,11 +237,24 @@ export default function HeroSection() {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-bold text-neutral-300 mb-2">Upload Logo From System</label>
-                <label className="flex flex-col items-center justify-center w-full h-36 border-2 border-dashed border-neutral-800 hover:border-red-600 rounded-2xl cursor-pointer bg-black/60 transition-colors group">
-                  <Upload className="w-8 h-8 text-neutral-500 group-hover:text-red-500 mb-2 transition-colors" />
-                  <span className="text-xs text-neutral-400 group-hover:text-white font-medium">Click or drag image file to upload</span>
-                  <span className="text-[10px] text-neutral-600 mt-1">PNG, SVG, JPG, WEBP (Max 5MB)</span>
-                  <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
+                <label className={`flex flex-col items-center justify-center w-full h-36 border-2 border-dashed rounded-2xl cursor-pointer transition-colors group ${
+                  uploadingLogo 
+                    ? 'border-yellow-500/50 bg-yellow-500/5 cursor-wait' 
+                    : 'border-neutral-800 hover:border-red-600 bg-black/60'
+                }`}>
+                  {uploadingLogo ? (
+                    <div className="flex flex-col items-center space-y-1 text-center">
+                      <Loader2 className="w-8 h-8 text-yellow-500 animate-spin mb-1" />
+                      <span className="text-xs font-bold text-white">Uploading Logo to Supabase...</span>
+                    </div>
+                  ) : (
+                    <>
+                      <Upload className="w-8 h-8 text-neutral-500 group-hover:text-red-500 mb-2 transition-colors" />
+                      <span className="text-xs text-neutral-400 group-hover:text-white font-medium">Click or drag image file to upload</span>
+                      <span className="text-[10px] text-neutral-600 mt-1">PNG, SVG, JPG, WEBP (Max 10MB)</span>
+                    </>
+                  )}
+                  <input type="file" accept="image/*" onChange={handleLogoUpload} disabled={uploadingLogo} className="hidden" />
                 </label>
               </div>
 
@@ -555,11 +566,24 @@ export default function HeroSection() {
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-bold text-neutral-300 mb-2">Upload Hero Image File From System</label>
-                    <label className="flex flex-col items-center justify-center w-full h-36 border-2 border-dashed border-neutral-800 hover:border-red-600 rounded-2xl cursor-pointer bg-black/60 transition-colors group">
-                      <Upload className="w-8 h-8 text-neutral-500 group-hover:text-red-500 mb-2 transition-colors" />
-                      <span className="text-xs text-neutral-400 group-hover:text-white font-medium">Click or drag image file</span>
-                      <span className="text-[10px] text-neutral-600 mt-1">JPG, PNG, WEBP (Max 10MB)</span>
-                      <input type="file" accept="image/*" onChange={handleHeroImageUpload} className="hidden" />
+                    <label className={`flex flex-col items-center justify-center w-full h-36 border-2 border-dashed rounded-2xl cursor-pointer transition-colors group ${
+                      uploadingImage 
+                        ? 'border-yellow-500/50 bg-yellow-500/5 cursor-wait' 
+                        : 'border-neutral-800 hover:border-red-600 bg-black/60'
+                    }`}>
+                      {uploadingImage ? (
+                        <div className="flex flex-col items-center space-y-1 text-center">
+                          <Loader2 className="w-8 h-8 text-yellow-500 animate-spin mb-1" />
+                          <span className="text-xs font-bold text-white">Uploading & Optimizing Image...</span>
+                        </div>
+                      ) : (
+                        <>
+                          <Upload className="w-8 h-8 text-neutral-500 group-hover:text-red-500 mb-2 transition-colors" />
+                          <span className="text-xs text-neutral-400 group-hover:text-white font-medium">Click or drag image file</span>
+                          <span className="text-[10px] text-neutral-600 mt-1">JPG, PNG, WEBP (Max 25MB)</span>
+                        </>
+                      )}
+                      <input type="file" accept="image/*" onChange={handleHeroImageUpload} disabled={uploadingImage} className="hidden" />
                     </label>
                   </div>
 

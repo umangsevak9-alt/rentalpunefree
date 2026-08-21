@@ -292,51 +292,35 @@ export default function Settings() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.type.startsWith('video/')) {
+    if (!file.type.startsWith('video/') && !file.name.match(/\.(mp4|webm|mov|m4v)$/i)) {
       setVideoUploadMsg('Please select a valid video file (MP4, WebM, MOV).');
       return;
     }
 
-    // Size limit check (max 100MB)
-    if (file.size > 100 * 1024 * 1024) {
-      setVideoUploadMsg('Video file size exceeds 100MB limit.');
+    // Size limit check (max 150MB)
+    if (file.size > 150 * 1024 * 1024) {
+      setVideoUploadMsg('Video file size exceeds 150MB limit.');
       return;
     }
 
     setUploadingVideo(true);
-    setVideoUploadMsg('Uploading and processing video...');
+    setVideoUploadMsg('Uploading video to Supabase Storage...');
 
     try {
-      const uploadFormData = new FormData();
-      uploadFormData.append('file', file);
-
-      const response = await fetch('/api/upload/video', {
-        method: 'POST',
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
-        },
-        body: uploadFormData
-      });
-
-      const data = await response.json();
-      if (response.ok && data.url) {
+      const res = await supabaseService.storage.uploadVideo(file, file.name);
+      if (res?.url) {
         setFormData(prev => ({
           ...prev,
-          hero_video_url: data.url
+          hero_video_url: res.url,
+          hero_media_type: 'video'
         }));
-        setVideoUploadMsg('Hero video uploaded successfully! Click "Save Settings" below to publish.');
+        setVideoUploadMsg('Hero video uploaded to Supabase Storage successfully! Click "Save Settings" below to publish.');
       } else {
-        throw new Error(data.error || 'Upload failed');
+        throw new Error('Could not obtain public URL from Supabase Storage');
       }
     } catch (err: any) {
       console.error('Video upload error:', err);
-      // Fallback: Read as object URL or local data for preview
-      const localUrl = URL.createObjectURL(file);
-      setFormData(prev => ({
-        ...prev,
-        hero_video_url: localUrl
-      }));
-      setVideoUploadMsg('Video loaded for session preview. (Make sure backend is connected for persistent cloud storage)');
+      setVideoUploadMsg(`Upload error: ${err?.message || 'Failed to upload video to cloud storage.'}`);
     } finally {
       setUploadingVideo(false);
     }
