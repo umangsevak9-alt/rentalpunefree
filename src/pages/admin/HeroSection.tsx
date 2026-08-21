@@ -14,7 +14,9 @@ import {
   Play, 
   Check, 
   AlertCircle,
-  VolumeX
+  VolumeX,
+  Smartphone,
+  Monitor
 } from 'lucide-react';
 import { supabaseService } from '../../services/supabaseService.js';
 
@@ -67,6 +69,7 @@ export default function HeroSection() {
   const [uploadingVideo, setUploadingVideo] = useState(false);
   const [videoUploadMsg, setVideoUploadMsg] = useState<{ text: string; type: 'info' | 'success' | 'error' } | null>(null);
   const [videoFileDetails, setVideoFileDetails] = useState<{ name: string; sizeMb: string } | null>(null);
+  const [previewAspect, setPreviewAspect] = useState<'desktop' | 'mobile'>('desktop');
 
   useEffect(() => {
     setFormData(settings);
@@ -494,19 +497,57 @@ export default function HeroSection() {
 
                 {/* Video Live Preview Stream */}
                 <div>
-                  <label className="block text-sm font-bold text-neutral-300 mb-2 flex items-center justify-between">
-                    <span>Live Video Preview</span>
-                    {formData.hero_video_url && (
-                      <span className="text-[10px] text-emerald-400 font-bold flex items-center space-x-1">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                        <span>Active Video</span>
-                      </span>
-                    )}
-                  </label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-sm font-bold text-neutral-300 flex items-center space-x-2">
+                      <span>Live Video Preview</span>
+                      {formData.hero_video_url && (
+                        <span className="text-[10px] text-emerald-400 font-bold flex items-center space-x-1">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                          <span>Active Video</span>
+                        </span>
+                      )}
+                    </label>
 
-                  <div className="relative rounded-2xl overflow-hidden border border-neutral-800 bg-black min-h-[220px] flex items-center justify-center">
+                    {/* Preview Aspect Ratio Switcher (Desktop 16:9 vs Mobile 9:16) */}
+                    <div className="flex items-center space-x-1 bg-neutral-900 border border-neutral-800 p-1 rounded-xl">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewAspect('desktop')}
+                        className={`flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          previewAspect === 'desktop'
+                            ? 'bg-[#d4a359] text-[#080f1a] shadow-sm'
+                            : 'text-neutral-400 hover:text-white'
+                        }`}
+                        title="Desktop Landscape 16:9 Preview"
+                      >
+                        <Monitor className="w-3.5 h-3.5" />
+                        <span>Desktop</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewAspect('mobile')}
+                        className={`flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          previewAspect === 'mobile'
+                            ? 'bg-[#d4a359] text-[#080f1a] shadow-sm'
+                            : 'text-neutral-400 hover:text-white'
+                        }`}
+                        title="Mobile Portrait 9:16 Ratio Preview"
+                      >
+                        <Smartphone className="w-3.5 h-3.5" />
+                        <span>Mobile (9:16)</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className={`relative rounded-2xl overflow-hidden border border-neutral-800 bg-neutral-950 flex items-center justify-center transition-all duration-300 ${
+                    previewAspect === 'mobile'
+                      ? 'w-[230px] aspect-[9/16] mx-auto shadow-2xl rounded-[32px] border-4 border-neutral-700 p-1.5'
+                      : 'w-full min-h-[220px]'
+                  }`}>
                     {formData.hero_video_url ? (
-                      <div className="relative w-full h-full">
+                      <div className={`relative w-full h-full overflow-hidden ${
+                        previewAspect === 'mobile' ? 'rounded-[24px]' : 'rounded-2xl'
+                      }`}>
                         {(() => {
                           const url = formData.hero_video_url;
                           const ytMatch = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))([\w-]{11})/);
@@ -515,7 +556,7 @@ export default function HeroSection() {
                               <iframe
                                 src={`https://www.youtube-nocookie.com/embed/${ytMatch[1]}?autoplay=1&mute=1&loop=1&playlist=${ytMatch[1]}&controls=1`}
                                 title="YouTube Hero Video Preview"
-                                className="w-full h-56 border-0"
+                                className={`w-full border-0 ${previewAspect === 'mobile' ? 'h-full object-cover' : 'h-56'}`}
                                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                                 allowFullScreen
                               />
@@ -527,7 +568,7 @@ export default function HeroSection() {
                               <iframe
                                 src={`https://player.vimeo.com/video/${vimeoMatch[1]}?autoplay=1&muted=1&loop=1`}
                                 title="Vimeo Hero Video Preview"
-                                className="w-full h-56 border-0"
+                                className={`w-full border-0 ${previewAspect === 'mobile' ? 'h-full object-cover' : 'h-56'}`}
                                 allow="autoplay; fullscreen"
                                 allowFullScreen
                               />
@@ -535,20 +576,20 @@ export default function HeroSection() {
                           }
                           return (
                             <video 
-                              key={url}
+                              key={`${url}-${previewAspect}`}
                               src={url} 
                               autoPlay 
                               loop 
                               muted 
                               playsInline 
                               controls
-                              className="w-full h-56 object-cover"
+                              className={`w-full object-cover ${previewAspect === 'mobile' ? 'h-full' : 'h-56'}`}
                             />
                           );
                         })()}
-                        <div className="absolute top-2 right-2 px-2.5 py-1 bg-black/80 backdrop-blur-md rounded-lg text-[10px] font-bold text-neutral-300 border border-neutral-700 flex items-center space-x-1 pointer-events-none">
-                          <VolumeX className="w-3 h-3 text-neutral-400" />
-                          <span>Autoplays Muted on Landing</span>
+                        <div className="absolute top-2 right-2 px-2 py-0.5 bg-black/80 backdrop-blur-md rounded-lg text-[9px] font-bold text-neutral-300 border border-neutral-700 flex items-center space-x-1 pointer-events-none">
+                          <VolumeX className="w-2.5 h-2.5 text-neutral-400" />
+                          <span>Autoplays Muted</span>
                         </div>
                       </div>
                     ) : (

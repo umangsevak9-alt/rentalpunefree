@@ -321,8 +321,8 @@ export default function PropertyDetailsModal({
                 </div>
               </div>
             ) : (
-              /* Video Walkthrough Player */
-              <div className="relative h-72 sm:h-96 md:h-[430px] rounded-2xl overflow-hidden bg-black border border-white/10 shadow-inner flex items-center justify-center">
+              /* Video Walkthrough Player - 9:16 on mobile, landscape/full on desktop */
+              <div className="relative aspect-[9/16] sm:aspect-auto h-auto sm:h-96 md:h-[430px] max-h-[70vh] sm:max-h-none rounded-2xl overflow-hidden bg-black border border-white/10 shadow-inner flex items-center justify-center max-w-xs sm:max-w-none mx-auto w-full">
                 {videos[0]?.includes('youtube.com') || videos[0]?.includes('youtu.be') ? (
                   <iframe 
                     src={`https://www.youtube.com/embed/${videos[0].match(/(?:youtu\.be\/|watch\?v=)([\w-]{11})/)?.[1] || ''}?autoplay=1`}

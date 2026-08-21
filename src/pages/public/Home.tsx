@@ -739,7 +739,7 @@ export default function Home() {
     <div className="w-full bg-[#080f1a] text-white selection:bg-[#d4a359] selection:text-[#080f1a] overflow-x-hidden">
       
       {/* 1. HERO SECTION (LUXURY ARCHITECTURAL DISPLAY WITH LOOPING MUTED VIDEO / SLIDESHOW) */}
-      <section className="relative min-h-[75vh] sm:min-h-[80vh] flex flex-col justify-center overflow-hidden bg-[#080f1a] py-20 sm:py-28 px-4 sm:px-6 lg:px-8">
+      <section className="relative min-h-[85vh] sm:min-h-[80vh] flex flex-col justify-center overflow-hidden bg-[#080f1a] py-16 sm:py-28 px-4 sm:px-6 lg:px-8">
         
         {/* Background Architectural Luxury Video Loop or Building Carousel */}
         {(() => {
@@ -786,7 +786,7 @@ export default function Home() {
                     <iframe
                       src={heroVideoInfo.bgUrl}
                       title="Hero Video Background"
-                      className="w-[160%] h-[160%] min-w-full min-h-full absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 object-cover border-0 pointer-events-none brightness-70"
+                      className="w-[320%] h-[140%] sm:w-[160%] sm:h-[160%] min-w-full min-h-full absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 object-cover border-0 pointer-events-none brightness-70"
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                       allowFullScreen
                     />
@@ -796,7 +796,7 @@ export default function Home() {
                     <iframe
                       src={heroVideoInfo.bgUrl}
                       title="Hero Video Background"
-                      className="w-[160%] h-[160%] min-w-full min-h-full absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 object-cover border-0 pointer-events-none brightness-70"
+                      className="w-[320%] h-[140%] sm:w-[160%] sm:h-[160%] min-w-full min-h-full absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 object-cover border-0 pointer-events-none brightness-70"
                       allow="autoplay; fullscreen"
                       allowFullScreen
                     />
@@ -2744,12 +2744,12 @@ export default function Home() {
 
       {/* VIDEO WALKTHROUGH MODAL */}
       {isVideoModalOpen && (
-        <div className="fixed inset-0 bg-[#080f1a]/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
-          <div className="bg-[#0e1726] border border-[#d4a359]/40 text-white rounded-3xl max-w-4xl w-full p-4 sm:p-6 shadow-2xl relative animate-in zoom-in-95">
+        <div className="fixed inset-0 bg-[#080f1a]/90 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-[#0e1726] border border-[#d4a359]/40 text-white rounded-3xl max-w-sm sm:max-w-4xl w-full p-4 sm:p-6 shadow-2xl relative animate-in zoom-in-95 my-auto">
             <div className="flex items-center justify-between pb-3 mb-3 border-b border-white/10">
               <div className="flex items-center space-x-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-[#d4a359]"></span>
-                <h3 className="text-lg font-bold font-serif text-white">
+                <h3 className="text-sm sm:text-lg font-bold font-serif text-white truncate">
                   {settings?.hero_video_title || 'Experience Luxury Architecture & Walkthrough'}
                 </h3>
               </div>
@@ -2761,14 +2761,15 @@ export default function Home() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="aspect-video w-full rounded-2xl overflow-hidden bg-black shadow-inner flex items-center justify-center">
+            {/* 9:16 on Mobile, 16:9 on Desktop */}
+            <div className="aspect-[9/16] sm:aspect-video max-h-[72vh] sm:max-h-none w-full rounded-2xl overflow-hidden bg-black shadow-inner flex items-center justify-center mx-auto">
               {heroVideoInfo.isDirect ? (
                 <video
                   src={heroVideoInfo.url}
                   controls
                   autoPlay
                   playsInline
-                  className="w-full h-full object-contain bg-black"
+                  className="w-full h-full object-contain sm:object-contain bg-black"
                 />
               ) : heroVideoInfo.type === 'youtube' ? (
                 <iframe
