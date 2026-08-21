@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient, User as SupabaseAuthUser } from '@supabase/supabase-js';
-import { Property, Lead, PropertyBooking, Visit, VisitFeedback, Invoice, User, FAQ, Settings } from '../types.js';
+import { Property, Lead, PropertyBooking, Visit, VisitFeedback, Invoice, User, FAQ, GalleryItem, Settings } from '../types.js';
 import { useAppStore } from '../store/index.js';
 
 // Retrieve credentials with local storage override capability
@@ -107,6 +107,16 @@ export function notifyUpdate(key: string, data?: any): void {
   } catch (e) {}
 }
 
+export function getStoredToken(): string {
+  if (typeof window === 'undefined' || !window.localStorage) return '';
+  try {
+    return localStorage.getItem('rp_auth_token') || localStorage.getItem('token') || '';
+  } catch {
+    return '';
+  }
+}
+const getToken = getStoredToken;
+
 // Local storage caching helpers
 export function getLocal<T>(key: string, fallback: T): T {
   if (typeof window === 'undefined' || !window.localStorage) return fallback;
@@ -181,17 +191,17 @@ const SEED_PROPERTIES: Property[] = [
   },
   {
     id: 3,
-    title: 'Signature 3 BHK Gated Flat For Sale Baner',
+    title: 'Signature 3 BHK Ready Possession Flat Baner',
     type: '3 BHK',
     price: 18500000, // 1.85 Cr
     bedrooms: 3,
     bathrooms: 3,
     area: 1750,
     location: 'Baner, Pune',
-    description: 'Ultra-modern 3 BHK apartment for purchase/sale in prime Baner high-rise. East-facing, Italian marble flooring, 3 balconies, club house & swimming pool access.',
+    description: 'Ready Possession ultra-modern 3 BHK apartment in prime Baner high-rise. 100% Occupation Certificate (OC) received, immediate handover, East-facing, Italian marble flooring, 3 balconies, and luxury clubhouse access.',
     status: 'PUBLISHED',
-    purpose: 'SALE',
-    category: 'RESIDENTIAL',
+    purpose: 'READY_POSSESSION',
+    category: 'READY_POSSESSION',
     furnishing: 'Semi-Furnished',
     images: [
       'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80',
@@ -199,7 +209,7 @@ const SEED_PROPERTIES: Property[] = [
     ],
     videos: [],
     faqs: [
-      { question: 'Is clear title & OC available?', answer: 'Yes, full Occupation Certificate (OC) and clear bank approved title.' }
+      { question: 'Is clear title & OC available?', answer: 'Yes, full Occupation Certificate (OC) received and bank-approved clear title with immediate possession.' }
     ],
     created_at: new Date().toISOString()
   },
@@ -318,6 +328,112 @@ const SEED_PROPERTIES: Property[] = [
     videos: [],
     faqs: [],
     created_at: new Date().toISOString()
+  },
+  {
+    id: 9,
+    title: 'Pre-Leased Commercial Grade-A IT Office For Sale - EON Kharadi',
+    type: 'Rented Commercial by Sell',
+    price: 34500000, // 3.45 Cr
+    bedrooms: 0,
+    bathrooms: 4,
+    area: 3200,
+    location: 'EON Free Zone, Kharadi, Pune',
+    description: 'Grade-A Pre-leased commercial office for outright sale in EON IT Park, Kharadi. Currently rented to a Global Tech MNC at ₹2,45,000/month with 9-year long-term registered lease (5-year lock-in) and 15% escalation every 3 years. Immediate high rental yield investment with zero vacancy.',
+    status: 'PUBLISHED',
+    purpose: 'RENTED_COMMERCIAL_SALE',
+    category: 'RENTED_COMMERCIAL_SALE',
+    current_rent: 245000,
+    roi_yield: '8.52% ROI Yield',
+    tenant_name: 'Global Tech MNC (Grade-A Tenant)',
+    lease_term: '9 Years Registered Lease (5 Yrs Lock-in)',
+    furnishing: 'Fully Furnished Warm Shell',
+    images: [
+      'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=1200&q=80',
+      'https://images.unsplash.com/photo-1497215728101-856f4ea42174?auto=format&fit=crop&w=1200&q=80'
+    ],
+    videos: [],
+    faqs: [
+      { question: 'What is the monthly rental income?', answer: 'Generates ₹2,45,000 net monthly rental credited directly to buyer account with zero maintenance liability.' },
+      { question: 'Is the lease agreement registered?', answer: 'Yes, fully registered 9-year corporate lease with 5-year lock-in and 15% periodic escalation.' }
+    ],
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 10,
+    title: 'Rented High-Street Retail Showroom For Sale - Baner High Street',
+    type: 'Rented Commercial by Sell',
+    price: 28000000, // 2.80 Cr
+    bedrooms: 0,
+    bathrooms: 2,
+    area: 2100,
+    location: 'Baner Main Road, Pune',
+    description: 'High-footfall corner retail showroom on main Baner Road, pre-leased to a leading Scheduled Commercial Bank. Long-term 15-year lease tenure, regular guaranteed cash flow, and prime commercial appreciation.',
+    status: 'PUBLISHED',
+    purpose: 'RENTED_COMMERCIAL_SALE',
+    category: 'COMMERCIAL',
+    current_rent: 195000,
+    roi_yield: '8.36% ROI Yield',
+    tenant_name: 'Leading Scheduled Commercial Bank',
+    lease_term: '15 Years Lease (9 Yrs Remaining Lock-in)',
+    furnishing: 'Fully Fitted Bank Branch',
+    images: [
+      'https://images.unsplash.com/photo-1577495508048-b635879837f1?auto=format&fit=crop&w=1200&q=80',
+      'https://images.unsplash.com/photo-1524758631624-e2822e304c36?auto=format&fit=crop&w=1200&q=80'
+    ],
+    videos: [],
+    faqs: [
+      { question: 'Who is the tenant?', answer: 'Pre-leased to a Top-tier Commercial Bank with timely auto-debit rental payments and long-standing lease.' }
+    ],
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 11,
+    title: 'Sovereign Sky Mansions - 3 & 4 BHK Balewadi High Street',
+    type: '3 BHK',
+    price: 16500000, // 1.65 Cr
+    bedrooms: 3,
+    bathrooms: 3,
+    area: 1980,
+    location: 'Balewadi High Street, Pune',
+    description: 'Under Construction ultra-luxury skyscraper residences with 11-ft clear ceiling height, infinity rooftop pool, 50,000 sq.ft clubhouse, and flexible 20:80 subvention payment scheme. Possession Dec 2027.',
+    status: 'PUBLISHED',
+    purpose: 'UNDER_CONSTRUCTION',
+    category: 'UNDER_CONSTRUCTION',
+    furnishing: 'Unfurnished / Bare Shell with Marble Flooring',
+    images: [
+      'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=1200&q=80',
+      'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80'
+    ],
+    videos: [],
+    faqs: [
+      { question: 'What is the expected possession timeline?', answer: 'Target possession is December 2027 with MahaRERA registered construction milestones.' },
+      { question: 'What payment plans are offered?', answer: 'Special construction linked 20:80 payment structure with zero pre-EMI till possession.' }
+    ],
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 12,
+    title: 'Kharadi Central Signature High-Rise Tower',
+    type: '4 BHK',
+    price: 24000000, // 2.40 Cr
+    bedrooms: 4,
+    bathrooms: 4,
+    area: 2750,
+    location: 'Kharadi IT Corridor, Pune',
+    description: 'Under Construction iconic twin-tower development in Prime Kharadi. Features private deck with river views, automated smart-home infrastructure, Olympic-sized swimming pool, and bespoke concierge. Possession March 2028.',
+    status: 'PUBLISHED',
+    purpose: 'UNDER_CONSTRUCTION',
+    category: 'UNDER_CONSTRUCTION',
+    furnishing: 'Designer Shell',
+    images: [
+      'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=1200&q=80',
+      'https://images.unsplash.com/photo-1600566753190-17f0baa2a6c3?auto=format&fit=crop&w=1200&q=80'
+    ],
+    videos: [],
+    faqs: [
+      { question: 'Is the project MahaRERA approved?', answer: 'Yes, fully registered under MahaRERA with transparent escrow milestone verification.' }
+    ],
+    created_at: new Date().toISOString()
   }
 ];
 
@@ -351,6 +467,64 @@ const SEED_FAQS: FAQ[] = [
 
 // Initial Seed Agents
 const SEED_AGENTS: User[] = [];
+
+// Initial Seed Gallery Items
+const SEED_GALLERY_ITEMS: GalleryItem[] = [
+  {
+    id: 1,
+    title: 'Tower Exterior & Pool Promenade',
+    category: 'Grand Architecture',
+    image_url: 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=1600&q=85',
+    description: 'International standard tower facade with manicured landscaped deck and infinity pool promenade view.',
+    sort_order: 1,
+    is_active: 1
+  },
+  {
+    id: 2,
+    title: 'Infinity Edge Swimming Pool',
+    category: 'Lifestyle',
+    image_url: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=1600&q=85',
+    description: 'Temperature-controlled infinity lap pool with luxury sun loungers and panoramic sky view.',
+    sort_order: 2,
+    is_active: 1
+  },
+  {
+    id: 3,
+    title: 'Grand Living & Dining Hall',
+    category: 'Interiors',
+    image_url: 'https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=1600&q=85',
+    description: 'Double-height Italian marble living room with designer chandeliers and floor-to-ceiling glass.',
+    sort_order: 3,
+    is_active: 1
+  },
+  {
+    id: 4,
+    title: 'Presidential Master Bedroom',
+    category: 'Suites',
+    image_url: 'https://images.unsplash.com/photo-1616594039964-ae9021a400a0?auto=format&fit=crop&w=1600&q=85',
+    description: 'Spacious master suite featuring wooden flooring, walk-in closet, and private sunset deck.',
+    sort_order: 4,
+    is_active: 1
+  },
+  {
+    id: 5,
+    title: 'Executive Clubhouse & Lounge',
+    category: 'Amenities',
+    image_url: 'https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?auto=format&fit=crop&w=1600&q=85',
+    description: 'Private resident lounge, business center, and meeting suites for community networking.',
+    sort_order: 5,
+    is_active: 1
+  },
+  {
+    id: 6,
+    title: 'High-Tech Fitness Gymnasium',
+    category: 'Wellness',
+    image_url: 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?auto=format&fit=crop&w=1600&q=85',
+    description: 'State-of-the-art cardio and weight training equipment with dedicated yoga studio.',
+    sort_order: 6,
+    is_active: 1
+  }
+];
 
 // Initial Seed Owner Submissions
 const SEED_OWNER_SUBMISSIONS = [
@@ -439,6 +613,20 @@ const SEED_OWNER_SUBMISSIONS = [
 ];
 
 export const supabaseService = {
+  // Local storage helpers
+  getLocal<T>(key: string, fallback: T): T {
+    return getLocal<T>(key, fallback);
+  },
+  setLocal<T>(key: string, data: T): void {
+    setLocal<T>(key, data);
+  },
+  notifyUpdate(key: string, data?: any): void {
+    notifyUpdate(key, data);
+  },
+  safeJsonParse<T>(val: any, fallback: T): T {
+    return safeJsonParse<T>(val, fallback);
+  },
+
   // --- AUTHENTICATION VIA OFFICIAL SUPABASE AUTH ---
   auth: {
     /**
@@ -1244,9 +1432,13 @@ export const supabaseService = {
             area: Number(p.area || 0),
             location: p.location || 'Pune',
             status: p.status || 'PUBLISHED',
-            purpose: p.purpose || (p.type?.toLowerCase().includes('office') || p.type?.toLowerCase().includes('retail') || p.type?.toLowerCase().includes('commercial') ? 'COMMERCIAL' : (Number(p.price) > 5000000 ? 'SALE' : 'RENT')),
-            category: p.category || (p.type?.toLowerCase().includes('office') || p.type?.toLowerCase().includes('retail') || p.type?.toLowerCase().includes('commercial') ? 'COMMERCIAL' : 'RESIDENTIAL'),
+            purpose: p.purpose || (p.type === 'Rented Commercial by Sell' || p.type?.toLowerCase().includes('rented commercial') ? 'RENTED_COMMERCIAL_SALE' : (p.type?.toLowerCase().includes('office') || p.type?.toLowerCase().includes('retail') || p.type?.toLowerCase().includes('commercial') ? 'COMMERCIAL' : (Number(p.price) > 5000000 ? 'SALE' : 'RENT'))),
+            category: p.category || (p.type === 'Rented Commercial by Sell' || p.type?.toLowerCase().includes('rented commercial') ? 'RENTED_COMMERCIAL_SALE' : (p.type?.toLowerCase().includes('office') || p.type?.toLowerCase().includes('retail') || p.type?.toLowerCase().includes('commercial') ? 'COMMERCIAL' : 'RESIDENTIAL')),
             furnishing: p.furnishing || 'Semi-Furnished',
+            current_rent: p.current_rent ? Number(p.current_rent) : undefined,
+            roi_yield: p.roi_yield,
+            tenant_name: p.tenant_name,
+            lease_term: p.lease_term,
             furniture: safeJsonParse<string[]>(p.furniture, Array.isArray(p.furniture) ? p.furniture : []),
             images: safeJsonParse<string[]>(p.images, Array.isArray(p.images) ? p.images : []),
             videos: safeJsonParse<string[]>(p.videos, Array.isArray(p.videos) ? p.videos : []),
@@ -1282,9 +1474,13 @@ export const supabaseService = {
             area: Number(data.area),
             location: data.location,
             status: data.status,
-            purpose: data.purpose,
-            category: data.category,
+            purpose: data.purpose || (data.type === 'Rented Commercial by Sell' || data.type?.toLowerCase().includes('rented commercial') ? 'RENTED_COMMERCIAL_SALE' : (data.type?.toLowerCase().includes('office') || data.type?.toLowerCase().includes('retail') || data.type?.toLowerCase().includes('commercial') ? 'COMMERCIAL' : (Number(data.price) > 5000000 ? 'SALE' : 'RENT'))),
+            category: data.category || (data.type === 'Rented Commercial by Sell' || data.type?.toLowerCase().includes('rented commercial') ? 'RENTED_COMMERCIAL_SALE' : (data.type?.toLowerCase().includes('office') || data.type?.toLowerCase().includes('retail') || data.type?.toLowerCase().includes('commercial') ? 'COMMERCIAL' : 'RESIDENTIAL')),
             furnishing: data.furnishing,
+            current_rent: data.current_rent ? Number(data.current_rent) : undefined,
+            roi_yield: data.roi_yield,
+            tenant_name: data.tenant_name,
+            lease_term: data.lease_term,
             furniture: safeJsonParse<string[]>(data.furniture, Array.isArray(data.furniture) ? data.furniture : []),
             images: safeJsonParse<string[]>(data.images, Array.isArray(data.images) ? data.images : []),
             videos: safeJsonParse<string[]>(data.videos, Array.isArray(data.videos) ? data.videos : []),
@@ -2449,6 +2645,229 @@ export const supabaseService = {
     }
   },
 
+  // --- HOMEPAGE GALLERY ---
+  gallery: {
+    async getAll(): Promise<GalleryItem[]> {
+      try {
+        const { data, error } = await supabase
+          .from('home_gallery')
+          .select('*')
+          .order('sort_order', { ascending: true })
+          .order('id', { ascending: true });
+
+        if (!error && Array.isArray(data) && data.length > 0) {
+          setLocal('gallery', data);
+          return data;
+        }
+      } catch (err) {
+        console.warn('Supabase gallery fetch note:', err);
+      }
+
+      // Try server API fallback
+      try {
+        const token = getToken();
+        const res = await fetch('/api/gallery', {
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        if (res.ok) {
+          const apiItems = await res.json();
+          if (Array.isArray(apiItems) && apiItems.length > 0) {
+            setLocal('gallery', apiItems);
+            return apiItems;
+          }
+        }
+      } catch {}
+
+      const local = getLocal<GalleryItem[]>('gallery', SEED_GALLERY_ITEMS);
+      return local && local.length > 0 ? local : SEED_GALLERY_ITEMS;
+    },
+
+    async create(item: Omit<GalleryItem, 'id' | 'created_at'>): Promise<GalleryItem> {
+      const all = await this.getAll();
+      const nextId = all.length > 0 ? Math.max(...all.map(g => Number(g.id) || 0)) + 1 : 1;
+      const newItem: GalleryItem = {
+        id: nextId,
+        title: item.title,
+        category: item.category || 'Lifestyle',
+        image_url: item.image_url,
+        description: item.description || '',
+        sort_order: item.sort_order ?? (all.length + 1),
+        is_active: item.is_active === false || item.is_active === 0 ? 0 : 1,
+        created_at: new Date().toISOString()
+      };
+
+      try {
+        const { data, error } = await supabase
+          .from('home_gallery')
+          .insert([{
+            title: newItem.title,
+            category: newItem.category,
+            image_url: newItem.image_url,
+            description: newItem.description,
+            sort_order: newItem.sort_order,
+            is_active: newItem.is_active
+          }])
+          .select()
+          .single();
+
+        if (!error && data) {
+          const updated = [...all, data];
+          setLocal('gallery', updated);
+          notifyUpdate('gallery', updated);
+          return data;
+        }
+      } catch {}
+
+      try {
+        const token = getToken();
+        await fetch('/api/gallery', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify(newItem)
+        });
+      } catch {}
+
+      const updated = [...all, newItem];
+      setLocal('gallery', updated);
+      notifyUpdate('gallery', updated);
+      return newItem;
+    },
+
+    async update(id: number, updates: Partial<GalleryItem>): Promise<GalleryItem | null> {
+      try {
+        const dbUpdates: any = {};
+        if (updates.title !== undefined) dbUpdates.title = updates.title;
+        if (updates.category !== undefined) dbUpdates.category = updates.category;
+        if (updates.image_url !== undefined) dbUpdates.image_url = updates.image_url;
+        if (updates.description !== undefined) dbUpdates.description = updates.description;
+        if (updates.sort_order !== undefined) dbUpdates.sort_order = updates.sort_order;
+        if (updates.is_active !== undefined) dbUpdates.is_active = updates.is_active === false || updates.is_active === 0 ? 0 : 1;
+
+        const { data, error } = await supabase
+          .from('home_gallery')
+          .update(dbUpdates)
+          .eq('id', id)
+          .select()
+          .single();
+
+        if (!error && data) {
+          const all = await this.getAll();
+          const updated = all.map(g => g.id === id ? data : g);
+          setLocal('gallery', updated);
+          notifyUpdate('gallery', updated);
+          return data;
+        }
+      } catch {}
+
+      try {
+        const token = getToken();
+        await fetch(`/api/gallery/${id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify(updates)
+        });
+      } catch {}
+
+      const all = await this.getAll();
+      const updated = all.map(g => g.id === id ? { ...g, ...updates } : g);
+      setLocal('gallery', updated);
+      notifyUpdate('gallery', updated);
+      return updated.find(g => g.id === id) || null;
+    },
+
+    async delete(id: number): Promise<void> {
+      try {
+        await supabase.from('home_gallery').delete().eq('id', id);
+      } catch {}
+
+      try {
+        const token = getToken();
+        await fetch(`/api/gallery/${id}`, {
+          method: 'DELETE',
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+      } catch {}
+
+      const all = await this.getAll();
+      const filtered = all.filter(g => g.id !== id);
+      setLocal('gallery', filtered);
+      notifyUpdate('gallery', filtered);
+    },
+
+    async reorder(orderIds: number[]): Promise<GalleryItem[]> {
+      try {
+        const token = getToken();
+        await fetch('/api/gallery/reorder', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({ orderIds })
+        });
+      } catch {}
+
+      const all = await this.getAll();
+      const reordered = orderIds.map((id, index) => {
+        const found = all.find(g => Number(g.id) === Number(id));
+        if (found) {
+          return { ...found, sort_order: index + 1 };
+        }
+        return null;
+      }).filter(Boolean) as GalleryItem[];
+
+      all.forEach(item => {
+        if (!reordered.some(r => Number(r.id) === Number(item.id))) {
+          reordered.push({ ...item, sort_order: reordered.length + 1 });
+        }
+      });
+
+      try {
+        for (const item of reordered) {
+          await supabase.from('home_gallery').update({ sort_order: item.sort_order }).eq('id', item.id);
+        }
+      } catch {}
+
+      setLocal('gallery', reordered);
+      notifyUpdate('gallery', reordered);
+      return reordered;
+    },
+
+    async resetDefaults(): Promise<GalleryItem[]> {
+      try {
+        await supabase.from('home_gallery').delete().neq('id', 0);
+        for (const item of SEED_GALLERY_ITEMS) {
+          await supabase.from('home_gallery').insert([{
+            title: item.title,
+            category: item.category,
+            image_url: item.image_url,
+            description: item.description,
+            sort_order: item.sort_order,
+            is_active: 1
+          }]);
+        }
+      } catch {}
+
+      try {
+        const token = getToken();
+        await fetch('/api/gallery/reset', {
+          method: 'POST',
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+      } catch {}
+
+      setLocal('gallery', SEED_GALLERY_ITEMS);
+      notifyUpdate('gallery', SEED_GALLERY_ITEMS);
+      return SEED_GALLERY_ITEMS;
+    }
+  },
+
   // --- OWNER SUBMISSIONS ---
   ownerSubmissions: {
     async getAll(): Promise<any[]> {
@@ -2775,34 +3194,70 @@ export const supabaseService = {
         }
       } catch {}
 
-      return getLocal<Settings>('settings', {
+      const defaultSettings: Settings = {
         website_name: 'Rental Pune',
         company_name: 'Rental Pune Luxury Real Estate Pvt. Ltd.',
         phone: '+91 98220 12345',
+        phone_secondary: '+91 20 6789 0123',
+        phone_tagline: 'Direct Advisor Connect',
         email: 'concierge@rentalpune.com',
-        address: 'Level 5, ICC Trade Tower, Senapati Bapat Road, Pune, Maharashtra 411016',
+        email_support: 'info@rentalpune.com',
+        email_tagline: 'Fast 2-hour response time',
+        address: 'Balewadi High Street, Near Baner',
+        office_city: 'Pune, Maharashtra - 411045, India',
+        office_landmark: 'Near Baner & Pune-Bangalore Expressway',
+        working_hours: 'Mon - Sun: 9:00 AM – 8:30 PM',
+        working_days_note: 'Site visits open all 7 days',
+        desk_status: 'Desk Active (9 AM - 8:30 PM)',
+        contact_heading: 'Reach Out to Our Luxury Real Estate Advisors',
+        contact_subtitle: 'Have questions about residential leases, high-end commercial spaces, society guidelines, or scheduling private site visits? Contact our Pune head office directly.',
         hero_heading: 'Curated Luxury Residences in Prime Pune',
         hero_subheading: 'Handpicked penthouses, riverside apartments, and signature villas in Pune\'s most exclusive enclaves.',
+        hero_media_type: 'video',
+        hero_video_url: 'https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-building-exterior-41549-large.mp4',
+        hero_video_title: 'Pune Luxury Architectural Showcase & Residences',
         whatsapp_number: '+919822012345',
         whatsapp_message: 'Hello Rental Pune, I am looking for a luxury rental property in Pune.'
-      });
+      };
+
+      const cached = getLocal<Settings>('settings', defaultSettings);
+      const merged = { ...defaultSettings, ...cached };
+      return merged;
     },
 
     async update(updates: Record<string, string>): Promise<Settings> {
-      try {
-        const entries = Object.entries(updates);
-        for (const [key, value] of entries) {
-          await supabase
-            .from('settings')
-            .upsert({ key, value }, { onConflict: 'key' });
-        }
-      } catch (e) {
-        console.warn('Supabase update settings error:', e);
-      }
-
-      const existing = await this.get();
+      // 1. Instant optimistic local update & notification
+      const existing = getLocal<Settings>('settings', {});
       const merged = { ...existing, ...updates };
       setLocal('settings', merged);
+      notifyUpdate('settings', merged);
+
+      // 2. Synchronize asynchronously with Supabase & server
+      try {
+        const entries = Object.entries(updates);
+        if (entries.length > 0) {
+          const rows = entries.map(([key, value]) => ({ key, value: String(value ?? '') }));
+          await supabase
+            .from('settings')
+            .upsert(rows, { onConflict: 'key' });
+        }
+      } catch (e) {
+        console.warn('Supabase update settings note:', e);
+      }
+
+      // Also notify backend API in background
+      try {
+        const token = getToken();
+        fetch('/api/settings', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify(updates)
+        }).catch(() => {});
+      } catch {}
+
       return merged;
     }
   },
@@ -3052,10 +3507,6 @@ export const supabaseService = {
     }
   },
 
-  // Helper methods attached to supabaseService
-  getLocal: getLocal,
-  setLocal: setLocal,
-
   // Background concurrent preload
   async preloadAll(): Promise<void> {
     try {
@@ -3068,7 +3519,8 @@ export const supabaseService = {
         supabaseService.ownerSubmissions.getAll(),
         supabaseService.agents.getAll(),
         supabaseService.settings.get(),
-        supabaseService.faqs.getAll()
+        supabaseService.faqs.getAll(),
+        supabaseService.gallery.getAll()
       ]);
     } catch {}
   },
@@ -3220,6 +3672,15 @@ export const supabaseService = {
               console.log('[Supabase Realtime] faqs changed:', payload);
               const data = await supabaseService.faqs.getAll();
               notifyUpdate('faqs', data);
+            }
+          )
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'home_gallery' },
+            async (payload) => {
+              console.log('[Supabase Realtime] home_gallery changed:', payload);
+              const data = await supabaseService.gallery.getAll();
+              notifyUpdate('gallery', data);
             }
           )
           .on(

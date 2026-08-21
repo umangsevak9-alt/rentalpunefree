@@ -258,6 +258,17 @@ CREATE TABLE IF NOT EXISTS home_faqs (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS home_gallery (
+  id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  title TEXT NOT NULL,
+  category TEXT DEFAULT 'Lifestyle',
+  image_url TEXT NOT NULL,
+  description TEXT,
+  sort_order INT DEFAULT 0,
+  is_active INT DEFAULT 1,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS owner_submissions (
   id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
   owner_name TEXT NOT NULL,
@@ -287,6 +298,7 @@ ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE properties ENABLE ROW LEVEL SECURITY;
 ALTER TABLE settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE home_faqs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE home_gallery ENABLE ROW LEVEL SECURITY;
 ALTER TABLE leads ENABLE ROW LEVEL SECURITY;
 ALTER TABLE site_visits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE site_visit_feedback ENABLE ROW LEVEL SECURITY;
@@ -353,7 +365,11 @@ CREATE POLICY "owner_submissions_public_insert" ON owner_submissions FOR INSERT 
 CREATE POLICY "home_faqs_admin_all" ON home_faqs FOR ALL USING (public.is_admin());
 CREATE POLICY "home_faqs_public_select" ON home_faqs FOR SELECT USING (is_active = 1);
 
--- 10. Settings policies (exclude private settings)
+-- 10. Home Gallery policies
+CREATE POLICY "home_gallery_admin_all" ON home_gallery FOR ALL USING (public.is_admin());
+CREATE POLICY "home_gallery_public_select" ON home_gallery FOR SELECT USING (is_active = 1);
+
+-- 11. Settings policies (exclude private settings)
 CREATE POLICY "settings_admin_all" ON settings FOR ALL USING (public.is_admin());
 CREATE POLICY "settings_public_select" ON settings FOR SELECT USING (key LIKE 'public_%' OR key IN ('site_title', 'site_description', 'contact_email', 'contact_phone', 'currency', 'company_name', 'address', 'about_text', 'logo_url', 'primary_color', 'social_links'));
 `;

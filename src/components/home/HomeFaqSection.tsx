@@ -9,27 +9,38 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { getWhatsAppUrl } from '../../utils/whatsapp.js';
+import { supabaseService } from '../../services/supabaseService.js';
 
 interface HomeFaqSectionProps {
   settings?: Settings | null;
 }
 
 export default function HomeFaqSection({ settings }: HomeFaqSectionProps) {
-  const [faqs, setFaqs] = useState<FAQ[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [openId, setOpenId] = useState<number | null>(null);
+  const [faqs, setFaqs] = useState<FAQ[]>(() => {
+    const local = supabaseService.getLocal<FAQ[]>('faqs', []);
+    const active = local.filter(f => f.is_active !== 0 && (f as any).is_active !== false);
+    return active;
+  });
+  const [loading, setLoading] = useState(() => {
+    const local = supabaseService.getLocal<FAQ[]>('faqs', []);
+    return local.length === 0;
+  });
+  const [openId, setOpenId] = useState<number | null>(() => {
+    const local = supabaseService.getLocal<FAQ[]>('faqs', []);
+    return local.length > 0 ? local[0].id : null;
+  });
   const [activeCategory, setActiveCategory] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     async function fetchFaqs() {
       try {
-        const res = await fetch('/api/faqs');
-        if (res.ok) {
-          const data: FAQ[] = await res.json();
-          setFaqs(data);
-          if (data.length > 0) {
-            setOpenId(data[0].id);
+        const data = await supabaseService.faqs.getAll();
+        if (data && data.length > 0) {
+          const active = data.filter(f => f.is_active !== 0 && (f as any).is_active !== false);
+          setFaqs(active);
+          if (active.length > 0 && openId === null) {
+            setOpenId(active[0].id);
           }
         }
       } catch (err) {
@@ -39,6 +50,24 @@ export default function HomeFaqSection({ settings }: HomeFaqSectionProps) {
       }
     }
     fetchFaqs();
+
+    const handleFaqsUpdated = (e: any) => {
+      const all = e.detail || supabaseService.getLocal<FAQ[]>('faqs', []);
+      if (Array.isArray(all)) {
+        const active = all.filter(f => f.is_active !== 0 && (f as any).is_active !== false);
+        setFaqs(active);
+        if (active.length > 0 && openId === null) {
+          setOpenId(active[0].id);
+        }
+      }
+    };
+    window.addEventListener('faqs_updated', handleFaqsUpdated);
+    window.addEventListener('rp_faqs_synced', handleFaqsUpdated);
+
+    return () => {
+      window.removeEventListener('faqs_updated', handleFaqsUpdated);
+      window.removeEventListener('rp_faqs_synced', handleFaqsUpdated);
+    };
   }, []);
 
   if (loading) {

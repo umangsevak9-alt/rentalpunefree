@@ -11,6 +11,7 @@ import { supabase, supabaseService } from './services/supabaseService.js';
 // Layouts
 import PublicLayout from './components/layout/PublicLayout.js';
 import AdminLayout from './components/layout/AdminLayout.js';
+import ScrollToTop from './components/common/ScrollToTop.js';
 
 // Public
 import Home from './pages/public/Home.js';
@@ -31,6 +32,7 @@ import Agents from './pages/admin/Agents.js';
 import Feedback from './pages/admin/Feedback.js';
 import Invoices from './pages/admin/Invoices.js';
 import Faqs from './pages/admin/Faqs.js';
+import Gallery from './pages/admin/Gallery.js';
 
 /**
  * Route protection wrapper based directly on verified Supabase Auth Session
@@ -134,6 +136,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <ScrollToTop />
       <Routes>
         {/* Public Routes */}
         <Route path="/" element={<PublicLayout />}>
@@ -157,6 +160,7 @@ export default function App() {
           <Route path="properties" element={<ProtectedRoute requireAdmin><Properties /></ProtectedRoute>} />
           <Route path="owner-submissions" element={<ProtectedRoute requireAdmin><OwnerSubmissions /></ProtectedRoute>} />
           <Route path="faqs" element={<ProtectedRoute requireAdmin><Faqs /></ProtectedRoute>} />
+          <Route path="gallery" element={<ProtectedRoute requireAdmin><Gallery /></ProtectedRoute>} />
           <Route path="bookings" element={<Bookings />} />
           <Route path="leads" element={<ProtectedRoute requireAdmin><Leads /></ProtectedRoute>} />
           <Route path="settings" element={<ProtectedRoute requireAdmin><Settings /></ProtectedRoute>} />

@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../../store/index.js';
-import { Property } from '../../types.js';
+import { Property, GalleryItem } from '../../types.js';
 import { 
   ShieldCheck, 
   MapPin, 
@@ -42,6 +42,7 @@ import {
   Tag,
   Store,
   KeyRound,
+  HardHat,
   Waves,
   Dumbbell,
   Trees,
@@ -56,7 +57,8 @@ import {
   Stethoscope,
   Mail,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  VolumeX
 } from 'lucide-react';
 import { getWhatsAppUrl } from '../../utils/whatsapp.js';
 import SharePropertyModal from '../../components/common/SharePropertyModal.js';
@@ -64,11 +66,15 @@ import PropertyDetailsModal from '../../components/common/PropertyDetailsModal.j
 import HomeFaqSection from '../../components/home/HomeFaqSection.js';
 import { supabaseService } from '../../services/supabaseService.js';
 
-function parseVideoSource(rawUrl?: string) {
-  if (!rawUrl || !rawUrl.trim()) {
+export const DEFAULT_SAMPLE_HERO_VIDEO = 'https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-building-exterior-41549-large.mp4';
+
+function parseVideoSource(rawUrl?: string, mediaType?: string) {
+  if (mediaType === 'image') {
     return { type: 'none' as const, url: '', bgUrl: '', modalUrl: '', isDirect: false, isYouTube: false };
   }
-  const url = rawUrl.trim();
+  
+  const effectiveUrl = (rawUrl && rawUrl.trim()) ? rawUrl.trim() : DEFAULT_SAMPLE_HERO_VIDEO;
+  const url = effectiveUrl;
   
   // YouTube Detection
   const ytMatch = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
@@ -118,11 +124,11 @@ export default function Home() {
   const [wishlist, setWishlist] = useState<number[]>([]);
   
   const heroVideoInfo = useMemo(() => {
-    return parseVideoSource(settings?.hero_video_url);
-  }, [settings?.hero_video_url]);
+    return parseVideoSource(settings?.hero_video_url, settings?.hero_media_type);
+  }, [settings?.hero_video_url, settings?.hero_media_type]);
   
-  // Search & Filter State with Transaction Type (Rent / Commercial / Buy & Sell)
-  const [selectedPurpose, setSelectedPurpose] = useState<'ALL' | 'RENT' | 'COMMERCIAL' | 'SALE'>('ALL');
+  // Search & Filter State with Transaction Type (Rental Property / Ready Possession / Under Construction / Residential / Commercial)
+  const [selectedPurpose, setSelectedPurpose] = useState<'ALL' | 'RENT' | 'READY_POSSESSION' | 'UNDER_CONSTRUCTION' | 'RESIDENTIAL' | 'COMMERCIAL'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedLocation, setSelectedLocation] = useState('ALL');
   const [selectedBhk, setSelectedBhk] = useState('ALL');
@@ -138,6 +144,10 @@ export default function Home() {
   const [activeMediaTab, setActiveMediaTab] = useState<'photos' | 'videos'>('photos');
   const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
   const [activeGalleryImage, setActiveGalleryImage] = useState<string | null>(null);
+  const [activeGalleryItem, setActiveGalleryItem] = useState<GalleryItem | null>(null);
+  const [galleryCategoryFilter, setGalleryCategoryFilter] = useState<string>('ALL');
+  const [isGalleryModalOpen, setIsGalleryModalOpen] = useState(false);
+  const [galleryItems, setGalleryItems] = useState<GalleryItem[]>([]);
   const [heroSlideIndex, setHeroSlideIndex] = useState(0);
 
   // Book Visit / Lead modal
@@ -155,11 +165,11 @@ export default function Home() {
   const [formStatus, setFormStatus] = useState('');
   const [showThankYou, setShowThankYou] = useState(false);
 
-  // Default Pune properties fallback covering Rent, Commercial, and Buy/Sell (Sale)
+  // Default Pune properties fallback covering Rental, Ready Possession, Under Construction, Residential & Commercial
   const defaultPuneProperties: Property[] = [
     {
       id: 101,
-      title: '3 BHK Luxury Apartment',
+      title: '3 BHK Luxury Apartment Baner',
       description: 'Expansive high-rise residence in Baner featuring panoramic city views, imported Italian marble flooring, designer modular kitchen, and exclusive clubhouse amenities.',
       price: 45000,
       type: '3 BHK',
@@ -169,7 +179,7 @@ export default function Home() {
       location: 'Baner, Pune',
       status: 'PUBLISHED',
       purpose: 'RENT',
-      category: 'RESIDENTIAL',
+      category: 'RENTAL',
       images: [
         'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80',
         'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=1200&q=80',
@@ -196,8 +206,8 @@ export default function Home() {
     },
     {
       id: 103,
-      title: 'Signature 3 BHK Gated Flat For Sale Baner',
-      description: 'Ultra-modern 3 BHK apartment for purchase/sale in prime Baner high-rise. East-facing, Italian marble flooring, 3 balconies, club house & swimming pool access.',
+      title: 'Signature 3 BHK Ready Possession Flat Baner',
+      description: 'Ready Possession ultra-modern 3 BHK apartment in prime Baner high-rise. 100% Occupation Certificate (OC) received, immediate handover, East-facing, Italian marble flooring, 3 balconies, and luxury clubhouse access.',
       price: 18500000, // 1.85 Cr
       type: '3 BHK Flat',
       bedrooms: 3,
@@ -205,8 +215,8 @@ export default function Home() {
       area: 1750,
       location: 'Baner, Pune',
       status: 'PUBLISHED',
-      purpose: 'SALE',
-      category: 'RESIDENTIAL',
+      purpose: 'READY_POSSESSION',
+      category: 'READY_POSSESSION',
       images: [
         'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80',
         'https://images.unsplash.com/photo-1600566753376-12c8ab7fb75b?auto=format&fit=crop&w=1200&q=80'
@@ -214,26 +224,48 @@ export default function Home() {
     },
     {
       id: 104,
-      title: 'High-Street Retail Showroom FC Road',
-      description: 'Prime ground floor retail commercial showroom with 45 ft massive frontage, high footfall zone, ideal for luxury brands, jewelry, or flagship stores.',
-      price: 250000,
-      type: 'Retail Showroom',
-      bedrooms: 0,
-      bathrooms: 2,
-      area: 2100,
-      location: 'FC Road, Shivaji Nagar, Pune',
+      title: 'Sovereign Sky Mansions - 3 & 4 BHK Balewadi',
+      description: 'Under Construction ultra-luxury skyscraper residences with 11-ft clear ceiling height, infinity rooftop pool, 50,000 sq.ft clubhouse, and flexible 20:80 payment scheme. Possession Dec 2027.',
+      price: 16500000, // 1.65 Cr
+      type: '3 BHK Flat',
+      bedrooms: 3,
+      bathrooms: 3,
+      area: 1980,
+      location: 'Balewadi High Street, Pune',
       status: 'PUBLISHED',
-      purpose: 'COMMERCIAL',
-      category: 'COMMERCIAL',
+      purpose: 'UNDER_CONSTRUCTION',
+      category: 'UNDER_CONSTRUCTION',
       images: [
-        'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=1200&q=80'
+        'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80'
       ]
     },
     {
       id: 105,
-      title: 'Luxury 4 BHK Duplex Penthouse For Sale Viman Nagar',
-      description: 'Exclusive 4 BHK duplex penthouse for outright purchase. Private terrace deck, double-height foyer, servant quarters, and panoramic airport views.',
+      title: 'Pre-Leased Commercial IT Office - EON Kharadi',
+      description: 'Grade-A Pre-leased commercial office for outright sale in EON IT Park, Kharadi. Currently rented to a Global Tech MNC at ₹2,45,000/month with 9-year long-term lease. Immediate 8.52% high rental yield.',
+      price: 34500000, // 3.45 Cr
+      type: 'Rented Commercial by Sell',
+      bedrooms: 0,
+      bathrooms: 4,
+      area: 3200,
+      location: 'EON Free Zone, Kharadi, Pune',
+      status: 'PUBLISHED',
+      purpose: 'COMMERCIAL',
+      category: 'COMMERCIAL',
+      current_rent: 245000,
+      roi_yield: '8.52% ROI Yield',
+      tenant_name: 'Global Tech MNC',
+      lease_term: '9 Years Registered Lease',
+      images: [
+        'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1497215728101-856f4ea42174?auto=format&fit=crop&w=1200&q=80'
+      ]
+    },
+    {
+      id: 106,
+      title: 'Luxury 4 BHK Ready Possession Duplex Penthouse Viman Nagar',
+      description: 'Ready-to-move 4 BHK duplex penthouse for outright purchase. Private terrace deck, double-height foyer, servant quarters, OC received, and panoramic airport views.',
       price: 29500000, // 2.95 Cr
       type: '4 BHK Penthouse',
       bedrooms: 4,
@@ -241,16 +273,16 @@ export default function Home() {
       area: 3600,
       location: 'Viman Nagar, Pune',
       status: 'PUBLISHED',
-      purpose: 'SALE',
-      category: 'RESIDENTIAL',
+      purpose: 'READY_POSSESSION',
+      category: 'READY_POSSESSION',
       images: [
         'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=1200&q=80',
         'https://images.unsplash.com/photo-1600566753190-17f0baa2a6c3?auto=format&fit=crop&w=1200&q=80'
       ]
     },
     {
-      id: 106,
-      title: '2 BHK Modern Apartment Kothrud',
+      id: 107,
+      title: '2 BHK Modern Rental Apartment Kothrud',
       description: 'Contemporary, sun-filled 2 BHK in prime Kothrud. Located walking distance to metro station, premium cafes, reputed institutions, and serene green parks.',
       price: 28000,
       type: '2 BHK',
@@ -260,69 +292,90 @@ export default function Home() {
       location: 'Kothrud, Pune',
       status: 'PUBLISHED',
       purpose: 'RENT',
-      category: 'RESIDENTIAL',
+      category: 'RENTAL',
       images: [
         'https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?auto=format&fit=crop&w=1200&q=80',
         'https://images.unsplash.com/photo-1600566753190-17f0baa2a6c3?auto=format&fit=crop&w=1200&q=80'
       ]
     },
     {
-      id: 107,
-      title: '3 BHK Premium Apartment Viman Nagar',
-      description: 'Sunlit corner residence in Viman Nagar near Pune Airport and major IT corridors. Features automated smart lighting, expansive terrace balcony, and covered parking.',
-      price: 50000,
-      type: '3 BHK',
-      bedrooms: 3,
-      bathrooms: 3,
-      area: 1800,
-      location: 'Viman Nagar, Pune',
-      status: 'PUBLISHED',
-      purpose: 'RENT',
-      category: 'RESIDENTIAL',
-      images: [
-        'https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1600585154526-990dced4db0d?auto=format&fit=crop&w=1200&q=80'
-      ]
-    },
-    {
       id: 108,
-      title: '2 BHK Spacious Apartment Hinjewadi',
-      description: 'Smart urban home in Hinjewadi Phase 1, minutes from top IT tech parks. 24/7 security surveillance, high-speed elevators, swimming pool, and fully equipped gym.',
-      price: 24000,
-      type: '2 BHK',
-      bedrooms: 2,
-      bathrooms: 2,
-      area: 950,
-      location: 'Hinjewadi, Pune',
+      title: 'Kharadi Central Signature Tower (Under Construction)',
+      description: 'Under Construction iconic twin-tower development in Prime Kharadi. Features private deck with river views, smart-home automation, and Olympic pool. Possession March 2028.',
+      price: 24000000, // 2.40 Cr
+      type: '4 BHK Flat',
+      bedrooms: 4,
+      bathrooms: 4,
+      area: 2750,
+      location: 'Kharadi IT Corridor, Pune',
       status: 'PUBLISHED',
-      purpose: 'RENT',
-      category: 'RESIDENTIAL',
+      purpose: 'UNDER_CONSTRUCTION',
+      category: 'UNDER_CONSTRUCTION',
       images: [
-        'https://images.unsplash.com/photo-1600573472550-8090b5e0745e?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1600566752355-35792bedcfea?auto=format&fit=crop&w=1200&q=80'
+        'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1600566753190-17f0baa2a6c3?auto=format&fit=crop&w=1200&q=80'
       ]
     }
   ];
 
   useEffect(() => {
-    fetch('/api/properties')
-      .then(res => res.json())
-      .then(data => {
+    // 1. Initial cached render immediately (0ms delay)
+    const cachedProps = supabaseService.getLocal<Property[]>('properties', []);
+    if (cachedProps.length > 0) {
+      const published = cachedProps.filter((p: Property) => p.status === 'PUBLISHED');
+      if (published.length > 0) {
+        setProperties(published);
+      }
+    }
+
+    // 2. Fetch fresh data from Supabase & backend
+    const loadFreshProperties = async () => {
+      try {
+        const data = await supabaseService.properties.getAll();
         if (Array.isArray(data) && data.length > 0) {
           const published = data.filter((p: Property) => p.status === 'PUBLISHED');
-          if (published.length > 0) {
-            setProperties(published);
-          } else {
-            setProperties(defaultPuneProperties);
-          }
+          setProperties(published.length > 0 ? published : defaultPuneProperties);
         } else {
           setProperties(defaultPuneProperties);
         }
-      })
-      .catch(err => {
-        console.error('Failed to load properties, using curated Pune catalog:', err);
+      } catch {
         setProperties(defaultPuneProperties);
-      });
+      }
+    };
+    loadFreshProperties();
+
+    // 3. Instant event listeners for real-time changes
+    const handlePropertiesUpdated = (e: any) => {
+      const updatedList = e.detail || supabaseService.getLocal<Property[]>('properties', []);
+      if (Array.isArray(updatedList) && updatedList.length > 0) {
+        const published = updatedList.filter((p: Property) => p.status === 'PUBLISHED');
+        setProperties(published.length > 0 ? published : defaultPuneProperties);
+      }
+    };
+    window.addEventListener('properties_updated', handlePropertiesUpdated);
+    window.addEventListener('rp_properties_synced', handlePropertiesUpdated);
+
+    // Fetch dynamic gallery from Supabase
+    supabaseService.gallery.getAll().then(items => {
+      if (items && items.length > 0) {
+        setGalleryItems(items.filter(item => item.is_active !== 0 && item.is_active !== false));
+      }
+    }).catch(console.error);
+
+    const handleGalleryUpdate = (e: any) => {
+      if (Array.isArray(e.detail)) {
+        setGalleryItems(e.detail.filter(item => item.is_active !== 0 && item.is_active !== false));
+      }
+    };
+    window.addEventListener('gallery_updated', handleGalleryUpdate);
+    window.addEventListener('rp_gallery_synced', handleGalleryUpdate);
+
+    return () => {
+      window.removeEventListener('properties_updated', handlePropertiesUpdated);
+      window.removeEventListener('rp_properties_synced', handlePropertiesUpdated);
+      window.removeEventListener('gallery_updated', handleGalleryUpdate);
+      window.removeEventListener('rp_gallery_synced', handleGalleryUpdate);
+    };
   }, []);
 
   // Handle deep-linking query parameter (e.g. ?property=101 or ?property=3)
@@ -382,19 +435,38 @@ export default function Home() {
 
   // Helper to format price based on purpose & amount (Lakhs, Crores, or Monthly Rent)
   const formatPropertyPrice = (property: Property) => {
-    const isCommercial = property.purpose === 'COMMERCIAL' || property.category === 'COMMERCIAL' || property.type?.toLowerCase().includes('office') || property.type?.toLowerCase().includes('showroom') || property.type?.toLowerCase().includes('retail');
-    const isSale = property.purpose === 'SALE' || property.price >= 1000000;
-    
+    const isRentedCommercial = property.purpose === 'RENTED_COMMERCIAL_SALE' || property.purpose === 'RENTED_COMMERCIAL_BY_SELL' || property.type === 'Rented Commercial by Sell' || property.type?.toLowerCase().includes('rented commercial') || property.category === 'RENTED_COMMERCIAL_SALE';
+    const isCommercial = isRentedCommercial || property.purpose === 'COMMERCIAL' || property.category === 'COMMERCIAL' || property.type?.toLowerCase().includes('office') || property.type?.toLowerCase().includes('showroom') || property.type?.toLowerCase().includes('retail') || property.type?.toLowerCase().includes('commercial');
+    const isUnderConstruction = property.purpose === 'UNDER_CONSTRUCTION' || property.category === 'UNDER_CONSTRUCTION' || property.title?.toLowerCase().includes('under construction') || property.title?.toLowerCase().includes('new launch') || property.description?.toLowerCase().includes('under construction');
+    const isReadyPossession = !isUnderConstruction && (property.purpose === 'READY_POSSESSION' || property.category === 'READY_POSSESSION' || property.title?.toLowerCase().includes('ready possession') || property.title?.toLowerCase().includes('ready to move') || property.description?.toLowerCase().includes('ready possession') || property.description?.toLowerCase().includes('occupation certificate') || property.description?.toLowerCase().includes('oc available'));
+    const isRent = property.purpose === 'RENT' || property.category === 'RENTAL' || (!isCommercial && !isReadyPossession && !isUnderConstruction && Number(property.price) < 500000);
+    const isSale = !isRent && (!isCommercial || isRentedCommercial);
+
+    if (isRentedCommercial) {
+      const salePriceFormatted = property.price >= 10000000 
+        ? `₹${(property.price / 10000000).toFixed(2).replace(/\.00$/, '')} Cr`
+        : `₹${(property.price / 100000).toFixed(1).replace(/\.0$/, '')} Lakh`;
+      
+      const rentText = property.current_rent 
+        ? `₹${(property.current_rent >= 100000 ? (property.current_rent / 100000).toFixed(2) + 'L' : property.current_rent.toLocaleString('en-IN'))}/mo Rent`
+        : 'Pre-Leased';
+
+      return {
+        amount: salePriceFormatted,
+        period: `Sale (${rentText})`
+      };
+    }
+
     if (isSale) {
       if (property.price >= 10000000) {
         return {
           amount: `₹${(property.price / 10000000).toFixed(2).replace(/\.00$/, '')} Cr`,
-          period: 'Total Price / Buy'
+          period: isUnderConstruction ? 'New Launch Price' : (isReadyPossession ? 'Ready Possession' : 'Total Price')
         };
       } else {
         return {
           amount: `₹${(property.price / 100000).toFixed(1).replace(/\.0$/, '')} Lakhs`,
-          period: 'For Sale'
+          period: isUnderConstruction ? 'Pre-launch Price' : 'For Sale'
         };
       }
     }
@@ -420,25 +492,39 @@ export default function Home() {
 
   // Helper for Purpose Badge
   const getPropertyPurposeBadge = (property: Property) => {
+    if (property.purpose === 'RENTED_COMMERCIAL_SALE' || property.purpose === 'RENTED_COMMERCIAL_BY_SELL' || property.type === 'Rented Commercial by Sell' || property.type?.toLowerCase().includes('rented commercial') || property.category === 'RENTED_COMMERCIAL_SALE') {
+      return { label: '⭐ PRE-LEASED COMMERCIAL', bg: 'bg-gradient-to-r from-amber-500 to-yellow-500 text-black border-amber-300 font-black' };
+    }
+    if (property.purpose === 'UNDER_CONSTRUCTION' || property.category === 'UNDER_CONSTRUCTION' || property.title?.toLowerCase().includes('under construction') || property.title?.toLowerCase().includes('new launch') || property.description?.toLowerCase().includes('under construction')) {
+      return { label: 'UNDER CONSTRUCTION', bg: 'bg-cyan-600 text-white border-cyan-400 font-black' };
+    }
+    if (property.purpose === 'READY_POSSESSION' || property.category === 'READY_POSSESSION' || property.title?.toLowerCase().includes('ready possession') || property.title?.toLowerCase().includes('ready to move') || property.description?.toLowerCase().includes('ready possession') || property.description?.toLowerCase().includes('occupation certificate') || property.description?.toLowerCase().includes('oc available')) {
+      return { label: 'READY POSSESSION', bg: 'bg-blue-600 text-white border-blue-400 font-black' };
+    }
     if (property.purpose === 'COMMERCIAL' || property.category === 'COMMERCIAL' || property.type?.toLowerCase().includes('office') || property.type?.toLowerCase().includes('showroom') || property.type?.toLowerCase().includes('retail')) {
-      return { label: 'COMMERCIAL', bg: 'bg-indigo-700 text-white border-indigo-500' };
+      return { label: 'COMMERCIAL SPACES', bg: 'bg-indigo-700 text-white border-indigo-500 font-bold' };
     }
-    if (property.purpose === 'SALE' || property.price >= 1000000 || property.title?.toLowerCase().includes('sale') || property.description?.toLowerCase().includes('sale')) {
-      return { label: 'BUY / FOR SALE', bg: 'bg-emerald-700 text-white border-emerald-500' };
+    if (property.purpose === 'RESIDENTIAL' || (property.purpose === 'SALE' && Number(property.price) >= 500000)) {
+      return { label: 'RESIDENTIAL PROPERTIES', bg: 'bg-amber-600 text-white border-amber-400 font-bold' };
     }
-    return { label: 'FOR RENT', bg: 'bg-[#d4a359] text-[#080f1a] border-[#b8863b]' };
+    return { label: 'RENTAL PROPERTY', bg: 'bg-emerald-600 text-white border-emerald-400 font-bold' };
   };
 
   const filteredProperties = useMemo(() => {
     return properties.filter(p => {
-      // 1. Transaction Purpose match (RENT / COMMERCIAL / SALE / ALL)
-      const isCommercial = p.purpose === 'COMMERCIAL' || p.category === 'COMMERCIAL' || p.type?.toLowerCase().includes('office') || p.type?.toLowerCase().includes('showroom') || p.type?.toLowerCase().includes('retail') || p.type?.toLowerCase().includes('commercial');
-      const isSale = p.purpose === 'SALE' || p.price >= 1000000 || p.title?.toLowerCase().includes('sale') || p.description?.toLowerCase().includes('purchase') || p.description?.toLowerCase().includes('for sale');
-      const isRent = !isCommercial && !isSale;
+      // 1. Transaction Purpose match (RENT / READY_POSSESSION / UNDER_CONSTRUCTION / RESIDENTIAL / COMMERCIAL / ALL)
+      const isRentedCommercial = p.purpose === 'RENTED_COMMERCIAL_SALE' || p.purpose === 'RENTED_COMMERCIAL_BY_SELL' || p.type === 'Rented Commercial by Sell' || p.type?.toLowerCase().includes('rented commercial') || p.category === 'RENTED_COMMERCIAL_SALE';
+      const isCommercial = isRentedCommercial || p.purpose === 'COMMERCIAL' || p.category === 'COMMERCIAL' || p.type?.toLowerCase().includes('office') || p.type?.toLowerCase().includes('showroom') || p.type?.toLowerCase().includes('retail') || p.type?.toLowerCase().includes('commercial');
+      const isUnderConstruction = p.purpose === 'UNDER_CONSTRUCTION' || p.category === 'UNDER_CONSTRUCTION' || p.title?.toLowerCase().includes('under construction') || p.title?.toLowerCase().includes('new launch') || p.description?.toLowerCase().includes('under construction') || p.description?.toLowerCase().includes('possession in');
+      const isReadyPossession = !isUnderConstruction && (p.purpose === 'READY_POSSESSION' || p.category === 'READY_POSSESSION' || p.title?.toLowerCase().includes('ready possession') || p.title?.toLowerCase().includes('ready to move') || p.description?.toLowerCase().includes('ready possession') || p.description?.toLowerCase().includes('occupation certificate') || p.description?.toLowerCase().includes('oc available'));
+      const isRent = p.purpose === 'RENT' || p.category === 'RENTAL' || (!isCommercial && !isReadyPossession && !isUnderConstruction && Number(p.price) < 500000);
+      const isResidential = p.purpose === 'RESIDENTIAL' || isReadyPossession || isUnderConstruction || (!isCommercial && (p.bedrooms > 0 || Number(p.price) >= 500000));
 
       if (selectedPurpose === 'RENT' && !isRent) return false;
+      if (selectedPurpose === 'READY_POSSESSION' && !isReadyPossession) return false;
+      if (selectedPurpose === 'UNDER_CONSTRUCTION' && !isUnderConstruction) return false;
+      if (selectedPurpose === 'RESIDENTIAL' && !isResidential) return false;
       if (selectedPurpose === 'COMMERCIAL' && !isCommercial) return false;
-      if (selectedPurpose === 'SALE' && !isSale) return false;
 
       // 2. Keyword search query matching
       const q = searchQuery.trim().toLowerCase();
@@ -449,19 +535,24 @@ export default function Home() {
         (p.type && p.type.toLowerCase().includes(q)) ||
         (p.purpose && p.purpose.toLowerCase().includes(q)) ||
         (p.category && p.category.toLowerCase().includes(q)) ||
+        (p.tenant_name && p.tenant_name.toLowerCase().includes(q)) ||
+        (p.roi_yield && p.roi_yield.toLowerCase().includes(q)) ||
+        (p.lease_term && p.lease_term.toLowerCase().includes(q)) ||
         `${p.bedrooms} bhk`.includes(q) ||
         `${p.bedrooms}bhk`.includes(q) ||
         `${p.bedrooms} bed`.includes(q) ||
         `${p.bedrooms} bedroom`.includes(q) ||
         `${p.area} sqft`.includes(q) ||
-        (q.includes('commercial') && isCommercial) ||
-        (q.includes('office') && (isCommercial || p.type?.toLowerCase().includes('office'))) ||
+        (q.includes('rented commercial') && isRentedCommercial) ||
+        (q.includes('pre-leased') && isRentedCommercial) ||
+        (q.includes('commercial') && (isCommercial || isRentedCommercial)) ||
+        (q.includes('office') && (isCommercial || isRentedCommercial || p.type?.toLowerCase().includes('office'))) ||
         (q.includes('shop') && (isCommercial || p.type?.toLowerCase().includes('shop') || p.type?.toLowerCase().includes('showroom'))) ||
         (q.includes('showroom') && (isCommercial || p.type?.toLowerCase().includes('showroom'))) ||
-        (q.includes('rent') && isRent) ||
-        (q.includes('buy') && isSale) ||
-        (q.includes('sale') && isSale) ||
-        (q.includes('resale') && isSale)
+        (q.includes('rent') && (isRent || (isRentedCommercial && p.current_rent))) ||
+        (q.includes('buy') && (isResidential || isRentedCommercial)) ||
+        (q.includes('sale') && (isResidential || isRentedCommercial)) ||
+        (q.includes('resale') && isResidential)
       );
 
       // 3. Location filter
@@ -474,9 +565,10 @@ export default function Home() {
         (selectedBhk === '4+' && p.bedrooms >= 4) ||
         (selectedBhk === 'Office' && p.type?.toLowerCase().includes('office')) ||
         (selectedBhk === 'Showroom' && (p.type?.toLowerCase().includes('showroom') || p.type?.toLowerCase().includes('retail'))) ||
-        (selectedBhk === 'Penthouse' && (p.title?.toLowerCase().includes('penthouse') || p.type?.toLowerCase().includes('penthouse')));
+        (selectedBhk === 'Penthouse' && (p.title?.toLowerCase().includes('penthouse') || p.type?.toLowerCase().includes('penthouse'))) ||
+        (selectedBhk === 'Pre-Leased' && isRentedCommercial);
 
-      // 5. Price range filter (adapted to Rent vs Commercial vs Buy & Sell)
+      // 5. Price range filter (adapted to Rent vs Commercial vs Buy & Sell vs Rented Commercial)
       let priceMatch = true;
       if (priceRange !== 'ALL') {
         // Rent ranges
@@ -488,7 +580,7 @@ export default function Home() {
         else if (priceRange === 'comm-under-1l') priceMatch = p.price <= 100000;
         else if (priceRange === 'comm-1l-3l') priceMatch = p.price > 100000 && p.price <= 300000;
         else if (priceRange === 'comm-above-3l') priceMatch = p.price > 300000 && p.price < 10000000;
-        // Buy / Sale ranges
+        // Buy / Sale ranges & Rented commercial
         else if (priceRange === 'buy-under-1cr') priceMatch = p.price <= 10000000;
         else if (priceRange === 'buy-1cr-2cr') priceMatch = p.price > 10000000 && p.price <= 20000000;
         else if (priceRange === 'buy-2cr-3cr') priceMatch = p.price > 20000000 && p.price <= 30000000;
@@ -659,6 +751,14 @@ export default function Home() {
                     muted 
                     loop 
                     playsInline 
+                    ref={(el) => {
+                      if (el) {
+                        el.muted = true;
+                        el.defaultMuted = true;
+                        el.loop = true;
+                        el.play().catch(() => {});
+                      }
+                    }}
                     className="w-full h-full object-cover object-center brightness-70 scale-105 transition-all duration-1000 ease-out pointer-events-none"
                   />
                 ) : heroVideoInfo.type === 'youtube' ? (
@@ -737,6 +837,16 @@ export default function Home() {
               {settings?.hero_subheading || 'Premium 2, 3 & 4 BHK Residences crafted for those who deserve the finest in life.'}
             </p>
 
+            {/* Hero Quick Action Button */}
+            <div className="pt-2">
+              <a
+                href="#properties"
+                className="inline-flex items-center justify-center px-8 py-3.5 bg-[#d4a359] hover:bg-[#c29247] text-[#080f1a] font-bold text-xs uppercase tracking-widest rounded-xl transition-all shadow-lg hover:shadow-[#d4a359]/20 cursor-pointer"
+              >
+                Explore Residences
+              </a>
+            </div>
+
           </div>
 
         </div>
@@ -790,11 +900,11 @@ export default function Home() {
           {/* ========================================================================= */}
           <div className="bg-white rounded-3xl border border-[#e8e4db] shadow-xl p-4 sm:p-7 mb-10 transition-all hover:shadow-2xl">
             
-            {/* Top Segment Tabs: RENT | COMMERCIAL | BUY & SELL | ALL */}
+            {/* Top Segment Tabs: Rental Property | Ready Possession Property | Under Construction Property | Residential Properties | Commercial Spaces | All Listings */}
             <div className="flex items-center justify-between flex-wrap gap-2 pb-4 mb-5 border-b border-neutral-100">
-              <div className="flex items-center bg-neutral-100/90 p-1 rounded-2xl gap-1 w-full sm:w-auto overflow-x-auto scrollbar-none">
+              <div className="flex items-center bg-neutral-100/90 p-1.5 rounded-2xl gap-1.5 w-full sm:w-auto overflow-x-auto scrollbar-none">
                 
-                {/* 1. RENT TAB */}
+                {/* 1. RENTAL PROPERTY */}
                 <button
                   type="button"
                   onClick={() => {
@@ -802,17 +912,71 @@ export default function Home() {
                     setSelectedBhk('ALL');
                     setPriceRange('ALL');
                   }}
-                  className={`flex-1 sm:flex-initial inline-flex items-center justify-center space-x-2 px-4 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  className={`flex-1 sm:flex-initial inline-flex items-center justify-center space-x-2 px-3.5 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${
                     selectedPurpose === 'RENT'
-                      ? 'bg-[#080f1a] text-[#d4a359] shadow-md shadow-black/10'
-                      : 'text-neutral-600 hover:text-neutral-900 hover:bg-neutral-200/60'
+                      ? 'bg-emerald-700 text-white shadow-md shadow-emerald-700/20'
+                      : 'text-neutral-700 hover:text-emerald-800 hover:bg-emerald-50/70'
                   }`}
                 >
-                  <KeyRound className="w-4 h-4 text-[#d4a359]" />
-                  <span>Rent (Residential)</span>
+                  <KeyRound className="w-4 h-4 text-emerald-300" />
+                  <span>Rental Property</span>
                 </button>
 
-                {/* 2. COMMERCIAL TAB */}
+                {/* 2. READY POSSESSION PROPERTY */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedPurpose('READY_POSSESSION');
+                    setSelectedBhk('ALL');
+                    setPriceRange('ALL');
+                  }}
+                  className={`flex-1 sm:flex-initial inline-flex items-center justify-center space-x-2 px-3.5 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    selectedPurpose === 'READY_POSSESSION'
+                      ? 'bg-blue-700 text-white shadow-md shadow-blue-700/20'
+                      : 'text-neutral-700 hover:text-blue-800 hover:bg-blue-50/70'
+                  }`}
+                >
+                  <CheckCircle2 className="w-4 h-4 text-blue-300" />
+                  <span>Ready Possession Property</span>
+                </button>
+
+                {/* 3. UNDER CONSTRUCTION PROPERTY */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedPurpose('UNDER_CONSTRUCTION');
+                    setSelectedBhk('ALL');
+                    setPriceRange('ALL');
+                  }}
+                  className={`flex-1 sm:flex-initial inline-flex items-center justify-center space-x-2 px-3.5 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    selectedPurpose === 'UNDER_CONSTRUCTION'
+                      ? 'bg-cyan-700 text-white shadow-md shadow-cyan-700/20'
+                      : 'text-neutral-700 hover:text-cyan-800 hover:bg-cyan-50/70'
+                  }`}
+                >
+                  <HardHat className="w-4 h-4 text-cyan-300" />
+                  <span>Under Construction Property</span>
+                </button>
+
+                {/* 4. RESIDENTIAL PROPERTIES */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedPurpose('RESIDENTIAL');
+                    setSelectedBhk('ALL');
+                    setPriceRange('ALL');
+                  }}
+                  className={`flex-1 sm:flex-initial inline-flex items-center justify-center space-x-2 px-3.5 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    selectedPurpose === 'RESIDENTIAL'
+                      ? 'bg-amber-700 text-white shadow-md shadow-amber-700/20'
+                      : 'text-neutral-700 hover:text-amber-800 hover:bg-amber-50/70'
+                  }`}
+                >
+                  <HomeIcon className="w-4 h-4 text-amber-300" />
+                  <span>Residential Properties</span>
+                </button>
+
+                {/* 5. COMMERCIAL SPACES */}
                 <button
                   type="button"
                   onClick={() => {
@@ -820,41 +984,23 @@ export default function Home() {
                     setSelectedBhk('ALL');
                     setPriceRange('ALL');
                   }}
-                  className={`flex-1 sm:flex-initial inline-flex items-center justify-center space-x-2 px-4 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  className={`flex-1 sm:flex-initial inline-flex items-center justify-center space-x-2 px-3.5 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${
                     selectedPurpose === 'COMMERCIAL'
-                      ? 'bg-[#080f1a] text-[#d4a359] shadow-md shadow-black/10'
-                      : 'text-neutral-600 hover:text-neutral-900 hover:bg-neutral-200/60'
+                      ? 'bg-indigo-700 text-white shadow-md shadow-indigo-700/20'
+                      : 'text-neutral-700 hover:text-indigo-800 hover:bg-indigo-50/70'
                   }`}
                 >
-                  <Building className="w-4 h-4 text-indigo-400" />
-                  <span>Commercial (Office & Retail)</span>
+                  <Building className="w-4 h-4 text-indigo-300" />
+                  <span>Commercial Spaces</span>
                 </button>
 
-                {/* 3. BUY & SELL TAB */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedPurpose('SALE');
-                    setSelectedBhk('ALL');
-                    setPriceRange('ALL');
-                  }}
-                  className={`flex-1 sm:flex-initial inline-flex items-center justify-center space-x-2 px-4 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${
-                    selectedPurpose === 'SALE'
-                      ? 'bg-[#080f1a] text-[#d4a359] shadow-md shadow-black/10'
-                      : 'text-neutral-600 hover:text-neutral-900 hover:bg-neutral-200/60'
-                  }`}
-                >
-                  <Tag className="w-4 h-4 text-emerald-400" />
-                  <span>Buy & Sell (Purchase)</span>
-                </button>
-
-                {/* 4. ALL TAB */}
+                {/* 6. ALL LISTINGS TAB */}
                 <button
                   type="button"
                   onClick={() => {
                     setSelectedPurpose('ALL');
                   }}
-                  className={`flex-1 sm:flex-initial inline-flex items-center justify-center space-x-1.5 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  className={`flex-1 sm:flex-initial inline-flex items-center justify-center space-x-1.5 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${
                     selectedPurpose === 'ALL'
                       ? 'bg-[#080f1a] text-[#d4a359] shadow-md shadow-black/10'
                       : 'text-neutral-600 hover:text-neutral-900 hover:bg-neutral-200/60'
@@ -870,10 +1016,12 @@ export default function Home() {
               <div className="hidden lg:flex items-center space-x-2 text-xs font-semibold text-neutral-500">
                 <span className="w-2 h-2 rounded-full bg-[#d4a359]"></span>
                 <span>
-                  {selectedPurpose === 'RENT' && 'Showing Residential Flats & Penthouses For Rent in Pune'}
-                  {selectedPurpose === 'COMMERCIAL' && 'Showing Premium Tech IT Offices & High-Street Retail Spaces'}
-                  {selectedPurpose === 'SALE' && 'Showing Luxury Homes, Flats & Properties for Outright Purchase'}
-                  {selectedPurpose === 'ALL' && 'Full Portfolio: Rent, Commercial & Sale Across Pune'}
+                  {selectedPurpose === 'RENT' && 'Showing Verified Residential Flats, Penthouses & Homes For Rent in Pune'}
+                  {selectedPurpose === 'READY_POSSESSION' && 'Showing 100% Ready-to-Move Residences with Full OC Received across Pune'}
+                  {selectedPurpose === 'UNDER_CONSTRUCTION' && 'Showing Premium Under Construction & New Launch Projects with Flexible Payment Plans'}
+                  {selectedPurpose === 'RESIDENTIAL' && 'Showing Luxury Residential Homes, Apartments, Villas & Penthouses for Purchase'}
+                  {selectedPurpose === 'COMMERCIAL' && 'Showing Grade-A Tech IT Offices, High-Street Retail & Pre-Leased ROI Commercial Assets'}
+                  {selectedPurpose === 'ALL' && 'Full Pune Catalog: Rental, Ready Possession, Under Construction, Residential & Commercial'}
                 </span>
               </div>
             </div>
@@ -892,11 +1040,17 @@ export default function Home() {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder={
-                    selectedPurpose === 'COMMERCIAL'
-                      ? "Search commercial office, showroom, shop, Hinjewadi IT Park, FC Road, Kharadi..."
-                      : selectedPurpose === 'SALE'
-                      ? "Search properties for sale/buy, 3 BHK Flat, Luxury Penthouse, Villa, Baner, Viman Nagar..."
-                      : "Search by society, locality (e.g. Baner, Kothrud, Viman Nagar), 2 BHK, Penthouse, Rent..."
+                    selectedPurpose === 'RENT'
+                      ? "Search rental homes, society, Baner, Kothrud, Viman Nagar, 2 BHK, Penthouse, Rent..."
+                      : selectedPurpose === 'READY_POSSESSION'
+                      ? "Search ready-to-move homes with OC, immediate possession, Baner, Koregaon Park..."
+                      : selectedPurpose === 'UNDER_CONSTRUCTION'
+                      ? "Search upcoming skyscraper projects, new launch, possession 2027-2028, Balewadi, Kharadi..."
+                      : selectedPurpose === 'RESIDENTIAL'
+                      ? "Search residential properties for sale, 3 BHK Flat, Luxury Villa, Duplex Penthouse, Pune..."
+                      : selectedPurpose === 'COMMERCIAL'
+                      ? "Search commercial office, retail showroom, IT tech park, pre-leased ROI assets, Hinjewadi..."
+                      : "Search across rental, ready possession, under construction, residential & commercial properties..."
                   }
                   className="w-full pl-16 pr-10 py-3.5 bg-neutral-50/80 hover:bg-neutral-50 focus:bg-white text-sm font-medium text-neutral-900 placeholder:text-neutral-400 rounded-2xl border border-neutral-200 focus:border-[#d4a359] focus:ring-4 focus:ring-[#d4a359]/15 outline-none transition-all"
                 />
@@ -934,12 +1088,21 @@ export default function Home() {
                   className="inline-flex items-center justify-center space-x-2 px-6 py-3.5 bg-[#d4a359] hover:bg-[#e5b364] text-[#080f1a] font-bold text-xs uppercase tracking-wider rounded-2xl shadow-md shadow-[#d4a359]/20 hover:scale-[1.02] active:scale-95 transition-all cursor-pointer"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
-                  <span>Search {selectedPurpose === 'COMMERCIAL' ? 'Commercial' : selectedPurpose === 'SALE' ? 'Properties' : 'Homes'}</span>
+                  <span>
+                    Search {
+                      selectedPurpose === 'READY_POSSESSION' ? 'Ready Possession' :
+                      selectedPurpose === 'UNDER_CONSTRUCTION' ? 'Under Construction' :
+                      selectedPurpose === 'RESIDENTIAL' ? 'Residential' :
+                      selectedPurpose === 'COMMERCIAL' ? 'Commercial' :
+                      selectedPurpose === 'RENT' ? 'Rental' :
+                      'Properties'
+                    }
+                  </span>
                 </a>
               </div>
             </div>
 
-            {/* Secondary Filter Dropdowns Grid (Context-Aware for Rent vs Commercial vs Buy & Sell) */}
+            {/* Secondary Filter Dropdowns Grid (Context-Aware for Rental vs Ready Possession vs Under Construction vs Residential vs Commercial) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 pt-4 mt-4 border-t border-neutral-100">
               
               {/* 1. Location Select */}
@@ -962,6 +1125,7 @@ export default function Home() {
                     <option value="FC Road">FC Road / Shivaji Nagar</option>
                     <option value="Kharadi">Kharadi (EON Free Zone)</option>
                     <option value="Koregaon Park">Koregaon Park (Luxury)</option>
+                    <option value="Balewadi">Balewadi High Street</option>
                     <option value="Wakad">Wakad (West Pune)</option>
                     <option value="Kalyani Nagar">Kalyani Nagar</option>
                     <option value="Aundh">Aundh</option>
@@ -978,12 +1142,22 @@ export default function Home() {
               <div className="relative">
                 <label className="block text-[11px] font-bold text-neutral-500 uppercase tracking-wider mb-1 flex items-center space-x-1">
                   {selectedPurpose === 'COMMERCIAL' ? (
-                    <Building className="w-3 h-3 text-[#d4a359]" />
+                    <Building className="w-3 h-3 text-indigo-500" />
+                  ) : selectedPurpose === 'UNDER_CONSTRUCTION' ? (
+                    <HardHat className="w-3 h-3 text-cyan-500" />
+                  ) : selectedPurpose === 'READY_POSSESSION' ? (
+                    <CheckCircle2 className="w-3 h-3 text-blue-500" />
                   ) : (
                     <BedDouble className="w-3 h-3 text-[#d4a359]" />
                   )}
                   <span>
-                    {selectedPurpose === 'COMMERCIAL' ? 'Commercial Asset Type' : 'Configuration / Type'}
+                    {selectedPurpose === 'COMMERCIAL' 
+                      ? 'Commercial Asset Type' 
+                      : selectedPurpose === 'UNDER_CONSTRUCTION'
+                      ? 'Under Construction Unit'
+                      : selectedPurpose === 'READY_POSSESSION'
+                      ? 'Ready Possession Type'
+                      : 'Configuration / Type'}
                   </span>
                 </label>
                 <div className="relative">
@@ -997,11 +1171,26 @@ export default function Home() {
                         <option value="ALL">All Commercial Spaces</option>
                         <option value="Office">IT & Corporate Office Space</option>
                         <option value="Showroom">High-Street Retail Showroom</option>
-                        <option value="Commercial">Commercial Shop / Showroom</option>
+                        <option value="Pre-Leased">Pre-Leased Commercial (High ROI)</option>
                       </>
-                    ) : selectedPurpose === 'SALE' ? (
+                    ) : selectedPurpose === 'UNDER_CONSTRUCTION' ? (
                       <>
-                        <option value="ALL">All For Sale Properties</option>
+                        <option value="ALL">All Under Construction Projects</option>
+                        <option value="2 BHK">2 BHK High-Rise</option>
+                        <option value="3 BHK">3 BHK Luxury Sky Suite</option>
+                        <option value="4+">4+ BHK / Skyscraper Tower</option>
+                      </>
+                    ) : selectedPurpose === 'READY_POSSESSION' ? (
+                      <>
+                        <option value="ALL">All Ready Possession Units (OC Received)</option>
+                        <option value="2 BHK">2 BHK Ready to Move</option>
+                        <option value="3 BHK">3 BHK Luxury Ready Flat</option>
+                        <option value="4+">4+ BHK / Ready Penthouse</option>
+                        <option value="Penthouse">Duplex Penthouse</option>
+                      </>
+                    ) : selectedPurpose === 'RESIDENTIAL' ? (
+                      <>
+                        <option value="ALL">All Residential Properties</option>
                         <option value="2 BHK">2 BHK Flat / Apartment</option>
                         <option value="3 BHK">3 BHK Luxury Flat</option>
                         <option value="4+">4+ BHK / Duplex</option>
@@ -1024,16 +1213,16 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* 3. Budget Range Select (Dynamic for Rent vs Commercial vs Buy & Sell) */}
+              {/* 3. Budget Range Select (Dynamic for Rental vs Ready Possession vs Under Construction vs Residential vs Commercial) */}
               <div className="relative">
                 <label className="block text-[11px] font-bold text-neutral-500 uppercase tracking-wider mb-1 flex items-center space-x-1">
                   <IndianRupee className="w-3 h-3 text-[#d4a359]" />
                   <span>
-                    {selectedPurpose === 'SALE'
-                      ? 'Purchase Price Range'
-                      : selectedPurpose === 'COMMERCIAL'
-                      ? 'Commercial Lease Budget'
-                      : 'Monthly Rent Range'}
+                    {selectedPurpose === 'COMMERCIAL'
+                      ? 'Commercial Budget'
+                      : selectedPurpose === 'RENT'
+                      ? 'Monthly Rent Range'
+                      : 'Purchase Price Range'}
                   </span>
                 </label>
                 <div className="relative">
@@ -1042,28 +1231,30 @@ export default function Home() {
                     onChange={(e) => setPriceRange(e.target.value)}
                     className="w-full appearance-none pl-3 pr-8 py-2.5 bg-neutral-50 hover:bg-white text-xs font-semibold text-neutral-800 rounded-xl border border-neutral-200 hover:border-neutral-300 focus:border-[#d4a359] focus:ring-2 focus:ring-[#d4a359]/15 outline-none transition-all cursor-pointer"
                   >
-                    {selectedPurpose === 'SALE' ? (
+                    {selectedPurpose === 'COMMERCIAL' ? (
+                      <>
+                        <option value="ALL">Any Commercial Budget</option>
+                        <option value="comm-under-1l">Under ₹1.00 Lakh / mo Lease</option>
+                        <option value="comm-1l-3l">₹1.00 Lakh - ₹3.00 Lakh / mo Lease</option>
+                        <option value="comm-above-3l">Above ₹3.00 Lakh / mo</option>
+                        <option value="buy-2cr-3cr">₹2.00 Cr - ₹3.00 Cr (Purchase)</option>
+                        <option value="buy-above-3cr">Above ₹3.00 Cr (Pre-Leased Sale)</option>
+                      </>
+                    ) : selectedPurpose === 'RENT' ? (
+                      <>
+                        <option value="ALL">Any Rent Budget</option>
+                        <option value="under-30k">Under ₹30,000 / mo</option>
+                        <option value="30k-50k">₹30,000 - ₹50,000 / mo</option>
+                        <option value="50k-80k">₹50,000 - ₹80,000 / mo</option>
+                        <option value="above-80k">Above ₹80,000 / mo (Luxury)</option>
+                      </>
+                    ) : (
                       <>
                         <option value="ALL">Any Purchase Budget</option>
                         <option value="buy-under-1cr">Under ₹1.00 Crore</option>
                         <option value="buy-1cr-2cr">₹1.00 Cr - ₹2.00 Cr</option>
                         <option value="buy-2cr-3cr">₹2.00 Cr - ₹3.00 Cr</option>
-                        <option value="buy-above-3cr">Above ₹3.00 Cr (Luxury)</option>
-                      </>
-                    ) : selectedPurpose === 'COMMERCIAL' ? (
-                      <>
-                        <option value="ALL">Any Commercial Budget</option>
-                        <option value="comm-under-1l">Under ₹1.00 Lakh / mo</option>
-                        <option value="comm-1l-3l">₹1.00 Lakh - ₹3.00 Lakh / mo</option>
-                        <option value="comm-above-3l">Above ₹3.00 Lakh / mo (Enterprise)</option>
-                      </>
-                    ) : (
-                      <>
-                        <option value="ALL">Any Budget</option>
-                        <option value="under-30k">Under ₹30,000 / mo</option>
-                        <option value="30k-50k">₹30,000 - ₹50,000 / mo</option>
-                        <option value="50k-80k">₹50,000 - ₹80,000 / mo</option>
-                        <option value="above-80k">Above ₹80,000 / mo (Luxury)</option>
+                        <option value="buy-above-3cr">Above ₹3.00 Cr (Ultra Luxury)</option>
                       </>
                     )}
                   </select>
@@ -1112,9 +1303,22 @@ export default function Home() {
                   { label: 'FC Road Retail', action: () => { setSelectedLocation('FC Road'); setSelectedBhk('Showroom'); } },
                   { label: 'IT Office', action: () => setSelectedBhk('Office') },
                   { label: 'Retail Showroom', action: () => setSelectedBhk('Showroom') },
-                  { label: '₹1L - ₹3L /mo', action: () => setPriceRange('comm-1l-3l') },
-                ] : selectedPurpose === 'SALE' ? [
-                  { label: 'All For Sale', action: () => { setSelectedLocation('ALL'); setSelectedBhk('ALL'); setPriceRange('ALL'); } },
+                  { label: 'Pre-Leased ROI', action: () => setSelectedBhk('Pre-Leased') },
+                ] : selectedPurpose === 'READY_POSSESSION' ? [
+                  { label: 'All Ready Possession', action: () => { setSelectedLocation('ALL'); setSelectedBhk('ALL'); setPriceRange('ALL'); } },
+                  { label: 'Baner Ready 3 BHK', action: () => { setSelectedLocation('Baner'); setSelectedBhk('3 BHK'); } },
+                  { label: 'Koregaon Park Ready', action: () => { setSelectedLocation('Koregaon Park'); } },
+                  { label: '2 BHK Ready', action: () => setSelectedBhk('2 BHK') },
+                  { label: '3 BHK Ready', action: () => setSelectedBhk('3 BHK') },
+                  { label: 'OC Received', action: () => setSelectedBhk('ALL') },
+                ] : selectedPurpose === 'UNDER_CONSTRUCTION' ? [
+                  { label: 'All Under Construction', action: () => { setSelectedLocation('ALL'); setSelectedBhk('ALL'); setPriceRange('ALL'); } },
+                  { label: 'Balewadi New Launch', action: () => { setSelectedLocation('Balewadi'); } },
+                  { label: 'Kharadi High-Rise', action: () => { setSelectedLocation('Kharadi'); } },
+                  { label: '2 BHK Tower', action: () => setSelectedBhk('2 BHK') },
+                  { label: '3 BHK Sky Suite', action: () => setSelectedBhk('3 BHK') },
+                ] : selectedPurpose === 'RESIDENTIAL' ? [
+                  { label: 'All Residential', action: () => { setSelectedLocation('ALL'); setSelectedBhk('ALL'); setPriceRange('ALL'); } },
                   { label: 'Baner 3 BHK', action: () => { setSelectedLocation('Baner'); setSelectedBhk('3 BHK'); } },
                   { label: 'Viman Nagar Penthouse', action: () => { setSelectedLocation('Viman Nagar'); setSelectedBhk('Penthouse'); } },
                   { label: '3 BHK Flat', action: () => setSelectedBhk('3 BHK') },
@@ -1135,13 +1339,18 @@ export default function Home() {
                   const isActive = 
                     (chip.label === 'All Rentals' && selectedPurpose === 'RENT' && selectedLocation === 'ALL' && selectedBhk === 'ALL' && priceRange === 'ALL') ||
                     (chip.label === 'All Commercial' && selectedPurpose === 'COMMERCIAL' && selectedLocation === 'ALL' && selectedBhk === 'ALL' && priceRange === 'ALL') ||
-                    (chip.label === 'All For Sale' && selectedPurpose === 'SALE' && selectedLocation === 'ALL' && selectedBhk === 'ALL' && priceRange === 'ALL') ||
+                    (chip.label === 'All Ready Possession' && selectedPurpose === 'READY_POSSESSION' && selectedLocation === 'ALL' && selectedBhk === 'ALL' && priceRange === 'ALL') ||
+                    (chip.label === 'All Under Construction' && selectedPurpose === 'UNDER_CONSTRUCTION' && selectedLocation === 'ALL' && selectedBhk === 'ALL' && priceRange === 'ALL') ||
+                    (chip.label === 'All Residential' && selectedPurpose === 'RESIDENTIAL' && selectedLocation === 'ALL' && selectedBhk === 'ALL' && priceRange === 'ALL') ||
                     (chip.label === selectedLocation) ||
                     (chip.label === selectedBhk) ||
                     (chip.label === '3 BHK Luxury' && selectedBhk === '3 BHK') ||
                     (chip.label === '3 BHK Flat' && selectedBhk === '3 BHK') ||
+                    (chip.label === '3 BHK Ready' && selectedBhk === '3 BHK') ||
+                    (chip.label === '2 BHK Ready' && selectedBhk === '2 BHK') ||
                     (chip.label === 'IT Office' && selectedBhk === 'Office') ||
                     (chip.label === 'Retail Showroom' && selectedBhk === 'Showroom') ||
+                    (chip.label === 'Pre-Leased ROI' && selectedBhk === 'Pre-Leased') ||
                     (chip.label === 'Under ₹30k' && priceRange === 'under-30k') ||
                     (chip.label === '₹30k-₹50k' && priceRange === '30k-50k') ||
                     (chip.label === 'Under ₹1 Cr' && priceRange === 'buy-under-1cr') ||
@@ -1190,10 +1399,16 @@ export default function Home() {
               <span className="text-sm font-bold text-neutral-800">
                 Showing <span className="text-[#b8863b] font-extrabold">{filteredProperties.length}</span> of {properties.length}{' '}
                 {selectedPurpose === 'COMMERCIAL'
-                  ? 'commercial properties'
-                  : selectedPurpose === 'SALE'
-                  ? 'buy/sell properties'
-                  : 'rental properties'}
+                  ? 'commercial spaces'
+                  : selectedPurpose === 'READY_POSSESSION'
+                  ? 'ready possession properties'
+                  : selectedPurpose === 'UNDER_CONSTRUCTION'
+                  ? 'under construction properties'
+                  : selectedPurpose === 'RESIDENTIAL'
+                  ? 'residential properties'
+                  : selectedPurpose === 'RENT'
+                  ? 'rental properties'
+                  : 'properties'}
               </span>
               {searchQuery && (
                 <span className="text-xs text-neutral-500 bg-neutral-200/70 px-2 py-0.5 rounded-md font-medium">
@@ -1207,7 +1422,14 @@ export default function Home() {
               {selectedPurpose !== 'ALL' && (
                 <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md bg-[#080f1a] text-[#d4a359] font-bold">
                   <span>
-                    Category: {selectedPurpose === 'RENT' ? 'Rent' : selectedPurpose === 'COMMERCIAL' ? 'Commercial' : 'Buy & Sell'}
+                    Category: {
+                      selectedPurpose === 'RENT' ? 'Rental Property' :
+                      selectedPurpose === 'READY_POSSESSION' ? 'Ready Possession' :
+                      selectedPurpose === 'UNDER_CONSTRUCTION' ? 'Under Construction' :
+                      selectedPurpose === 'RESIDENTIAL' ? 'Residential Properties' :
+                      selectedPurpose === 'COMMERCIAL' ? 'Commercial Spaces' :
+                      selectedPurpose
+                    }
                   </span>
                   <button onClick={() => setSelectedPurpose('ALL')} className="hover:text-white cursor-pointer"><X className="w-3 h-3" /></button>
                 </span>
@@ -1247,7 +1469,8 @@ export default function Home() {
                 const badge = getBadgeForIndex(idx);
                 const priceInfo = formatPropertyPrice(property);
                 const purposeBadge = getPropertyPurposeBadge(property);
-                const isCommercial = property.purpose === 'COMMERCIAL' || property.category === 'COMMERCIAL' || property.type?.toLowerCase().includes('office') || property.type?.toLowerCase().includes('showroom');
+                const isRentedCommercial = property.purpose === 'RENTED_COMMERCIAL_SALE' || property.purpose === 'RENTED_COMMERCIAL_BY_SELL' || property.type === 'Rented Commercial by Sell' || property.type?.toLowerCase().includes('rented commercial') || property.category === 'RENTED_COMMERCIAL_SALE';
+                const isCommercial = !isRentedCommercial && (property.purpose === 'COMMERCIAL' || property.category === 'COMMERCIAL' || property.type?.toLowerCase().includes('office') || property.type?.toLowerCase().includes('showroom'));
 
                 return (
                   <div 
@@ -1257,7 +1480,9 @@ export default function Home() {
                       setActiveMediaIndex(0);
                       setActiveMediaTab('photos');
                     }}
-                    className="bg-white rounded-2xl overflow-hidden border border-[#e8e4db] hover:border-[#d4a359]/60 shadow-md hover:shadow-2xl transition-all duration-300 flex flex-col justify-between group cursor-pointer relative"
+                    className={`bg-white rounded-2xl overflow-hidden border shadow-md hover:shadow-2xl transition-all duration-300 flex flex-col justify-between group cursor-pointer relative ${
+                      isRentedCommercial ? 'border-amber-400 hover:border-amber-500 ring-1 ring-amber-400/20' : 'border-[#e8e4db] hover:border-[#d4a359]/60'
+                    }`}
                   >
                     <div>
                       {/* Property Image Container */}
@@ -1282,7 +1507,7 @@ export default function Home() {
                             {purposeBadge.label}
                           </div>
                           <div className="bg-[#080f1a]/85 backdrop-blur-md text-[#d4a359] text-[9px] font-extrabold uppercase px-2 py-0.5 rounded shadow-sm tracking-wider w-fit">
-                            {badge}
+                            {isRentedCommercial && property.roi_yield ? `${property.roi_yield} ROI Yield` : badge}
                           </div>
                         </div>
 
@@ -1314,8 +1539,11 @@ export default function Home() {
 
                       {/* Card Content */}
                       <div className="p-5">
-                        <div className="text-[10px] font-bold uppercase tracking-wider text-[#b8863b] mb-1">
-                          {property.type || (isCommercial ? 'Commercial Property' : 'Residential Apartment')}
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-[#b8863b] mb-1 flex items-center justify-between">
+                          <span>{property.type || (isRentedCommercial ? 'Rented Commercial by Sell' : isCommercial ? 'Commercial Property' : 'Residential Apartment')}</span>
+                          {isRentedCommercial && property.tenant_name && (
+                            <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded font-bold">Tenant: {property.tenant_name}</span>
+                          )}
                         </div>
                         <h3 className="text-base font-bold text-[#111827] group-hover:text-[#b8863b] transition-colors line-clamp-1">
                           {property.title}
@@ -1345,9 +1573,24 @@ export default function Home() {
                     </div>
 
                     <div className="p-5 pt-0">
-                      {/* Amenities Specs Footer (Adaptive for Commercial vs Residential) */}
+                      {/* Amenities Specs Footer (Adaptive for Pre-Leased vs Commercial vs Residential) */}
                       <div className="pt-3.5 border-t border-neutral-100 grid grid-cols-3 text-center text-xs text-neutral-600 font-medium">
-                        {isCommercial ? (
+                        {isRentedCommercial ? (
+                          <>
+                            <div className="flex items-center justify-center space-x-1">
+                              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                              <span className="truncate font-bold text-amber-900">{property.roi_yield || 'High ROI'}</span>
+                            </div>
+                            <div className="flex items-center justify-center space-x-1 border-x border-neutral-200">
+                              <Building className="w-3.5 h-3.5 text-neutral-400" />
+                              <span className="truncate">{property.lease_term || 'Leased'}</span>
+                            </div>
+                            <div className="flex items-center justify-center space-x-1">
+                              <Maximize2 className="w-3.5 h-3.5 text-neutral-400" />
+                              <span>{property.area} Sq.Ft</span>
+                            </div>
+                          </>
+                        ) : isCommercial ? (
                           <>
                             <div className="flex items-center justify-center space-x-1">
                               <Building className="w-3.5 h-3.5 text-neutral-400" />
@@ -1439,7 +1682,14 @@ export default function Home() {
                   No matching properties found
                 </h3>
                 <p className="text-sm text-neutral-500 max-w-md mx-auto">
-                  We couldn't find any {selectedPurpose === 'COMMERCIAL' ? 'commercial properties' : selectedPurpose === 'SALE' ? 'properties for purchase/sale' : 'rental properties'} matching your current criteria. Try adjusting your keyword or switching categories.
+                  We couldn't find any {
+                    selectedPurpose === 'COMMERCIAL' ? 'commercial spaces' :
+                    selectedPurpose === 'READY_POSSESSION' ? 'ready possession properties' :
+                    selectedPurpose === 'UNDER_CONSTRUCTION' ? 'under construction projects' :
+                    selectedPurpose === 'RESIDENTIAL' ? 'residential properties' :
+                    selectedPurpose === 'RENT' ? 'rental properties' :
+                    'properties'
+                  } matching your current criteria. Try adjusting your keyword or switching categories.
                 </p>
               </div>
               <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
@@ -1453,7 +1703,13 @@ export default function Home() {
                 </button>
                 <a
                   href={getWhatsAppUrl(settings, { 
-                    customMessage: `Hello Rental Pune, I am looking for a ${selectedPurpose === 'COMMERCIAL' ? 'commercial office/showroom' : selectedPurpose === 'SALE' ? 'property to buy/invest' : 'rental home'} in Pune with specific requirements.` 
+                    customMessage: `Hello Rental Pune, I am looking for a ${
+                      selectedPurpose === 'COMMERCIAL' ? 'commercial space' :
+                      selectedPurpose === 'READY_POSSESSION' ? 'ready possession flat with OC' :
+                      selectedPurpose === 'UNDER_CONSTRUCTION' ? 'under construction project' :
+                      selectedPurpose === 'RESIDENTIAL' ? 'residential property for purchase' :
+                      'rental home'
+                    } in Pune with specific requirements.` 
                   })}
                   target="_blank"
                   rel="noopener noreferrer"
@@ -1479,7 +1735,7 @@ export default function Home() {
             <div className="lg:col-span-6 relative">
               <div className="rounded-3xl overflow-hidden shadow-2xl border border-neutral-200 aspect-[4/3] relative">
                 <img 
-                  src="https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=1200&q=85" 
+                  src={settings?.about_luxury_image_url || 'https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=1200&q=85'} 
                   alt="Luxury Living Interior" 
                   className="w-full h-full object-cover hover:scale-105 transition-transform duration-700"
                 />
@@ -1487,8 +1743,12 @@ export default function Home() {
 
               {/* Floating Gold Experience Badge */}
               <div className="absolute -bottom-6 -right-4 sm:bottom-6 sm:-right-6 bg-[#080f1a] text-white p-5 rounded-2xl shadow-2xl border border-[#d4a359]/40 max-w-[200px]">
-                <div className="text-3xl font-extrabold text-[#d4a359] font-serif">35+</div>
-                <div className="text-xs font-bold uppercase tracking-wider mt-1 text-neutral-200">Luxury Amenities & Services</div>
+                <div className="text-3xl font-extrabold text-[#d4a359] font-serif">
+                  {settings?.about_luxury_badge_number || '35+'}
+                </div>
+                <div className="text-xs font-bold uppercase tracking-wider mt-1 text-neutral-200">
+                  {settings?.about_luxury_badge_text || 'Luxury Amenities & Services'}
+                </div>
               </div>
             </div>
 
@@ -1497,16 +1757,18 @@ export default function Home() {
               
               {/* Eyebrow */}
               <div className="flex items-center space-x-3">
-                <span className="text-[#d4a359] text-xs font-bold uppercase tracking-[0.2em]">ABOUT THE PROJECT</span>
+                <span className="text-[#d4a359] text-xs font-bold uppercase tracking-[0.2em]">
+                  {settings?.about_luxury_eyebrow || 'ABOUT THE PROJECT'}
+                </span>
                 <div className="w-8 h-[2px] bg-[#d4a359]"></div>
               </div>
 
               <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold font-serif text-neutral-900 leading-tight">
-                Redefining Luxury in Every Detail
+                {settings?.about_luxury_heading || 'Redefining Luxury in Every Detail'}
               </h2>
 
               <p className="text-neutral-600 text-sm sm:text-base leading-relaxed">
-                Rental Pune is a premium residential development that brings together elegant architecture, world-class amenities and a prime location to offer an unmatched lifestyle.
+                {settings?.about_luxury_tagline || 'Rental Pune is a premium residential development that brings together elegant architecture, world-class amenities and a prime location to offer an unmatched lifestyle.'}
               </p>
 
               {/* 4 Feature Points with Gold Icons */}
@@ -1516,8 +1778,12 @@ export default function Home() {
                     <Check className="w-3.5 h-3.5 stroke-[3]" />
                   </div>
                   <div>
-                    <h4 className="text-sm font-bold text-neutral-900">Architectural Excellence</h4>
-                    <p className="text-xs text-neutral-500 mt-0.5">International standard designs</p>
+                    <h4 className="text-sm font-bold text-neutral-900">
+                      {settings?.about_luxury_point1_title || 'Architectural Excellence'}
+                    </h4>
+                    <p className="text-xs text-neutral-500 mt-0.5">
+                      {settings?.about_luxury_point1_desc || 'International standard designs'}
+                    </p>
                   </div>
                 </div>
 
@@ -1526,8 +1792,12 @@ export default function Home() {
                     <Check className="w-3.5 h-3.5 stroke-[3]" />
                   </div>
                   <div>
-                    <h4 className="text-sm font-bold text-neutral-900">Spacious Residences</h4>
-                    <p className="text-xs text-neutral-500 mt-0.5">Airy layouts with private decks</p>
+                    <h4 className="text-sm font-bold text-neutral-900">
+                      {settings?.about_luxury_point2_title || 'Spacious Residences'}
+                    </h4>
+                    <p className="text-xs text-neutral-500 mt-0.5">
+                      {settings?.about_luxury_point2_desc || 'Airy layouts with private decks'}
+                    </p>
                   </div>
                 </div>
 
@@ -1536,8 +1806,12 @@ export default function Home() {
                     <Check className="w-3.5 h-3.5 stroke-[3]" />
                   </div>
                   <div>
-                    <h4 className="text-sm font-bold text-neutral-900">Green & Open Spaces</h4>
-                    <p className="text-xs text-neutral-500 mt-0.5">70% open landscaped parks</p>
+                    <h4 className="text-sm font-bold text-neutral-900">
+                      {settings?.about_luxury_point3_title || 'Green & Open Spaces'}
+                    </h4>
+                    <p className="text-xs text-neutral-500 mt-0.5">
+                      {settings?.about_luxury_point3_desc || '70% open landscaped parks'}
+                    </p>
                   </div>
                 </div>
 
@@ -1546,8 +1820,12 @@ export default function Home() {
                     <Check className="w-3.5 h-3.5 stroke-[3]" />
                   </div>
                   <div>
-                    <h4 className="text-sm font-bold text-neutral-900">24/7 Security & Safety</h4>
-                    <p className="text-xs text-neutral-500 mt-0.5">Multi-tier smart surveillance</p>
+                    <h4 className="text-sm font-bold text-neutral-900">
+                      {settings?.about_luxury_point4_title || '24/7 Security & Safety'}
+                    </h4>
+                    <p className="text-xs text-neutral-500 mt-0.5">
+                      {settings?.about_luxury_point4_desc || 'Multi-tier smart surveillance'}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -1574,29 +1852,45 @@ export default function Home() {
       </section>
 
 
-      {/* 3. STATS STRIP SECTION (3.5 Acres, 4 Towers, 25+ Amenities, 500+ Happy Families) */}
+      {/* 3. STATS STRIP SECTION */}
       <section className="bg-[#faf8f5] py-12 px-4 sm:px-6 lg:px-8 border-b border-[#e8e4db]">
         <div className="max-w-7xl mx-auto">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-8 text-center divide-y sm:divide-y-0 sm:divide-x divide-neutral-200">
             
             <div className="pt-4 sm:pt-0 sm:px-4">
-              <div className="text-3xl sm:text-5xl font-extrabold text-[#d4a359] font-serif">3.5</div>
-              <div className="text-xs sm:text-sm font-bold uppercase tracking-wider text-neutral-600 mt-1">Acres of Land</div>
+              <div className="text-3xl sm:text-5xl font-extrabold text-[#d4a359] font-serif">
+                {settings?.about_stat1_number || '3.5'}
+              </div>
+              <div className="text-xs sm:text-sm font-bold uppercase tracking-wider text-neutral-600 mt-1">
+                {settings?.about_stat1_label || 'Acres of Land'}
+              </div>
             </div>
 
             <div className="pt-4 sm:pt-0 sm:px-4">
-              <div className="text-3xl sm:text-5xl font-extrabold text-[#d4a359] font-serif">4</div>
-              <div className="text-xs sm:text-sm font-bold uppercase tracking-wider text-neutral-600 mt-1">Towers</div>
+              <div className="text-3xl sm:text-5xl font-extrabold text-[#d4a359] font-serif">
+                {settings?.about_stat2_number || '4'}
+              </div>
+              <div className="text-xs sm:text-sm font-bold uppercase tracking-wider text-neutral-600 mt-1">
+                {settings?.about_stat2_label || 'Towers'}
+              </div>
             </div>
 
             <div className="pt-4 sm:pt-0 sm:px-4">
-              <div className="text-3xl sm:text-5xl font-extrabold text-[#d4a359] font-serif">25+</div>
-              <div className="text-xs sm:text-sm font-bold uppercase tracking-wider text-neutral-600 mt-1">Lifestyle Amenities</div>
+              <div className="text-3xl sm:text-5xl font-extrabold text-[#d4a359] font-serif">
+                {settings?.about_stat3_number || '25+'}
+              </div>
+              <div className="text-xs sm:text-sm font-bold uppercase tracking-wider text-neutral-600 mt-1">
+                {settings?.about_stat3_label || 'Lifestyle Amenities'}
+              </div>
             </div>
 
             <div className="pt-4 sm:pt-0 sm:px-4">
-              <div className="text-3xl sm:text-5xl font-extrabold text-[#d4a359] font-serif">500+</div>
-              <div className="text-xs sm:text-sm font-bold uppercase tracking-wider text-neutral-600 mt-1">Happy Families</div>
+              <div className="text-3xl sm:text-5xl font-extrabold text-[#d4a359] font-serif">
+                {settings?.about_stat4_number || '500+'}
+              </div>
+              <div className="text-xs sm:text-sm font-bold uppercase tracking-wider text-neutral-600 mt-1">
+                {settings?.about_stat4_label || 'Happy Families'}
+              </div>
             </div>
 
           </div>
@@ -1604,7 +1898,7 @@ export default function Home() {
       </section>
 
 
-      {/* 4. GALLERY SECTION ("A Glimpse of Lavish Living") */}
+      {/* 4. DYNAMIC GALLERY SECTION ("A Glimpse of Lavish Living") */}
       <section id="gallery" className="bg-[#ffffff] text-neutral-900 py-20 px-4 sm:px-6 lg:px-8 border-b border-[#e8e4db]">
         <div className="max-w-7xl mx-auto space-y-10">
           
@@ -1620,95 +1914,85 @@ export default function Home() {
             </div>
 
             <button 
-              onClick={() => setActiveGalleryImage('https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=1600&q=85')}
+              onClick={() => {
+                if (galleryItems.length > 0) {
+                  setActiveGalleryItem(galleryItems[0]);
+                  setIsGalleryModalOpen(true);
+                } else {
+                  setActiveGalleryImage('https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=1600&q=85');
+                }
+              }}
               className="px-6 py-3 border-2 border-[#d4a359] text-[#111827] hover:bg-[#d4a359] hover:text-[#080f1a] font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-sm cursor-pointer"
             >
               VIEW ALL GALLERY
             </button>
           </div>
 
-          {/* 5 Gallery Photos Grid */}
+          {/* Dynamic Gallery Photos Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            
-            {/* Item 1 */}
-            <div 
-              onClick={() => setActiveGalleryImage('https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=1600&q=85')}
-              className="group relative rounded-2xl overflow-hidden aspect-[4/3] shadow-md border border-neutral-200 cursor-pointer"
-            >
-              <img 
-                src="https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80" 
-                alt="Tower Exterior" 
-                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity p-6 flex flex-col justify-end text-white">
-                <span className="text-xs font-bold text-[#d4a359] uppercase tracking-wider">Grand Architecture</span>
-                <span className="text-base font-bold font-serif">Tower Exterior & Pool Promenade</span>
+            {(galleryItems.length > 0 ? galleryItems : [
+              {
+                id: 1,
+                title: 'Tower Exterior & Pool Promenade',
+                category: 'Grand Architecture',
+                image_url: 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80',
+                description: 'International standard tower facade with landscaped deck.'
+              },
+              {
+                id: 2,
+                title: 'Infinity Edge Swimming Pool',
+                category: 'Lifestyle',
+                image_url: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=800&q=80',
+                description: 'Temperature-controlled infinity lap pool with luxury sun loungers.'
+              },
+              {
+                id: 3,
+                title: 'Grand Living & Dining Hall',
+                category: 'Interiors',
+                image_url: 'https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=800&q=80',
+                description: 'Double-height Italian marble living room with designer chandeliers.'
+              },
+              {
+                id: 4,
+                title: 'Presidential Master Bedroom',
+                category: 'Suites',
+                image_url: 'https://images.unsplash.com/photo-1616594039964-ae9021a400a0?auto=format&fit=crop&w=800&q=80',
+                description: 'Spacious master suite featuring wooden flooring and private balcony.'
+              },
+              {
+                id: 5,
+                title: 'Executive Clubhouse & Lounge',
+                category: 'Amenities',
+                image_url: 'https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?auto=format&fit=crop&w=800&q=80',
+                description: 'Private resident lounge, business center, and meeting suites.'
+              }
+            ]).slice(0, 5).map((item, idx) => (
+              <div 
+                key={item.id || idx}
+                onClick={() => {
+                  setActiveGalleryItem(item as GalleryItem);
+                  setIsGalleryModalOpen(true);
+                }}
+                className="group relative rounded-2xl overflow-hidden aspect-[4/3] shadow-md border border-neutral-200 cursor-pointer"
+              >
+                <img 
+                  src={item.image_url} 
+                  alt={item.title} 
+                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+                  onError={(e: any) => {
+                    e.target.src = 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80';
+                  }}
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity p-6 flex flex-col justify-end text-white">
+                  <span className="text-xs font-bold text-[#d4a359] uppercase tracking-wider">
+                    {item.category || 'Lifestyle'}
+                  </span>
+                  <span className="text-base font-bold font-serif">
+                    {item.title}
+                  </span>
+                </div>
               </div>
-            </div>
-
-            {/* Item 2 */}
-            <div 
-              onClick={() => setActiveGalleryImage('https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=1600&q=85')}
-              className="group relative rounded-2xl overflow-hidden aspect-[4/3] shadow-md border border-neutral-200 cursor-pointer"
-            >
-              <img 
-                src="https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=800&q=80" 
-                alt="Olympic Pool" 
-                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity p-6 flex flex-col justify-end text-white">
-                <span className="text-xs font-bold text-[#d4a359] uppercase tracking-wider">Lifestyle</span>
-                <span className="text-base font-bold font-serif">Infinity Edge Swimming Pool</span>
-              </div>
-            </div>
-
-            {/* Item 3 */}
-            <div 
-              onClick={() => setActiveGalleryImage('https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=1600&q=85')}
-              className="group relative rounded-2xl overflow-hidden aspect-[4/3] shadow-md border border-neutral-200 cursor-pointer"
-            >
-              <img 
-                src="https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=800&q=80" 
-                alt="Living Hall" 
-                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity p-6 flex flex-col justify-end text-white">
-                <span className="text-xs font-bold text-[#d4a359] uppercase tracking-wider">Interiors</span>
-                <span className="text-base font-bold font-serif">Grand Living & Dining Hall</span>
-              </div>
-            </div>
-
-            {/* Item 4 */}
-            <div 
-              onClick={() => setActiveGalleryImage('https://images.unsplash.com/photo-1616594039964-ae9021a400a0?auto=format&fit=crop&w=1600&q=85')}
-              className="group relative rounded-2xl overflow-hidden aspect-[4/3] shadow-md border border-neutral-200 cursor-pointer"
-            >
-              <img 
-                src="https://images.unsplash.com/photo-1616594039964-ae9021a400a0?auto=format&fit=crop&w=800&q=80" 
-                alt="Master Suite" 
-                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity p-6 flex flex-col justify-end text-white">
-                <span className="text-xs font-bold text-[#d4a359] uppercase tracking-wider">Suites</span>
-                <span className="text-base font-bold font-serif">Presidential Master Bedroom</span>
-              </div>
-            </div>
-
-            {/* Item 5 */}
-            <div 
-              onClick={() => setActiveGalleryImage('https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?auto=format&fit=crop&w=1600&q=85')}
-              className="group relative rounded-2xl overflow-hidden aspect-[4/3] shadow-md border border-neutral-200 cursor-pointer"
-            >
-              <img 
-                src="https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?auto=format&fit=crop&w=800&q=80" 
-                alt="Clubhouse" 
-                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity p-6 flex flex-col justify-end text-white">
-                <span className="text-xs font-bold text-[#d4a359] uppercase tracking-wider">Amenities</span>
-                <span className="text-base font-bold font-serif">Executive Clubhouse & Lounge</span>
-              </div>
-            </div>
+            ))}
 
             {/* Item 6: Discover More Card */}
             <div 
@@ -2494,26 +2778,147 @@ export default function Home() {
         </div>
       )}
 
-      {/* GALLERY LIGHTBOX MODAL */}
-      {activeGalleryImage && (
-        <div className="fixed inset-0 bg-[#080f1a]/95 backdrop-blur-lg z-50 flex items-center justify-center p-4">
-          <div className="relative max-w-5xl w-full bg-[#0e1726] rounded-3xl p-4 sm:p-6 border border-[#d4a359]/40 shadow-2xl animate-in zoom-in-95 space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-[#d4a359]">High Resolution Gallery View</span>
+      {/* DYNAMIC GALLERY LIGHTBOX MODAL */}
+      {(isGalleryModalOpen || activeGalleryImage) && (
+        <div className="fixed inset-0 bg-[#050a12]/95 backdrop-blur-xl z-50 flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+          <div className="relative max-w-6xl w-full bg-[#080f1a] rounded-3xl border border-[#d4a359]/30 shadow-2xl overflow-hidden flex flex-col my-auto max-h-[92vh]">
+            
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-[#0c1424]">
+              <div className="flex items-center space-x-3">
+                <div className="w-8 h-8 rounded-lg bg-[#d4a359]/15 text-[#d4a359] flex items-center justify-center">
+                  <ImageIcon className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold font-serif text-white">
+                    {activeGalleryItem?.title || 'Luxury Architecture & Living Showcase'}
+                  </h3>
+                  <div className="flex items-center space-x-2 text-xs text-neutral-400">
+                    <span className="text-[#d4a359] font-medium">{activeGalleryItem?.category || 'Grand Architecture'}</span>
+                    <span>•</span>
+                    <span>High Resolution Photo Gallery</span>
+                  </div>
+                </div>
+              </div>
+
               <button 
-                onClick={() => setActiveGalleryImage(null)}
-                className="p-2 rounded-full text-neutral-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                onClick={() => {
+                  setIsGalleryModalOpen(false);
+                  setActiveGalleryImage(null);
+                  setActiveGalleryItem(null);
+                }}
+                className="p-2 rounded-xl text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                title="Close Gallery"
               >
-                <X className="w-5 h-5" />
+                <X className="w-6 h-6" />
               </button>
             </div>
-            <div className="aspect-[16/10] w-full rounded-2xl overflow-hidden bg-black shadow-xl">
-              <img 
-                src={activeGalleryImage} 
-                alt="Luxury Gallery Preview" 
-                className="w-full h-full object-cover"
-              />
+
+            {/* Category Filter Pills in Modal */}
+            <div className="px-6 py-2.5 bg-[#0a101d] border-b border-white/5 flex items-center space-x-2 overflow-x-auto no-scrollbar">
+              {['ALL', 'Grand Architecture', 'Lifestyle', 'Interiors', 'Suites', 'Amenities', 'Wellness'].map((cat) => {
+                const isSelected = galleryCategoryFilter === cat;
+                return (
+                  <button
+                    key={cat}
+                    onClick={() => setGalleryCategoryFilter(cat)}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                      isSelected
+                        ? 'bg-[#d4a359] text-[#080f1a] font-bold shadow-sm'
+                        : 'bg-white/5 text-neutral-300 hover:bg-white/10 hover:text-white'
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                );
+              })}
             </div>
+
+            {/* Main Image Display with Next/Prev Arrows */}
+            <div className="relative flex-1 bg-black flex items-center justify-center min-h-[300px] max-h-[56vh] overflow-hidden group">
+              <img 
+                src={activeGalleryItem?.image_url || activeGalleryImage || 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=1600&q=85'} 
+                alt={activeGalleryItem?.title || 'Luxury Showcase'} 
+                className="max-h-[56vh] w-auto max-w-full object-contain mx-auto"
+                onError={(e: any) => {
+                  e.target.src = 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=1600&q=85';
+                }}
+              />
+
+              {/* Navigation Arrows */}
+              {galleryItems.length > 1 && (
+                <>
+                  <button
+                    onClick={() => {
+                      const filtered = galleryCategoryFilter === 'ALL'
+                        ? galleryItems
+                        : galleryItems.filter(i => i.category === galleryCategoryFilter);
+                      if (filtered.length === 0) return;
+                      const currentIdx = filtered.findIndex(i => i.id === activeGalleryItem?.id);
+                      const nextIdx = (currentIdx - 1 + filtered.length) % filtered.length;
+                      setActiveGalleryItem(filtered[nextIdx]);
+                    }}
+                    className="absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-black/60 hover:bg-[#d4a359] text-white hover:text-[#080f1a] transition-all backdrop-blur-md cursor-pointer border border-white/10 shadow-lg"
+                    title="Previous Photo"
+                  >
+                    <ChevronLeft className="w-6 h-6" />
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      const filtered = galleryCategoryFilter === 'ALL'
+                        ? galleryItems
+                        : galleryItems.filter(i => i.category === galleryCategoryFilter);
+                      if (filtered.length === 0) return;
+                      const currentIdx = filtered.findIndex(i => i.id === activeGalleryItem?.id);
+                      const nextIdx = (currentIdx + 1) % filtered.length;
+                      setActiveGalleryItem(filtered[nextIdx]);
+                    }}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-black/60 hover:bg-[#d4a359] text-white hover:text-[#080f1a] transition-all backdrop-blur-md cursor-pointer border border-white/10 shadow-lg"
+                    title="Next Photo"
+                  >
+                    <ChevronRight className="w-6 h-6" />
+                  </button>
+                </>
+              )}
+            </div>
+
+            {/* Description & Thumbnail Bar */}
+            <div className="p-4 sm:p-5 bg-[#0a101d] border-t border-white/10 space-y-3">
+              {activeGalleryItem?.description && (
+                <p className="text-xs sm:text-sm text-neutral-300 text-center max-w-2xl mx-auto italic">
+                  "{activeGalleryItem.description}"
+                </p>
+              )}
+
+              {/* Thumbnails Carousel */}
+              <div className="flex items-center justify-center space-x-2 overflow-x-auto py-1 no-scrollbar">
+                {(galleryCategoryFilter === 'ALL' 
+                  ? galleryItems 
+                  : galleryItems.filter(i => i.category === galleryCategoryFilter)
+                ).map((item) => {
+                  const isActive = activeGalleryItem?.id === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => setActiveGalleryItem(item)}
+                      className={`relative w-16 h-12 sm:w-20 sm:h-14 rounded-lg overflow-hidden flex-shrink-0 transition-all cursor-pointer border-2 ${
+                        isActive
+                          ? 'border-[#d4a359] ring-2 ring-[#d4a359]/50 scale-105 opacity-100'
+                          : 'border-transparent opacity-60 hover:opacity-100'
+                      }`}
+                    >
+                      <img 
+                        src={item.image_url} 
+                        alt={item.title} 
+                        className="w-full h-full object-cover" 
+                      />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
           </div>
         </div>
       )}

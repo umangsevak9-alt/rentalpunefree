@@ -11,6 +11,70 @@ const VISITS_FILE = path.join(DATA_DIR, 'visits.json');
 const FEEDBACKS_FILE = path.join(DATA_DIR, 'feedbacks.json');
 const INVOICES_FILE = path.join(DATA_DIR, 'invoices.json');
 const PROPERTIES_FILE = path.join(DATA_DIR, 'properties.json');
+const GALLERY_FILE = path.join(DATA_DIR, 'gallery.json');
+
+const DEFAULT_GALLERY_ITEMS = [
+  {
+    id: 1,
+    title: 'Tower Exterior & Pool Promenade',
+    category: 'Grand Architecture',
+    image_url: 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=1600&q=85',
+    description: 'International standard tower facade with manicured landscaped deck and infinity pool promenade view.',
+    sort_order: 1,
+    is_active: 1,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 2,
+    title: 'Infinity Edge Swimming Pool',
+    category: 'Lifestyle',
+    image_url: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=1600&q=85',
+    description: 'Temperature-controlled infinity lap pool with luxury sun loungers and panoramic sky view.',
+    sort_order: 2,
+    is_active: 1,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 3,
+    title: 'Grand Living & Dining Hall',
+    category: 'Interiors',
+    image_url: 'https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=1600&q=85',
+    description: 'Double-height Italian marble living room with designer chandeliers and floor-to-ceiling glass.',
+    sort_order: 3,
+    is_active: 1,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 4,
+    title: 'Presidential Master Bedroom',
+    category: 'Suites',
+    image_url: 'https://images.unsplash.com/photo-1616594039964-ae9021a400a0?auto=format&fit=crop&w=1600&q=85',
+    description: 'Spacious master suite featuring wooden flooring, walk-in closet, and private sunset deck.',
+    sort_order: 4,
+    is_active: 1,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 5,
+    title: 'Executive Clubhouse & Lounge',
+    category: 'Amenities',
+    image_url: 'https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?auto=format&fit=crop&w=1600&q=85',
+    description: 'Private resident lounge, business center, and meeting suites for community networking.',
+    sort_order: 5,
+    is_active: 1,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 6,
+    title: 'High-Tech Fitness Gymnasium',
+    category: 'Wellness',
+    image_url: 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?auto=format&fit=crop&w=1600&q=85',
+    description: 'State-of-the-art cardio and weight training equipment with dedicated yoga studio.',
+    sort_order: 6,
+    is_active: 1,
+    created_at: new Date().toISOString()
+  }
+];
 
 const DEFAULT_AGENTS: any[] = [];
 
@@ -1661,5 +1725,191 @@ export const supabaseDb = {
       recentFeedbacks,
       recentLeads
     };
+  },
+
+  // --- HOMEPAGE GALLERY ---
+  async getGalleryItems(): Promise<any[]> {
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('home_gallery')
+          .select('*')
+          .order('sort_order', { ascending: true })
+          .order('id', { ascending: true });
+        
+        if (!error && Array.isArray(data) && data.length > 0) {
+          saveJsonFile(GALLERY_FILE, data);
+          return data;
+        }
+      } catch (e) {
+        console.warn('[supabaseDb] Error fetching home_gallery from Supabase:', e);
+      }
+    }
+    return loadJsonFile<any[]>(GALLERY_FILE, DEFAULT_GALLERY_ITEMS);
+  },
+
+  async createGalleryItem(item: {
+    title: string;
+    category?: string;
+    image_url: string;
+    description?: string;
+    sort_order?: number;
+    is_active?: number | boolean;
+  }): Promise<any> {
+    const items = await this.getGalleryItems();
+    const nextId = items.length > 0 ? Math.max(...items.map((i: any) => Number(i.id) || 0)) + 1 : 1;
+    const newItem = {
+      id: nextId,
+      title: item.title,
+      category: item.category || 'Lifestyle',
+      image_url: item.image_url,
+      description: item.description || '',
+      sort_order: item.sort_order ?? (items.length + 1),
+      is_active: item.is_active === false || item.is_active === 0 ? 0 : 1,
+      created_at: new Date().toISOString()
+    };
+
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('home_gallery')
+          .insert([{
+            title: newItem.title,
+            category: newItem.category,
+            image_url: newItem.image_url,
+            description: newItem.description,
+            sort_order: newItem.sort_order,
+            is_active: newItem.is_active
+          }])
+          .select()
+          .single();
+
+        if (!error && data) {
+          const updated = [...items, data];
+          saveJsonFile(GALLERY_FILE, updated);
+          return data;
+        }
+      } catch (e) {
+        console.warn('[supabaseDb] Error inserting into home_gallery:', e);
+      }
+    }
+
+    const updated = [...items, newItem];
+    saveJsonFile(GALLERY_FILE, updated);
+    return newItem;
+  },
+
+  async updateGalleryItem(id: number | string, updates: Partial<any>): Promise<any> {
+    const numericId = Number(id);
+    const items = await this.getGalleryItems();
+    const index = items.findIndex((i: any) => Number(i.id) === numericId);
+
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        const dbUpdates: any = {};
+        if (updates.title !== undefined) dbUpdates.title = updates.title;
+        if (updates.category !== undefined) dbUpdates.category = updates.category;
+        if (updates.image_url !== undefined) dbUpdates.image_url = updates.image_url;
+        if (updates.description !== undefined) dbUpdates.description = updates.description;
+        if (updates.sort_order !== undefined) dbUpdates.sort_order = updates.sort_order;
+        if (updates.is_active !== undefined) dbUpdates.is_active = updates.is_active === false || updates.is_active === 0 ? 0 : 1;
+
+        const { data, error } = await supabase
+          .from('home_gallery')
+          .update(dbUpdates)
+          .eq('id', numericId)
+          .select()
+          .single();
+
+        if (!error && data) {
+          if (index !== -1) items[index] = data;
+          saveJsonFile(GALLERY_FILE, items);
+          return data;
+        }
+      } catch (e) {
+        console.warn('[supabaseDb] Error updating home_gallery:', e);
+      }
+    }
+
+    if (index !== -1) {
+      items[index] = { ...items[index], ...updates };
+      saveJsonFile(GALLERY_FILE, items);
+      return items[index];
+    }
+    return null;
+  },
+
+  async deleteGalleryItem(id: number | string): Promise<boolean> {
+    const numericId = Number(id);
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        await supabase.from('home_gallery').delete().eq('id', numericId);
+      } catch (e) {
+        console.warn('[supabaseDb] Error deleting from home_gallery:', e);
+      }
+    }
+    const items = await this.getGalleryItems();
+    const filtered = items.filter((i: any) => Number(i.id) !== numericId);
+    saveJsonFile(GALLERY_FILE, filtered);
+    return true;
+  },
+
+  async reorderGalleryItems(orderIds: number[]): Promise<any[]> {
+    const items = await this.getGalleryItems();
+    const reordered = orderIds.map((id, index) => {
+      const found = items.find((i: any) => Number(i.id) === Number(id));
+      if (found) {
+        return { ...found, sort_order: index + 1 };
+      }
+      return null;
+    }).filter(Boolean) as any[];
+
+    // Add any missing items
+    items.forEach((item: any) => {
+      if (!reordered.some((r: any) => Number(r.id) === Number(item.id))) {
+        reordered.push({ ...item, sort_order: reordered.length + 1 });
+      }
+    });
+
+    saveJsonFile(GALLERY_FILE, reordered);
+
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        for (const item of reordered) {
+          await supabase.from('home_gallery').update({ sort_order: item.sort_order }).eq('id', item.id);
+        }
+      } catch (e) {
+        console.warn('[supabaseDb] Error reordering home_gallery in Supabase:', e);
+      }
+    }
+    return reordered;
+  },
+
+  async resetGalleryDefaults(): Promise<any[]> {
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        await supabase.from('home_gallery').delete().neq('id', 0);
+        for (const item of DEFAULT_GALLERY_ITEMS) {
+          await supabase.from('home_gallery').insert([{
+            title: item.title,
+            category: item.category,
+            image_url: item.image_url,
+            description: item.description,
+            sort_order: item.sort_order,
+            is_active: 1
+          }]);
+        }
+      } catch (e) {
+        console.warn('[supabaseDb] Error resetting home_gallery in Supabase:', e);
+      }
+    }
+    saveJsonFile(GALLERY_FILE, DEFAULT_GALLERY_ITEMS);
+    return DEFAULT_GALLERY_ITEMS;
   }
 };

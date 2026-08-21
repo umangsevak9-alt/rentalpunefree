@@ -2178,4 +2178,93 @@ router.post('/owner-submissions/:id/approve', async (req, res) => {
   }
 });
 
+// --- HOMEPAGE GALLERY API ---
+router.get('/gallery', async (req, res) => {
+  try {
+    const items = await supabaseDb.getGalleryItems();
+    return res.json(items);
+  } catch (err) {
+    console.error('Error fetching gallery items:', err);
+    return res.status(500).json({ error: 'Failed to fetch gallery items' });
+  }
+});
+
+router.post('/gallery', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { title, category, image_url, description, sort_order, is_active } = req.body;
+    if (!title || !image_url) {
+      return res.status(400).json({ error: 'Title and image URL are required' });
+    }
+    const item = await supabaseDb.createGalleryItem({
+      title,
+      category,
+      image_url,
+      description,
+      sort_order,
+      is_active
+    });
+    return res.status(201).json(item);
+  } catch (err) {
+    console.error('Error creating gallery item:', err);
+    return res.status(500).json({ error: 'Failed to create gallery item' });
+  }
+});
+
+router.put('/gallery/:id', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, category, image_url, description, sort_order, is_active } = req.body;
+    const updated = await supabaseDb.updateGalleryItem(id, {
+      title,
+      category,
+      image_url,
+      description,
+      sort_order,
+      is_active
+    });
+    if (!updated) {
+      return res.status(404).json({ error: 'Gallery item not found' });
+    }
+    return res.json(updated);
+  } catch (err) {
+    console.error('Error updating gallery item:', err);
+    return res.status(500).json({ error: 'Failed to update gallery item' });
+  }
+});
+
+router.delete('/gallery/:id', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await supabaseDb.deleteGalleryItem(id);
+    return res.json({ success: true, message: 'Gallery item deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting gallery item:', err);
+    return res.status(500).json({ error: 'Failed to delete gallery item' });
+  }
+});
+
+router.post('/gallery/reorder', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { orderIds } = req.body;
+    if (!Array.isArray(orderIds)) {
+      return res.status(400).json({ error: 'orderIds array is required' });
+    }
+    const items = await supabaseDb.reorderGalleryItems(orderIds);
+    return res.json({ success: true, items });
+  } catch (err) {
+    console.error('Error reordering gallery items:', err);
+    return res.status(500).json({ error: 'Failed to reorder gallery items' });
+  }
+});
+
+router.post('/gallery/reset', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const items = await supabaseDb.resetGalleryDefaults();
+    return res.json({ success: true, items, message: 'Gallery reset to default luxury presets' });
+  } catch (err) {
+    console.error('Error resetting gallery items:', err);
+    return res.status(500).json({ error: 'Failed to reset gallery items' });
+  }
+});
+
 export default router;

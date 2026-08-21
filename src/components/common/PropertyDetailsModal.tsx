@@ -99,15 +99,22 @@ export default function PropertyDetailsModal({
   const videos = property.videos && property.videos.length > 0 ? property.videos : [];
   const furnitureList = property.furniture && property.furniture.length > 0 ? property.furniture : [];
   
-  const isCommercial = property.purpose === 'COMMERCIAL' || property.category === 'COMMERCIAL' || property.type?.toLowerCase().includes('office') || property.type?.toLowerCase().includes('commercial') || property.type?.toLowerCase().includes('showroom');
-  const isSale = property.purpose === 'SALE' || (!isCommercial && Number(property.price) > 5000000);
+  const isRentedCommercial = property.purpose === 'RENTED_COMMERCIAL_SALE' || property.purpose === 'RENTED_COMMERCIAL_BY_SELL' || property.type === 'Rented Commercial by Sell' || property.type?.toLowerCase().includes('rented commercial') || property.category === 'RENTED_COMMERCIAL_SALE';
+  const isCommercial = !isRentedCommercial && (property.purpose === 'COMMERCIAL' || property.category === 'COMMERCIAL' || property.type?.toLowerCase().includes('office') || property.type?.toLowerCase().includes('commercial') || property.type?.toLowerCase().includes('showroom'));
+  const isSale = !isRentedCommercial && !isCommercial && (property.purpose === 'SALE' || (!isCommercial && Number(property.price) > 5000000));
 
-  const formattedPrice = isSale
-    ? `₹${(Number(property.price) / 10000000).toFixed(2)} Cr`
+  const formattedPrice = isRentedCommercial || isSale
+    ? Number(property.price) >= 10000000
+      ? `₹${(Number(property.price) / 10000000).toFixed(2)} Cr`
+      : `₹${(Number(property.price) / 100000).toFixed(1)} Lakh`
     : `₹${Number(property.price).toLocaleString('en-IN')}`;
 
-  const pricePeriod = isSale ? 'Total Price' : '/ month';
-  const securityDeposit = isSale ? 'Ready Possession' : `₹${(Number(property.price) * 2).toLocaleString('en-IN')} (2 Mos)`;
+  const pricePeriod = isRentedCommercial ? 'Outright Sale' : isSale ? 'Total Price' : '/ month';
+  const securityDeposit = isRentedCommercial 
+    ? 'Pre-Leased Commercial Investment Asset' 
+    : isSale 
+    ? 'Ready Possession' 
+    : `₹${(Number(property.price) * 2).toLocaleString('en-IN')} (2 Mos)`;
 
   const toggleFavorite = () => {
     try {
@@ -413,14 +420,14 @@ export default function PropertyDetailsModal({
               <BedDouble className="w-6 h-6 text-[#d4a359] group-hover:scale-110 transition-transform" />
               <span className="text-xs text-neutral-400 font-medium">Configuration</span>
               <span className="text-base font-bold text-white">
-                {isCommercial ? `${property.bedrooms || 1} Work Zones` : `${property.bedrooms} BHK Master`}
+                {isRentedCommercial ? 'Pre-Leased Commercial' : isCommercial ? `${property.bedrooms || 1} Work Zones` : `${property.bedrooms} BHK Master`}
               </span>
             </div>
 
             <div className="p-4 rounded-2xl bg-white/5 border border-white/10 flex flex-col items-center justify-center text-center space-y-1 group hover:border-[#d4a359]/40 transition-colors">
               <Bath className="w-6 h-6 text-[#d4a359] group-hover:scale-110 transition-transform" />
               <span className="text-xs text-neutral-400 font-medium">Bathrooms</span>
-              <span className="text-base font-bold text-white">{property.bathrooms} Washrooms</span>
+              <span className="text-base font-bold text-white">{property.bathrooms || 2} Washrooms</span>
             </div>
 
             <div className="p-4 rounded-2xl bg-white/5 border border-white/10 flex flex-col items-center justify-center text-center space-y-1 group hover:border-[#d4a359]/40 transition-colors">
@@ -432,9 +439,58 @@ export default function PropertyDetailsModal({
             <div className="p-4 rounded-2xl bg-white/5 border border-white/10 flex flex-col items-center justify-center text-center space-y-1 group hover:border-[#d4a359]/40 transition-colors">
               <Building2 className="w-6 h-6 text-[#d4a359] group-hover:scale-110 transition-transform" />
               <span className="text-xs text-neutral-400 font-medium">Furnishing</span>
-              <span className="text-base font-bold text-white">{property.furnishing || 'Semi-Furnished'}</span>
+              <span className="text-base font-bold text-white">{property.furnishing || 'Fully Fitted'}</span>
             </div>
           </div>
+
+          {/* PRE-LEASED COMMERCIAL FINANCIAL HIGHLIGHTS (If Rented Commercial by Sell) */}
+          {(isRentedCommercial || property.current_rent) && (
+            <div className="bg-gradient-to-r from-amber-500/10 via-yellow-500/15 to-amber-500/10 border-2 border-amber-400/40 rounded-2xl p-5 sm:p-6 space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-2 border-b border-amber-400/20 pb-3">
+                <div className="flex items-center space-x-2">
+                  <Sparkles className="w-5 h-5 text-amber-400" />
+                  <h4 className="text-base font-bold text-amber-300 font-serif">Pre-Leased Commercial Investment Metrics</h4>
+                </div>
+                <span className="px-3 py-1 bg-amber-400 text-black text-xs font-black rounded-full uppercase tracking-wider">
+                  Guaranteed Cashflow Asset
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+                <div className="bg-[#080f1a]/80 p-3.5 rounded-xl border border-amber-400/20">
+                  <span className="text-[11px] font-bold text-neutral-400 uppercase block mb-1">Current Rent / Mo</span>
+                  <span className="text-lg sm:text-xl font-extrabold text-amber-400 font-serif">
+                    {property.current_rent 
+                      ? property.current_rent >= 100000 
+                        ? `₹${(property.current_rent / 100000).toFixed(2)} Lakh` 
+                        : `₹${property.current_rent.toLocaleString('en-IN')}`
+                      : '₹2.45 Lakh'}
+                  </span>
+                </div>
+
+                <div className="bg-[#080f1a]/80 p-3.5 rounded-xl border border-amber-400/20">
+                  <span className="text-[11px] font-bold text-neutral-400 uppercase block mb-1">Gross ROI Yield</span>
+                  <span className="text-lg sm:text-xl font-extrabold text-emerald-400 font-serif">
+                    {property.roi_yield || '8.40% Annual'}
+                  </span>
+                </div>
+
+                <div className="bg-[#080f1a]/80 p-3.5 rounded-xl border border-amber-400/20">
+                  <span className="text-[11px] font-bold text-neutral-400 uppercase block mb-1">Corporate Tenant</span>
+                  <span className="text-sm sm:text-base font-extrabold text-white truncate block">
+                    {property.tenant_name || 'Tier-1 Blue Chip Lessee'}
+                  </span>
+                </div>
+
+                <div className="bg-[#080f1a]/80 p-3.5 rounded-xl border border-amber-400/20">
+                  <span className="text-[11px] font-bold text-neutral-400 uppercase block mb-1">Registered Lease Term</span>
+                  <span className="text-sm sm:text-base font-extrabold text-white truncate block">
+                    {property.lease_term || '9 Years (3+3+3)'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* 4. DESCRIPTION & HIGHLIGHTS */}
           <div className="space-y-3">

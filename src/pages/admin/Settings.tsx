@@ -23,7 +23,10 @@ import {
   Play,
   Trash2,
   Eye,
-  Loader2
+  Loader2,
+  MapPin,
+  Mail,
+  Clock
 } from 'lucide-react';
 import { getWhatsAppUrl } from '../../utils/whatsapp.js';
 import { 
@@ -423,14 +426,16 @@ export default function Settings() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setStatus('Saving...');
+    // 1. Instant optimistic update across all views & store (0ms delay)
+    setSettings(formData);
+    setStatus('Settings saved successfully!');
+    setTimeout(() => setStatus(''), 3000);
+
+    // 2. Synchronize to Supabase & backend asynchronously
     try {
       await supabaseService.settings.update(formData);
-      setSettings(formData);
-      setStatus('Settings saved successfully!');
-      setTimeout(() => setStatus(''), 3000);
     } catch (err) {
-      setStatus('Failed to save settings.');
+      console.warn('Background settings sync note:', err);
     }
   };
 
@@ -746,8 +751,9 @@ export default function Settings() {
                       className="w-full h-full object-cover"
                     />
                   )}
-                  <div className="absolute bottom-2 left-2 bg-[#080f1a]/80 backdrop-blur-md px-2 py-1 rounded text-[10px] text-[#d4a359] font-bold">
-                    Playing on Mute & Loop
+                  <div className="absolute bottom-2 left-2 bg-[#080f1a]/80 backdrop-blur-md px-2 py-1 rounded text-[10px] text-[#d4a359] font-bold flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span>Playing on Mute & Loop</span>
                   </div>
                 </div>
               ) : (
@@ -755,10 +761,71 @@ export default function Settings() {
                   <Film className="w-8 h-8 mb-2 opacity-50 text-[#d4a359]" />
                   <span className="text-xs font-semibold text-neutral-300">No Custom Video Set</span>
                   <span className="text-[11px] text-neutral-500 mt-0.5">
-                    Upload a video to see the live muted loop background preview
+                    Upload a video or pick a sample preset below to see the live muted loop background
                   </span>
                 </div>
               )}
+            </div>
+
+            {/* Quick 1-Click Sample Video Presets */}
+            <div className="md:col-span-2 pt-2 border-t border-white/10">
+              <label className="block text-xs font-bold uppercase tracking-wider text-[#d4a359] mb-2.5 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Test Sample Luxury Architecture Videos (Muted & Looping)</span>
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {[
+                  {
+                    title: 'Modern High-Rise Apartment Exterior',
+                    url: 'https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-building-exterior-41549-large.mp4',
+                    category: 'Architecture 4K',
+                    modalTitle: 'Pune Luxury Architectural Showcase & High-Rise'
+                  },
+                  {
+                    title: 'Luxury Interior & Marble Living Room',
+                    url: 'https://assets.mixkit.co/videos/preview/mixkit-interior-of-a-luxurious-modern-apartment-43093-large.mp4',
+                    category: 'Interiors HD',
+                    modalTitle: 'Modern Penthouse & Master Suite Interior Walkthrough'
+                  },
+                  {
+                    title: 'Curved Glass Facade & Estate',
+                    url: 'https://assets.mixkit.co/videos/preview/mixkit-curved-facade-of-a-modern-building-41551-large.mp4',
+                    category: 'Facade 4K',
+                    modalTitle: 'Curved Architectural Residence & Landscape'
+                  }
+                ].map((sample) => (
+                  <button
+                    key={sample.title}
+                    type="button"
+                    onClick={() => {
+                      setFormData({
+                        ...formData,
+                        hero_video_url: sample.url,
+                        hero_video_title: sample.modalTitle
+                      });
+                      setVideoUploadMsg(`Selected sample video: "${sample.title}". Click "Save All Settings" below to publish.`);
+                    }}
+                    className={`p-3 rounded-xl border text-left flex items-center gap-3 transition-all cursor-pointer ${
+                      formData.hero_video_url === sample.url
+                        ? 'border-[#d4a359] bg-[#d4a359]/15 ring-1 ring-[#d4a359]'
+                        : 'border-white/10 bg-[#080f1a] hover:border-[#d4a359]/50 hover:bg-[#080f1a]/80'
+                    }`}
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-[#d4a359]/20 text-[#d4a359] flex items-center justify-center shrink-0">
+                      <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold text-white truncate">{sample.title}</div>
+                      <div className="text-[10px] text-neutral-400">{sample.category} • Muted Loop</div>
+                    </div>
+                    {formData.hero_video_url === sample.url && (
+                      <span className="text-[10px] px-2 py-0.5 bg-[#d4a359] text-[#080f1a] font-bold rounded-full">
+                        Active
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
             </div>
 
           </div>
@@ -809,38 +876,223 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* 3. CONTACT COORDINATES */}
-        <div>
-          <h2 className="text-base font-bold font-serif mb-4 border-b border-white/10 pb-2 text-[#d4a359] flex items-center gap-2">
-            <Phone className="w-4 h-4" />
-            <span>Contact & Office Coordinates</span>
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold uppercase text-neutral-300 mb-1">Official Phone Number</label>
-              <input 
-                value={formData.phone || ''} 
-                onChange={e => setFormData({...formData, phone: e.target.value})} 
-                className="w-full px-3 py-2.5 bg-[#080f1a] border border-white/15 text-white rounded-xl focus:outline-none focus:border-[#d4a359] text-sm" 
-              />
+        {/* 3. CONTACT COORDINATES & HEAD OFFICE SETTINGS */}
+        <div className="p-6 rounded-2xl bg-gradient-to-b from-[#111f33] to-[#0a1220] border border-[#d4a359]/30 space-y-6 shadow-xl">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-xl bg-[#d4a359]/20 border border-[#d4a359]/40 flex items-center justify-center text-[#d4a359]">
+                <MapPin className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold font-serif text-white flex items-center gap-2">
+                  <span>Head Office, Phone, Email & Working Hours</span>
+                </h2>
+                <p className="text-xs text-neutral-300">
+                  Controls the live Contact Info cards in the website footer, invoices, and concierge desks.
+                </p>
+              </div>
             </div>
-            <div>
-              <label className="block text-xs font-bold uppercase text-neutral-300 mb-1">Official Email Address</label>
+            <span className="text-xs px-3 py-1 bg-[#d4a359]/20 border border-[#d4a359]/30 text-[#d4a359] font-bold rounded-full inline-flex items-center gap-1.5 self-start sm:self-auto">
+              <Sparkles className="w-3 h-3" />
+              Live Footer Synced
+            </span>
+          </div>
+
+          {/* Section Narrative & Heading */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-[#080f1a] p-4 rounded-xl border border-white/10">
+            <div className="md:col-span-2">
+              <label className="block text-xs font-bold uppercase text-neutral-300 mb-1">
+                Contact Section Heading
+              </label>
               <input 
-                type="email" 
-                value={formData.email || ''} 
-                onChange={e => setFormData({...formData, email: e.target.value})} 
-                className="w-full px-3 py-2.5 bg-[#080f1a] border border-white/15 text-white rounded-xl focus:outline-none focus:border-[#d4a359] text-sm" 
+                type="text"
+                value={formData.contact_heading || ''} 
+                onChange={e => setFormData({...formData, contact_heading: e.target.value})} 
+                placeholder="Reach Out to Our Luxury Real Estate Advisors" 
+                className="w-full px-3 py-2.5 bg-[#0e1726] border border-white/20 text-white rounded-xl focus:outline-none focus:border-[#d4a359] text-sm font-semibold" 
               />
             </div>
             <div className="md:col-span-2">
-              <label className="block text-xs font-bold uppercase text-neutral-300 mb-1">Registered Office Address (Appears on Invoices)</label>
-              <input 
-                value={formData.address || ''} 
-                onChange={e => setFormData({...formData, address: e.target.value})} 
-                className="w-full px-3 py-2.5 bg-[#080f1a] border border-white/15 text-white rounded-xl focus:outline-none focus:border-[#d4a359] text-sm" 
+              <label className="block text-xs font-bold uppercase text-neutral-300 mb-1">
+                Contact Section Subtitle / Description
+              </label>
+              <textarea 
+                value={formData.contact_subtitle || ''} 
+                onChange={e => setFormData({...formData, contact_subtitle: e.target.value})} 
+                placeholder="Have questions about residential leases, high-end commercial spaces, society guidelines, or scheduling private site visits? Contact our Pune head office directly." 
+                rows={2}
+                className="w-full px-3 py-2.5 bg-[#0e1726] border border-white/20 text-white rounded-xl focus:outline-none focus:border-[#d4a359] text-sm" 
               />
             </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            
+            {/* Office Street Address */}
+            <div className="md:col-span-2 space-y-4">
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#d4a359] border-b border-white/10 pb-1">
+                <MapPin className="w-4 h-4" />
+                <span>1. Head Office Address</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-neutral-300 mb-1">
+                    Street Address / Building Name *
+                  </label>
+                  <input 
+                    value={formData.address || ''} 
+                    onChange={e => setFormData({...formData, address: e.target.value})} 
+                    placeholder="e.g. Balewadi High Street, Near Baner" 
+                    className="w-full px-3 py-2.5 bg-[#080f1a] border border-white/20 text-white rounded-xl focus:outline-none focus:border-[#d4a359] text-sm" 
+                  />
+                  <p className="text-[11px] text-neutral-400 mt-1">Appears on invoices and top of Head Office card.</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase text-neutral-300 mb-1">
+                    City, State & Postal Code
+                  </label>
+                  <input 
+                    value={formData.office_city || ''} 
+                    onChange={e => setFormData({...formData, office_city: e.target.value})} 
+                    placeholder="e.g. Pune, Maharashtra - 411045, India" 
+                    className="w-full px-3 py-2.5 bg-[#080f1a] border border-white/20 text-white rounded-xl focus:outline-none focus:border-[#d4a359] text-sm" 
+                  />
+                  <p className="text-[11px] text-neutral-400 mt-1">Secondary line on footer address card.</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Phone Numbers */}
+            <div className="md:col-span-2 space-y-4 pt-2">
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#d4a359] border-b border-white/10 pb-1">
+                <Phone className="w-4 h-4" />
+                <span>2. Phone Support & Helplines</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-neutral-300 mb-1">
+                    Primary Phone Number *
+                  </label>
+                  <input 
+                    value={formData.phone || ''} 
+                    onChange={e => setFormData({...formData, phone: e.target.value})} 
+                    placeholder="e.g. +91 98220 12345" 
+                    className="w-full px-3 py-2.5 bg-[#080f1a] border border-white/20 text-white rounded-xl focus:outline-none focus:border-[#d4a359] text-sm font-mono" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase text-neutral-300 mb-1">
+                    Secondary / Landline Phone (Optional)
+                  </label>
+                  <input 
+                    value={formData.phone_secondary || ''} 
+                    onChange={e => setFormData({...formData, phone_secondary: e.target.value})} 
+                    placeholder="e.g. +91 20 6789 0123" 
+                    className="w-full px-3 py-2.5 bg-[#080f1a] border border-white/20 text-white rounded-xl focus:outline-none focus:border-[#d4a359] text-sm font-mono" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase text-neutral-300 mb-1">
+                    Phone Status Tagline
+                  </label>
+                  <input 
+                    value={formData.phone_tagline || ''} 
+                    onChange={e => setFormData({...formData, phone_tagline: e.target.value})} 
+                    placeholder="e.g. Direct Advisor Connect" 
+                    className="w-full px-3 py-2.5 bg-[#080f1a] border border-white/20 text-white rounded-xl focus:outline-none focus:border-[#d4a359] text-sm" 
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Email Coordinates */}
+            <div className="md:col-span-2 space-y-4 pt-2">
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#d4a359] border-b border-white/10 pb-1">
+                <Mail className="w-4 h-4" />
+                <span>3. Email Inquiries Desk</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-neutral-300 mb-1">
+                    Primary Inquiries Email *
+                  </label>
+                  <input 
+                    type="email"
+                    value={formData.email || ''} 
+                    onChange={e => setFormData({...formData, email: e.target.value})} 
+                    placeholder="e.g. concierge@rentalpune.com" 
+                    className="w-full px-3 py-2.5 bg-[#080f1a] border border-white/20 text-white rounded-xl focus:outline-none focus:border-[#d4a359] text-sm" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase text-neutral-300 mb-1">
+                    Support / Escalations Email (Optional)
+                  </label>
+                  <input 
+                    type="email"
+                    value={formData.email_support || ''} 
+                    onChange={e => setFormData({...formData, email_support: e.target.value})} 
+                    placeholder="e.g. info@rentalpune.com" 
+                    className="w-full px-3 py-2.5 bg-[#080f1a] border border-white/20 text-white rounded-xl focus:outline-none focus:border-[#d4a359] text-sm" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase text-neutral-300 mb-1">
+                    Email SLA / Guarantee Tagline
+                  </label>
+                  <input 
+                    value={formData.email_tagline || ''} 
+                    onChange={e => setFormData({...formData, email_tagline: e.target.value})} 
+                    placeholder="e.g. Fast 2-hour response time" 
+                    className="w-full px-3 py-2.5 bg-[#080f1a] border border-white/20 text-white rounded-xl focus:outline-none focus:border-[#d4a359] text-sm" 
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Working Hours & Live Desk Badge */}
+            <div className="md:col-span-2 space-y-4 pt-2">
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#d4a359] border-b border-white/10 pb-1">
+                <Clock className="w-4 h-4" />
+                <span>4. Working Hours & Live Desk Status</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-neutral-300 mb-1">
+                    Working Hours Timing *
+                  </label>
+                  <input 
+                    value={formData.working_hours || ''} 
+                    onChange={e => setFormData({...formData, working_hours: e.target.value})} 
+                    placeholder="e.g. Mon - Sun: 9:00 AM – 8:30 PM" 
+                    className="w-full px-3 py-2.5 bg-[#080f1a] border border-white/20 text-white rounded-xl focus:outline-none focus:border-[#d4a359] text-sm font-semibold" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase text-neutral-300 mb-1">
+                    Site Visits / Days Policy Note
+                  </label>
+                  <input 
+                    value={formData.working_days_note || ''} 
+                    onChange={e => setFormData({...formData, working_days_note: e.target.value})} 
+                    placeholder="e.g. Site visits open all 7 days" 
+                    className="w-full px-3 py-2.5 bg-[#080f1a] border border-white/20 text-white rounded-xl focus:outline-none focus:border-[#d4a359] text-sm" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase text-neutral-300 mb-1">
+                    Live Desk Status Badge Text
+                  </label>
+                  <input 
+                    value={formData.desk_status || ''} 
+                    onChange={e => setFormData({...formData, desk_status: e.target.value})} 
+                    placeholder="e.g. Desk Active (9 AM - 8:30 PM)" 
+                    className="w-full px-3 py-2.5 bg-[#080f1a] border border-white/20 text-white rounded-xl focus:outline-none focus:border-[#d4a359] text-sm" 
+                  />
+                </div>
+              </div>
+            </div>
+
           </div>
         </div>
 

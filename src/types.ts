@@ -24,6 +24,17 @@ export type FAQ = {
   created_at?: string;
 };
 
+export type GalleryItem = {
+  id: number;
+  title: string;
+  category: string;
+  image_url: string;
+  description?: string;
+  sort_order?: number;
+  is_active?: number | boolean;
+  created_at?: string;
+};
+
 export type PropertyFAQ = {
   id?: string;
   question: string;
@@ -46,9 +57,13 @@ export type Property = {
   videos?: string[];
   furniture?: string[];
   faqs?: PropertyFAQ[];
-  purpose?: 'RENT' | 'SALE' | 'COMMERCIAL' | string;
-  category?: 'RESIDENTIAL' | 'COMMERCIAL' | string;
+  purpose?: 'RENT' | 'READY_POSSESSION' | 'UNDER_CONSTRUCTION' | 'RESIDENTIAL' | 'COMMERCIAL' | 'RENTED_COMMERCIAL_SALE' | 'RENTED_COMMERCIAL_BY_SELL' | 'SALE' | string;
+  category?: 'RENTAL' | 'READY_POSSESSION' | 'UNDER_CONSTRUCTION' | 'RESIDENTIAL' | 'COMMERCIAL' | 'RENTED_COMMERCIAL_SALE' | string;
   furnishing?: string;
+  current_rent?: number;
+  roi_yield?: string;
+  tenant_name?: string;
+  lease_term?: string;
   created_at?: string;
 };
 
@@ -177,8 +192,20 @@ export type Settings = {
   website_name?: string;
   company_name?: string;
   phone?: string;
+  phone_secondary?: string;
+  phone_tagline?: string;
   email?: string;
+  email_support?: string;
+  email_tagline?: string;
   address?: string;
+  office_city?: string;
+  office_landmark?: string;
+  working_hours?: string;
+  working_days_note?: string;
+  desk_status?: string;
+  contact_heading?: string;
+  contact_subtitle?: string;
+  contact_note?: string;
   hero_heading?: string;
   hero_subheading?: string;
   hero_video_url?: string;

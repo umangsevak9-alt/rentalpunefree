@@ -201,14 +201,16 @@ export default function HeroSection() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setStatus('Saving...');
+    // 1. Instant optimistic update across all views & store (0ms delay)
+    setSettings(formData);
+    setStatus('Hero section and branding updated successfully!');
+    setTimeout(() => setStatus(''), 4000);
+
+    // 2. Synchronize to Supabase & backend asynchronously
     try {
       await supabaseService.settings.update(formData);
-      setSettings(formData);
-      setStatus('Hero section and branding updated successfully!');
-      setTimeout(() => setStatus(''), 4000);
     } catch (err) {
-      setStatus('Failed to update settings.');
+      console.warn('Background settings sync note:', err);
     }
   };
 

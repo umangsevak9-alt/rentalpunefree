@@ -17,6 +17,8 @@ import {
   FileText,
   HelpCircle,
   BookmarkCheck,
+  Film,
+  Sparkles,
   X
 } from 'lucide-react';
 
@@ -51,8 +53,9 @@ export default function AdminLayout() {
     { name: 'Site Visits', path: '/admin/visits', icon: CalendarDays },
     { name: 'Properties', path: '/admin/properties', icon: Building },
     { name: 'Property FAQs', path: '/admin/faqs', icon: HelpCircle },
+    { name: 'Gallery & Showcase', path: '/admin/gallery', icon: Image },
     { name: 'Agents', path: '/admin/agents', icon: Users },
-    { name: 'Hero Section', path: '/admin/hero', icon: Image },
+    { name: 'Hero Section', path: '/admin/hero', icon: Film },
     { name: 'Settings', path: '/admin/settings', icon: Settings },
   ];
 
