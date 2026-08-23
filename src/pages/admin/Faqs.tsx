@@ -53,13 +53,8 @@ export default function Faqs() {
   const fetchFaqs = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/faqs/all', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data: FAQ[] = await res.json();
-        setFaqs(data);
-      }
+      const data = await supabaseService.faqs.getAll();
+      setFaqs(data);
     } catch (err) {
       console.error('Error fetching FAQs:', err);
     } finally {
@@ -69,6 +64,19 @@ export default function Faqs() {
 
   useEffect(() => {
     fetchFaqs();
+
+    const handleUpdate = () => {
+      const cached = supabaseService.getLocal<FAQ[]>('faqs', []);
+      setFaqs(cached);
+    };
+
+    window.addEventListener('faqs_updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+
+    return () => {
+      window.removeEventListener('faqs_updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+    };
   }, []);
 
   const openAddModal = () => {
@@ -100,31 +108,21 @@ export default function Faqs() {
     if (!formData.question.trim() || !formData.answer.trim()) return;
 
     try {
-      const url = editingFaq ? `/api/faqs/${editingFaq.id}` : '/api/faqs';
-      const method = editingFaq ? 'PUT' : 'POST';
-
-      const res = await fetch(url, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(formData)
-      });
-
-      if (res.ok) {
+      if (editingFaq) {
+        await supabaseService.faqs.update(editingFaq.id, formData);
         setNotification({
-          message: editingFaq ? 'FAQ updated successfully!' : 'New FAQ added to home page!',
+          message: 'FAQ updated successfully!',
           type: 'success'
         });
-        setIsModalOpen(false);
-        fetchFaqs();
       } else {
+        await supabaseService.faqs.create(formData);
         setNotification({
-          message: 'Failed to save FAQ. Please check input values.',
-          type: 'error'
+          message: 'New FAQ added to home page!',
+          type: 'success'
         });
       }
+      setIsModalOpen(false);
+      fetchFaqs();
     } catch (err) {
       console.error('Error saving FAQ:', err);
       setNotification({ message: 'An unexpected error occurred.', type: 'error' });
@@ -135,15 +133,9 @@ export default function Faqs() {
     if (!confirm('Are you sure you want to delete this FAQ item?')) return;
 
     try {
-      const res = await fetch(`/api/faqs/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-
-      if (res.ok) {
-        setNotification({ message: 'FAQ deleted successfully.', type: 'success' });
-        fetchFaqs();
-      }
+      await supabaseService.faqs.delete(id);
+      setNotification({ message: 'FAQ deleted successfully.', type: 'success' });
+      fetchFaqs();
     } catch (err) {
       console.error('Error deleting FAQ:', err);
     }
@@ -152,18 +144,8 @@ export default function Faqs() {
   const handleToggleActive = async (faq: FAQ) => {
     const newStatus = faq.is_active === 1 ? 0 : 1;
     try {
-      const res = await fetch(`/api/faqs/${faq.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ is_active: newStatus })
-      });
-
-      if (res.ok) {
-        setFaqs(prev => prev.map(f => f.id === faq.id ? { ...f, is_active: newStatus } : f));
-      }
+      await supabaseService.faqs.update(faq.id, { is_active: newStatus });
+      fetchFaqs();
     } catch (err) {
       console.error('Error toggling active status:', err);
     }
@@ -178,30 +160,14 @@ export default function Faqs() {
     const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
     const targetFaq = faqs[targetIndex];
 
-    // Swap sort orders
     const currentSortOrder = faq.sort_order || (currentIndex + 1);
     const targetSortOrder = targetFaq.sort_order || (targetIndex + 1);
 
     try {
       await Promise.all([
-        fetch(`/api/faqs/${faq.id}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({ sort_order: targetSortOrder })
-        }),
-        fetch(`/api/faqs/${targetFaq.id}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({ sort_order: currentSortOrder })
-        })
+        supabaseService.faqs.update(faq.id, { sort_order: targetSortOrder }),
+        supabaseService.faqs.update(targetFaq.id, { sort_order: currentSortOrder })
       ]);
-
       fetchFaqs();
     } catch (err) {
       console.error('Error reordering FAQs:', err);
@@ -213,18 +179,12 @@ export default function Faqs() {
     setIsResetting(true);
 
     try {
-      const res = await fetch('/api/faqs/reset-defaults', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+      await supabaseService.faqs.resetDefaults();
+      setNotification({
+        message: 'Reset Home Page FAQs to default Pune rental templates!',
+        type: 'success'
       });
-
-      if (res.ok) {
-        setNotification({
-          message: 'Reset Home Page FAQs to default Pune rental templates!',
-          type: 'success'
-        });
-        fetchFaqs();
-      }
+      fetchFaqs();
     } catch (err) {
       console.error('Error resetting defaults:', err);
     } finally {
