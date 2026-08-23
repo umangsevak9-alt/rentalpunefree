@@ -1416,6 +1416,43 @@ export const supabaseService = {
   properties: {
     async getAll(): Promise<Property[]> {
       try {
+        const apiRes = await fetch('/api/properties');
+        if (apiRes.ok) {
+          const apiData = await apiRes.json();
+          if (Array.isArray(apiData)) {
+            const mapped = apiData.map((p: any) => ({
+              id: Number(p.id),
+              title: p.title || 'Untitled Property',
+              description: p.description || '',
+              price: Number(p.price || 0),
+              type: p.type || 'Apartment',
+              bedrooms: Number(p.bedrooms || 0),
+              bathrooms: Number(p.bathrooms || 0),
+              area: Number(p.area || 0),
+              location: p.location || 'Pune',
+              status: p.status || 'PUBLISHED',
+              purpose: p.purpose || (p.type === 'Rented Commercial by Sell' || p.type?.toLowerCase().includes('rented commercial') ? 'RENTED_COMMERCIAL_SALE' : (p.type?.toLowerCase().includes('office') || p.type?.toLowerCase().includes('retail') || p.type?.toLowerCase().includes('commercial') ? 'COMMERCIAL' : (Number(p.price) > 5000000 ? 'SALE' : 'RENT'))),
+              category: p.category || (p.type === 'Rented Commercial by Sell' || p.type?.toLowerCase().includes('rented commercial') ? 'RENTED_COMMERCIAL_SALE' : (p.type?.toLowerCase().includes('office') || p.type?.toLowerCase().includes('retail') || p.type?.toLowerCase().includes('commercial') ? 'COMMERCIAL' : 'RESIDENTIAL')),
+              furnishing: p.furnishing || 'Semi-Furnished',
+              current_rent: p.current_rent ? Number(p.current_rent) : undefined,
+              roi_yield: p.roi_yield,
+              tenant_name: p.tenant_name,
+              lease_term: p.lease_term,
+              furniture: safeJsonParse<string[]>(p.furniture, Array.isArray(p.furniture) ? p.furniture : []),
+              images: safeJsonParse<string[]>(p.images, Array.isArray(p.images) ? p.images : []),
+              videos: safeJsonParse<string[]>(p.videos, Array.isArray(p.videos) ? p.videos : []),
+              faqs: safeJsonParse<any[]>(p.faqs, Array.isArray(p.faqs) ? p.faqs : []),
+              created_at: p.created_at
+            }));
+            setLocal('properties', mapped);
+            return mapped;
+          }
+        }
+      } catch (err) {
+        console.warn('API properties fetch error, falling back to direct Supabase:', err);
+      }
+
+      try {
         const { data, error } = await supabase
           .from('properties')
           .select('*')
@@ -1509,16 +1546,58 @@ export const supabaseService = {
         purpose: property.purpose || 'RENT',
         category: property.category || 'RESIDENTIAL',
         furnishing: property.furnishing || 'Semi-Furnished',
-        furniture: JSON.stringify(property.furniture || []),
-        images: JSON.stringify(property.images || []),
-        videos: JSON.stringify(property.videos || []),
-        faqs: JSON.stringify(property.faqs || [])
+        furniture: property.furniture || [],
+        images: property.images || [],
+        videos: property.videos || [],
+        faqs: property.faqs || []
+      };
+
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token || getStoredToken();
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json'
+        };
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        const apiRes = await fetch('/api/properties', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload)
+        });
+
+        if (apiRes.ok) {
+          const apiData = await apiRes.json();
+          if (apiData && apiData.id) {
+            const newProp: Property = {
+              id: Number(apiData.id),
+              ...property,
+              created_at: new Date().toISOString()
+            };
+            const existing = getLocal<Property[]>('properties', SEED_PROPERTIES);
+            setLocal('properties', [newProp, ...existing]);
+            return newProp;
+          }
+        }
+      } catch (err) {
+        console.warn('API property creation failed, falling back to direct Supabase:', err);
+      }
+
+      // Supabase direct fallback
+      const directPayload = {
+        ...payload,
+        furniture: JSON.stringify(payload.furniture),
+        images: JSON.stringify(payload.images),
+        videos: JSON.stringify(payload.videos),
+        faqs: JSON.stringify(payload.faqs)
       };
 
       try {
         const { data, error } = await supabase
           .from('properties')
-          .insert([payload])
+          .insert([directPayload])
           .select()
           .single();
 
@@ -1550,15 +1629,44 @@ export const supabaseService = {
 
     async update(id: number, updates: Partial<Property>): Promise<Property> {
       const payload: any = { ...updates };
-      if (updates.images) payload.images = JSON.stringify(updates.images);
-      if (updates.videos) payload.videos = JSON.stringify(updates.videos);
-      if (updates.faqs) payload.faqs = JSON.stringify(updates.faqs);
-      if (updates.furniture) payload.furniture = JSON.stringify(updates.furniture);
+
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token || getStoredToken();
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json'
+        };
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        const apiRes = await fetch(`/api/properties/${id}`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify(payload)
+        });
+
+        if (apiRes.ok) {
+          const existing = getLocal<Property[]>('properties', SEED_PROPERTIES);
+          const updated = existing.map(p => p.id === id ? { ...p, ...updates } : p);
+          setLocal('properties', updated);
+          return updated.find(p => p.id === id)!;
+        }
+      } catch (err) {
+        console.warn('API property update failed, falling back to direct Supabase:', err);
+      }
+
+      // Direct Supabase update fallback
+      const directPayload: any = { ...updates };
+      if (updates.images) directPayload.images = JSON.stringify(updates.images);
+      if (updates.videos) directPayload.videos = JSON.stringify(updates.videos);
+      if (updates.faqs) directPayload.faqs = JSON.stringify(updates.faqs);
+      if (updates.furniture) directPayload.furniture = JSON.stringify(updates.furniture);
 
       try {
         await supabase
           .from('properties')
-          .update(payload)
+          .update(directPayload)
           .eq('id', id);
       } catch (e) {
         console.warn('Supabase update property error:', e);
@@ -1571,6 +1679,29 @@ export const supabaseService = {
     },
 
     async delete(id: number): Promise<boolean> {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token || getStoredToken();
+        const headers: Record<string, string> = {};
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        const apiRes = await fetch(`/api/properties/${id}`, {
+          method: 'DELETE',
+          headers
+        });
+
+        if (apiRes.ok) {
+          const existing = getLocal<Property[]>('properties', SEED_PROPERTIES);
+          setLocal('properties', existing.filter(p => p.id !== id));
+          return true;
+        }
+      } catch (err) {
+        console.warn('API property deletion failed, falling back to direct Supabase:', err);
+      }
+
+      // Direct Supabase delete fallback
       try {
         await supabase.from('properties').delete().eq('id', id);
       } catch (e) {

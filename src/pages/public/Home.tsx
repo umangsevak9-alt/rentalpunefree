@@ -392,15 +392,21 @@ export default function Home() {
     loadFreshProperties();
 
     // 3. Instant event listeners for real-time changes
-    const handlePropertiesUpdated = (e: any) => {
-      const updatedList = e.detail || supabaseService.getLocal<Property[]>('properties', []);
+    const handlePropertiesUpdated = (e?: any) => {
+      const updatedList = (e && e.detail) || supabaseService.getLocal<Property[]>('properties', []);
       if (Array.isArray(updatedList) && updatedList.length > 0) {
         const published = updatedList.filter((p: Property) => p.status === 'PUBLISHED');
         setProperties(published.length > 0 ? published : defaultPuneProperties);
       }
     };
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'rp_properties') {
+        handlePropertiesUpdated();
+      }
+    };
     window.addEventListener('properties_updated', handlePropertiesUpdated);
     window.addEventListener('rp_properties_synced', handlePropertiesUpdated);
+    window.addEventListener('storage', handleStorageChange);
 
     // Fetch dynamic gallery from Supabase
     supabaseService.gallery.getAll().then(items => {
@@ -420,6 +426,7 @@ export default function Home() {
     return () => {
       window.removeEventListener('properties_updated', handlePropertiesUpdated);
       window.removeEventListener('rp_properties_synced', handlePropertiesUpdated);
+      window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('gallery_updated', handleGalleryUpdate);
       window.removeEventListener('rp_gallery_synced', handleGalleryUpdate);
     };

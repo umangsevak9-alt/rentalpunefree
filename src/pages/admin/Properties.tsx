@@ -435,40 +435,14 @@ export default function Properties() {
 
       if (editingProperty) {
         // UPDATE PROPERTY
-        try {
-          await supabaseService.properties.update(editingProperty.id, payload as any);
-        } catch (e) {}
-
-        const res = await fetch(`/api/properties/${editingProperty.id}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify(payload)
-        });
-        if (res.ok || true) {
-          setIsModalOpen(false);
-          fetchProperties();
-        }
+        await supabaseService.properties.update(editingProperty.id, payload as any);
+        setIsModalOpen(false);
+        fetchProperties();
       } else {
         // CREATE PROPERTY
-        try {
-          await supabaseService.properties.create(payload as any);
-        } catch (e) {}
-
-        const res = await fetch('/api/properties', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify(payload)
-        });
-        if (res.ok || true) {
-          setIsModalOpen(false);
-          fetchProperties();
-        }
+        await supabaseService.properties.create(payload as any);
+        setIsModalOpen(false);
+        fetchProperties();
       }
     } catch (err) {
       console.error('Error saving property:', err);
@@ -482,20 +456,9 @@ export default function Properties() {
     setIsDeleting(true);
 
     try {
-      try {
-        await supabaseService.properties.delete(deleteConfirmProperty.id);
-      } catch (e) {}
-
-      const res = await fetch(`/api/properties/${deleteConfirmProperty.id}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      if (res.ok || true) {
-        setDeleteConfirmProperty(null);
-        fetchProperties();
-      }
+      await supabaseService.properties.delete(deleteConfirmProperty.id);
+      setDeleteConfirmProperty(null);
+      fetchProperties();
     } catch (err) {
       console.error('Error deleting property:', err);
     } finally {
