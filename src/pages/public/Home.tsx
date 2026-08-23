@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../../store/index.js';
 import { Property, GalleryItem } from '../../types.js';
@@ -81,7 +81,8 @@ function parseVideoSource(rawUrl?: string, mediaType?: string) {
   if (ytMatch && ytMatch[1]) {
     const id = ytMatch[1];
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const bgUrl = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&mute=1&loop=1&playlist=${id}&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&disablekb=1&enablejsapi=1&playsinline=1${origin ? `&origin=${encodeURIComponent(origin)}` : ''}`;
+    // Clean uninterrupted background loop parameters without player controls, title logos, annotations, or keyboard shortcuts
+    const bgUrl = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&mute=1&loop=1&playlist=${id}&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&disablekb=1&enablejsapi=1&playsinline=1&fs=0&autohide=1${origin ? `&origin=${encodeURIComponent(origin)}` : ''}`;
     const modalUrl = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&controls=1&rel=0&playsinline=1`;
     return {
       type: 'youtube' as const,
@@ -102,7 +103,7 @@ function parseVideoSource(rawUrl?: string, mediaType?: string) {
       type: 'vimeo' as const,
       url,
       id,
-      bgUrl: `https://player.vimeo.com/video/${id}?autoplay=1&muted=1&loop=1&background=1`,
+      bgUrl: `https://player.vimeo.com/video/${id}?autoplay=1&muted=1&loop=1&background=1&controls=0&title=0&byline=0&portrait=0`,
       modalUrl: `https://player.vimeo.com/video/${id}?autoplay=1`,
       isDirect: false,
       isYouTube: false
@@ -147,11 +148,47 @@ export default function Home() {
   const [activeMediaTab, setActiveMediaTab] = useState<'photos' | 'videos'>('photos');
   const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
   const [heroVideoFailed, setHeroVideoFailed] = useState(false);
+  const heroVideoElementRef = useRef<HTMLVideoElement | null>(null);
 
   // Automatically reset failed state whenever user updates video URL or switches media format
   useEffect(() => {
     setHeroVideoFailed(false);
   }, [settings?.hero_video_url, settings?.hero_media_type]);
+
+  // Robust Autoplay handler for background loop
+  useEffect(() => {
+    const video = heroVideoElementRef.current;
+    if (!video || heroVideoInfo.type !== 'direct' || heroVideoFailed) return;
+
+    video.muted = true;
+    video.defaultMuted = true;
+    video.loop = true;
+    video.playsInline = true;
+
+    const startPlay = () => {
+      if (video && video.paused) {
+        video.play().catch(() => {
+          // Handled silently for autoplay policy
+        });
+      }
+    };
+
+    startPlay();
+
+    // In case the browser delays autoplay until first user interaction or tab focus
+    window.addEventListener('click', startPlay, { once: true, passive: true });
+    window.addEventListener('touchstart', startPlay, { once: true, passive: true });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        startPlay();
+      }
+    });
+
+    return () => {
+      window.removeEventListener('click', startPlay);
+      window.removeEventListener('touchstart', startPlay);
+    };
+  }, [heroVideoInfo.url, heroVideoInfo.type, heroVideoFailed]);
   const [activeGalleryImage, setActiveGalleryImage] = useState<string | null>(null);
   const [activeGalleryItem, setActiveGalleryItem] = useState<GalleryItem | null>(null);
   const [galleryCategoryFilter, setGalleryCategoryFilter] = useState<string>('ALL');
@@ -161,6 +198,7 @@ export default function Home() {
 
   // Book Visit / Lead modal
   const [isVisitModalOpen, setIsVisitModalOpen] = useState(false);
+  const [leadModalSource, setLeadModalSource] = useState<string>('Hero Section - Enquire Now');
   const [leadForm, setLeadForm] = useState({ 
     name: '', 
     email: '', 
@@ -683,12 +721,13 @@ export default function Home() {
       }
     } else {
       // 2. General Lead Submission
+      const currentSource = leadModalSource || 'Hero Section - Enquire Now';
       const leadPayload = {
         name: trimmedName,
         email: trimmedEmail || undefined,
         phone: trimmedPhone,
-        notes: `[General Enquiry] Location: ${leadForm.preferredLocation || 'Pune'} | Preferred Date: ${leadForm.visitDate || 'Flexible'} ${leadForm.visitTime || ''} | Notes: ${trimmedNotes || 'None'}`,
-        source: 'Website'
+        notes: `[${currentSource}] Location: ${leadForm.preferredLocation || 'Pune'} | Preferred Date: ${leadForm.visitDate || 'Flexible'} ${leadForm.visitTime || ''} | Requirement: ${trimmedNotes || 'General Enquiry'}`,
+        source: currentSource
       };
 
       try {
@@ -712,7 +751,7 @@ export default function Home() {
             email: trimmedEmail || undefined,
             phone: trimmedPhone,
             notes: leadPayload.notes,
-            source: 'Website Concierge'
+            source: currentSource
           });
           submittedSuccessfully = true;
         } catch (fallbackErr: any) {
@@ -739,7 +778,7 @@ export default function Home() {
     <div className="w-full bg-[#080f1a] text-white selection:bg-[#d4a359] selection:text-[#080f1a] overflow-x-hidden">
       
       {/* 1. HERO SECTION (LUXURY ARCHITECTURAL DISPLAY WITH LOOPING MUTED VIDEO / SLIDESHOW) */}
-      <section className="relative min-h-[85vh] sm:min-h-[80vh] flex flex-col justify-center overflow-hidden bg-[#080f1a] py-16 sm:py-28 px-4 sm:px-6 lg:px-8">
+      <section className="relative min-h-[90vh] sm:min-h-[85vh] flex flex-col justify-center overflow-hidden bg-[#080f1a] pt-28 pb-16 sm:pt-36 sm:pb-24 px-4 sm:px-6 lg:px-8">
         
         {/* Background Architectural Luxury Video Loop or Building Carousel */}
         {(() => {
@@ -765,28 +804,37 @@ export default function Home() {
                     loop 
                     playsInline 
                     preload="auto"
+                    controls={false}
+                    tabIndex={-1}
+                    aria-hidden="true"
+                    disablePictureInPicture
+                    disableRemotePlayback
+                    // @ts-ignore
+                    controlsList="nodownload nofullscreen noremoteplayback noplaybackrate"
                     onError={() => {
                       console.warn('Hero video failed to load or unsupported format, falling back to architectural backdrop.');
                       setHeroVideoFailed(true);
                     }}
                     ref={(el) => {
+                      heroVideoElementRef.current = el;
                       if (el) {
                         el.muted = true;
                         el.defaultMuted = true;
                         el.loop = true;
+                        el.playsInline = true;
                         el.play().catch(() => {
                           // Browser autoplay permission catch
                         });
                       }
                     }}
-                    className="w-full h-full object-cover object-center brightness-70 scale-105 transition-all duration-1000 ease-out pointer-events-none"
+                    className="w-full h-full object-cover object-center brightness-85 scale-105 transition-all duration-1000 ease-out pointer-events-none select-none"
                   />
                 ) : heroVideoInfo.type === 'youtube' ? (
                   <div className="w-full h-full relative overflow-hidden pointer-events-none">
                     <iframe
                       src={heroVideoInfo.bgUrl}
                       title="Hero Video Background"
-                      className="w-[320%] h-[140%] sm:w-[160%] sm:h-[160%] min-w-full min-h-full absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 object-cover border-0 pointer-events-none brightness-70"
+                      className="w-[320%] h-[140%] sm:w-[160%] sm:h-[160%] min-w-full min-h-full absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 object-cover border-0 pointer-events-none brightness-85"
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                       allowFullScreen
                     />
@@ -796,7 +844,7 @@ export default function Home() {
                     <iframe
                       src={heroVideoInfo.bgUrl}
                       title="Hero Video Background"
-                      className="w-[320%] h-[140%] sm:w-[160%] sm:h-[160%] min-w-full min-h-full absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 object-cover border-0 pointer-events-none brightness-70"
+                      className="w-[320%] h-[140%] sm:w-[160%] sm:h-[160%] min-w-full min-h-full absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 object-cover border-0 pointer-events-none brightness-85"
                       allow="autoplay; fullscreen"
                       allowFullScreen
                     />
@@ -805,12 +853,12 @@ export default function Home() {
                   <img 
                     src={activeHeroImage} 
                     alt="Luxury Living Architecture" 
-                    className="w-full h-full object-cover object-center brightness-70 scale-105 transition-all duration-1000 ease-out"
+                    className="w-full h-full object-cover object-center brightness-85 scale-105 transition-all duration-1000 ease-out"
                   />
                 )}
-                {/* Luxury Overlays */}
-                <div className="absolute inset-0 bg-gradient-to-r from-[#080f1a]/95 via-[#080f1a]/60 to-[#080f1a]/40 pointer-events-none"></div>
-                <div className="absolute inset-0 bg-gradient-to-t from-[#080f1a] via-transparent to-[#080f1a]/70 pointer-events-none"></div>
+                {/* Luxury Overlays - Softer subtle black gradients for clearer image & video visibility */}
+                <div className="absolute inset-0 bg-gradient-to-r from-[#080f1a]/80 via-[#080f1a]/40 to-[#080f1a]/20 pointer-events-none"></div>
+                <div className="absolute inset-0 bg-gradient-to-t from-[#080f1a]/85 via-transparent to-[#080f1a]/35 pointer-events-none"></div>
               </div>
             );
           }
@@ -820,11 +868,11 @@ export default function Home() {
               <img 
                 src={activeHeroImage} 
                 alt="Luxury Living Architecture" 
-                className="w-full h-full object-cover object-center brightness-70 scale-105 transition-all duration-1000 ease-out"
+                className="w-full h-full object-cover object-center brightness-85 scale-105 transition-all duration-1000 ease-out"
               />
-              {/* Luxury Overlays */}
-              <div className="absolute inset-0 bg-gradient-to-r from-[#080f1a]/95 via-[#080f1a]/60 to-[#080f1a]/40 pointer-events-none"></div>
-              <div className="absolute inset-0 bg-gradient-to-t from-[#080f1a] via-transparent to-[#080f1a]/70 pointer-events-none"></div>
+              {/* Luxury Overlays - Softer subtle black gradients for clearer image & video visibility */}
+              <div className="absolute inset-0 bg-gradient-to-r from-[#080f1a]/80 via-[#080f1a]/40 to-[#080f1a]/20 pointer-events-none"></div>
+              <div className="absolute inset-0 bg-gradient-to-t from-[#080f1a]/85 via-transparent to-[#080f1a]/35 pointer-events-none"></div>
             </div>
           );
         })()}
@@ -859,14 +907,26 @@ export default function Home() {
               {settings?.hero_subheading || 'Premium 2, 3 & 4 BHK Residences crafted for those who deserve the finest in life.'}
             </p>
 
-            {/* Hero Quick Action Button */}
-            <div className="pt-2">
+            {/* Hero Quick Action Buttons */}
+            <div className="pt-2 flex flex-wrap items-center gap-3.5 sm:gap-4">
               <a
                 href="#properties"
-                className="inline-flex items-center justify-center px-8 py-3.5 bg-[#d4a359] hover:bg-[#c29247] text-[#080f1a] font-bold text-xs uppercase tracking-widest rounded-xl transition-all shadow-lg hover:shadow-[#d4a359]/20 cursor-pointer"
+                className="inline-flex items-center justify-center px-8 py-3.5 bg-[#d4a359] hover:bg-[#c29247] text-[#080f1a] font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-lg hover:shadow-[#d4a359]/30 active:scale-98 cursor-pointer"
               >
                 Explore Residences
               </a>
+              <button
+                type="button"
+                onClick={() => {
+                  setReferredProperty(null);
+                  setLeadModalSource('Hero Section - Enquire Now');
+                  setFormStatus('');
+                  setIsVisitModalOpen(true);
+                }}
+                className="inline-flex items-center justify-center px-8 py-3.5 bg-[#d4a359] hover:bg-[#c29247] text-[#080f1a] font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-lg hover:shadow-[#d4a359]/30 active:scale-98 cursor-pointer"
+              >
+                Enquire Now
+              </button>
             </div>
 
           </div>
@@ -2557,14 +2617,18 @@ export default function Home() {
 
             <div className="flex items-center space-x-3 mb-4">
               <div className="w-10 h-10 rounded-xl bg-[#d4a359]/15 border border-[#d4a359]/30 flex items-center justify-center text-[#d4a359]">
-                <Calendar className="w-5 h-5" />
+                {referredProperty ? <HomeIcon className="w-5 h-5" /> : leadModalSource?.includes('Enquire') ? <Mail className="w-5 h-5" /> : <Calendar className="w-5 h-5" />}
               </div>
               <div>
                 <h3 className="text-xl font-bold font-serif text-white">
-                  {referredProperty ? 'Book Property' : 'Book a Site Visit'}
+                  {referredProperty ? 'Book Property' : leadModalSource?.includes('Enquire') ? 'Enquire Now' : 'Book a Site Visit'}
                 </h3>
                 <p className="text-xs text-neutral-400">
-                  {referredProperty ? 'Direct luxury booking reservation & assisted visit' : 'Schedule an assisted walkthrough in Pune'}
+                  {referredProperty 
+                    ? 'Direct luxury booking reservation & assisted visit' 
+                    : leadModalSource?.includes('Enquire')
+                    ? 'Connect with our luxury residence specialist & get pricing details'
+                    : 'Schedule an assisted walkthrough in Pune'}
                 </p>
               </div>
             </div>

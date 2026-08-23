@@ -25,6 +25,21 @@ export default function PublicLayout() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isContactHighlighted, setIsContactHighlighted] = useState(false);
 
+  const [isScrolled, setIsScrolled] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      if (window.scrollY > 40) {
+        setIsScrolled(true);
+      } else {
+        setIsScrolled(false);
+      }
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    handleScroll();
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
   const phone = settings.phone || '+91 98220 12345';
   const phoneSecondary = settings.phone_secondary;
   const phoneTagline = settings.phone_tagline || 'Direct Advisor Connect';
@@ -72,7 +87,11 @@ export default function PublicLayout() {
   return (
     <div className="min-h-screen bg-white font-sans text-[#1a202c] flex flex-col selection:bg-[#b8863b] selection:text-white">
       {/* Top Luxury Navbar */}
-      <header className="fixed top-0 inset-x-0 bg-white/95 backdrop-blur-md z-50 border-b border-[#ece7dc] shadow-sm">
+      <header className={`fixed top-0 inset-x-0 z-50 transition-all duration-300 ${
+        isScrolled 
+          ? 'bg-[#080f1a]/90 backdrop-blur-md border-b border-white/10 shadow-lg' 
+          : 'bg-gradient-to-b from-black/80 via-black/40 to-transparent border-b border-transparent'
+      }`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
           
           {/* Brand Logo matching the reference "LAVISH / RENTAL PUNE" */}
@@ -82,17 +101,17 @@ export default function PublicLayout() {
             ) : (
               <div className="flex items-center space-x-2.5">
                 {/* Architectural Building Icon in Gold */}
-                <div className="w-9 h-9 rounded-lg bg-[#b8863b]/10 border border-[#b8863b]/30 flex items-center justify-center text-[#b8863b]">
+                <div className="w-9 h-9 rounded-lg bg-[#b8863b]/15 border border-[#b8863b]/40 flex items-center justify-center text-[#b8863b] shadow-sm">
                   <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-4M9 9h1M9 13h1M9 17h1M15 13h1M15 17h1" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                 </div>
                 <div className="flex flex-col">
                   <div className="flex items-baseline tracking-wider">
-                    <span className="font-serif text-xl font-bold tracking-widest text-[#1a202c]">RENTAL</span>
-                    <span className="font-serif text-xl font-bold tracking-widest text-[#b8863b] ml-1">PUNE</span>
+                    <span className="font-serif text-xl font-bold tracking-widest text-white drop-shadow-sm">RENTAL</span>
+                    <span className="font-serif text-xl font-bold tracking-widest text-[#d4a359] ml-1 drop-shadow-sm">PUNE</span>
                   </div>
-                  <span className="text-[8.5px] font-bold tracking-[0.28em] text-[#b8863b] uppercase">LUXURY LIVING</span>
+                  <span className="text-[8.5px] font-bold tracking-[0.28em] text-[#d4a359] uppercase">LUXURY LIVING</span>
                 </div>
               </div>
             )}
@@ -104,12 +123,12 @@ export default function PublicLayout() {
               type="button"
               onClick={(e) => handleScrollToSection('top', e)}
               className={`text-xs font-bold uppercase tracking-wider transition-colors relative py-2 cursor-pointer ${
-                location.pathname === '/' && !location.hash ? 'text-[#b8863b]' : 'text-[#1a202c] hover:text-[#b8863b]'
+                location.pathname === '/' && !location.hash ? 'text-[#d4a359]' : 'text-white/90 hover:text-[#d4a359]'
               }`}
             >
               <span>HOME</span>
               {location.pathname === '/' && !location.hash && (
-                <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#b8863b] rounded-full"></span>
+                <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#d4a359] rounded-full"></span>
               )}
             </button>
 
@@ -117,7 +136,7 @@ export default function PublicLayout() {
             <button 
               type="button"
               onClick={(e) => handleScrollToSection('about-project', e)}
-              className="text-xs font-bold uppercase tracking-wider text-[#1a202c] hover:text-[#b8863b] transition-colors cursor-pointer"
+              className="text-xs font-bold uppercase tracking-wider text-white/90 hover:text-[#d4a359] transition-colors cursor-pointer"
             >
               ABOUT US
             </button>
@@ -125,40 +144,40 @@ export default function PublicLayout() {
             <button 
               type="button"
               onClick={(e) => handleScrollToSection('amenities', e)}
-              className="text-xs font-bold uppercase tracking-wider text-[#1a202c] hover:text-[#b8863b] transition-colors cursor-pointer"
+              className="text-xs font-bold uppercase tracking-wider text-white/90 hover:text-[#d4a359] transition-colors cursor-pointer"
             >
               AMENITIES
             </button>
             <button 
               type="button"
               onClick={(e) => handleScrollToSection('properties', e)}
-              className="text-xs font-bold uppercase tracking-wider text-[#1a202c] hover:text-[#b8863b] transition-colors cursor-pointer"
+              className="text-xs font-bold uppercase tracking-wider text-white/90 hover:text-[#d4a359] transition-colors cursor-pointer"
             >
               PROPERTIES
             </button>
             <button 
               type="button"
               onClick={(e) => handleScrollToSection('gallery', e)}
-              className="text-xs font-bold uppercase tracking-wider text-[#1a202c] hover:text-[#b8863b] transition-colors cursor-pointer"
+              className="text-xs font-bold uppercase tracking-wider text-white/90 hover:text-[#d4a359] transition-colors cursor-pointer"
             >
               GALLERY
             </button>
             <button 
               type="button"
               onClick={(e) => handleScrollToSection('location', e)}
-              className="text-xs font-bold uppercase tracking-wider text-[#1a202c] hover:text-[#b8863b] transition-colors cursor-pointer"
+              className="text-xs font-bold uppercase tracking-wider text-white/90 hover:text-[#d4a359] transition-colors cursor-pointer"
             >
               LOCATION
             </button>
             <Link 
               to="/list-property" 
               className={`text-xs font-bold uppercase tracking-wider transition-colors relative py-2 ${
-                location.pathname === '/list-property' ? 'text-[#b8863b]' : 'text-[#1a202c] hover:text-[#b8863b]'
+                location.pathname === '/list-property' ? 'text-[#d4a359]' : 'text-white/90 hover:text-[#d4a359]'
               }`}
             >
               <span>LIST PROPERTY</span>
               {location.pathname === '/list-property' && (
-                <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#b8863b] rounded-full"></span>
+                <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#d4a359] rounded-full"></span>
               )}
             </Link>
 
@@ -166,7 +185,7 @@ export default function PublicLayout() {
             <button 
               type="button"
               onClick={(e) => handleScrollToSection('faqs', e)}
-              className="text-xs font-bold uppercase tracking-wider text-[#1a202c] hover:text-[#b8863b] transition-colors cursor-pointer"
+              className="text-xs font-bold uppercase tracking-wider text-white/90 hover:text-[#d4a359] transition-colors cursor-pointer"
             >
               FAQS
             </button>
@@ -176,9 +195,9 @@ export default function PublicLayout() {
           <div className="flex items-center space-x-3 sm:space-x-4">
             <a 
               href={`tel:${cleanPhone}`} 
-              className="hidden xl:flex items-center space-x-2 text-xs font-bold uppercase text-[#1a202c] hover:text-[#b8863b] transition-colors"
+              className="hidden xl:flex items-center space-x-2 text-xs font-bold uppercase text-white/90 hover:text-[#d4a359] transition-colors"
             >
-              <div className="w-7 h-7 rounded-full bg-[#b8863b]/10 flex items-center justify-center text-[#b8863b]">
+              <div className="w-7 h-7 rounded-full bg-[#d4a359]/20 flex items-center justify-center text-[#d4a359]">
                 <Phone className="w-3.5 h-3.5" />
               </div>
               <span>{phone}</span>
@@ -188,16 +207,16 @@ export default function PublicLayout() {
               href={whatsAppUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="hidden sm:inline-flex items-center justify-center space-x-2 px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-white bg-[#b8863b] hover:bg-[#a6752d] active:scale-95 rounded-lg shadow-sm shadow-[#b8863b]/20 transition-all cursor-pointer"
+              className="hidden sm:inline-flex items-center justify-center space-x-2 px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-[#080f1a] bg-[#d4a359] hover:bg-[#c29247] active:scale-95 rounded-lg shadow-sm shadow-[#d4a359]/20 transition-all cursor-pointer"
             >
-              <Phone className="w-3.5 h-3.5 text-white" />
+              <Phone className="w-3.5 h-3.5 text-[#080f1a]" />
               <span>ENQUIRE NOW</span>
             </a>
 
             {/* Mobile Menu Toggle Button */}
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="lg:hidden p-2 rounded-lg text-neutral-700 hover:text-[#b8863b] hover:bg-neutral-100 transition-colors"
+              className="lg:hidden p-2 rounded-lg text-white hover:text-[#d4a359] hover:bg-white/10 transition-colors"
               aria-label="Toggle navigation menu"
             >
               {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -208,55 +227,55 @@ export default function PublicLayout() {
 
         {/* Mobile Dropdown Menu */}
         {isMobileMenuOpen && (
-          <div className="lg:hidden bg-white border-b border-[#ece7dc] px-4 py-5 shadow-xl animate-in slide-in-from-top-2 duration-200">
+          <div className="lg:hidden bg-[#080f1a]/95 backdrop-blur-xl border-b border-white/10 px-4 py-5 shadow-2xl animate-in slide-in-from-top-2 duration-200">
             <nav className="flex flex-col space-y-3.5">
               <button 
                 type="button"
                 onClick={(e) => handleScrollToSection('top', e)}
-                className="text-left text-sm font-bold uppercase tracking-wider text-neutral-800 hover:text-[#b8863b] py-1 border-b border-neutral-100 cursor-pointer"
+                className="text-left text-sm font-bold uppercase tracking-wider text-white hover:text-[#d4a359] py-1 border-b border-white/10 cursor-pointer"
               >
                 HOME
               </button>
               <button 
                 type="button"
                 onClick={(e) => handleScrollToSection('about-project', e)}
-                className="text-left text-sm font-bold uppercase tracking-wider text-neutral-800 hover:text-[#b8863b] py-1 border-b border-neutral-100 cursor-pointer flex items-center justify-between"
+                className="text-left text-sm font-bold uppercase tracking-wider text-white hover:text-[#d4a359] py-1 border-b border-white/10 cursor-pointer flex items-center justify-between"
               >
                 <span>ABOUT US</span>
-                <span className="text-[10px] font-normal text-[#b8863b] bg-[#b8863b]/10 px-2 py-0.5 rounded">overview</span>
+                <span className="text-[10px] font-normal text-[#d4a359] bg-[#d4a359]/10 px-2 py-0.5 rounded">overview</span>
               </button>
               <button 
                 type="button"
                 onClick={(e) => handleScrollToSection('amenities', e)}
-                className="text-left text-sm font-bold uppercase tracking-wider text-neutral-800 hover:text-[#b8863b] py-1 border-b border-neutral-100 cursor-pointer"
+                className="text-left text-sm font-bold uppercase tracking-wider text-white hover:text-[#d4a359] py-1 border-b border-white/10 cursor-pointer"
               >
                 AMENITIES
               </button>
               <button 
                 type="button"
                 onClick={(e) => handleScrollToSection('properties', e)}
-                className="text-left text-sm font-bold uppercase tracking-wider text-neutral-800 hover:text-[#b8863b] py-1 border-b border-neutral-100 cursor-pointer"
+                className="text-left text-sm font-bold uppercase tracking-wider text-white hover:text-[#d4a359] py-1 border-b border-white/10 cursor-pointer"
               >
                 PROPERTIES
               </button>
               <button 
                 type="button"
                 onClick={(e) => handleScrollToSection('gallery', e)}
-                className="text-left text-sm font-bold uppercase tracking-wider text-neutral-800 hover:text-[#b8863b] py-1 border-b border-neutral-100 cursor-pointer"
+                className="text-left text-sm font-bold uppercase tracking-wider text-white hover:text-[#d4a359] py-1 border-b border-white/10 cursor-pointer"
               >
                 GALLERY
               </button>
               <button 
                 type="button"
                 onClick={(e) => handleScrollToSection('location', e)}
-                className="text-left text-sm font-bold uppercase tracking-wider text-neutral-800 hover:text-[#b8863b] py-1 border-b border-neutral-100 cursor-pointer"
+                className="text-left text-sm font-bold uppercase tracking-wider text-white hover:text-[#d4a359] py-1 border-b border-white/10 cursor-pointer"
               >
                 LOCATION
               </button>
               <Link 
                 to="/list-property" 
                 onClick={() => setIsMobileMenuOpen(false)}
-                className="text-sm font-bold uppercase tracking-wider text-neutral-800 hover:text-[#b8863b] py-1 border-b border-neutral-100"
+                className="text-sm font-bold uppercase tracking-wider text-white hover:text-[#d4a359] py-1 border-b border-white/10"
               >
                 LIST PROPERTY
               </Link>
@@ -293,7 +312,7 @@ export default function PublicLayout() {
       </header>
 
       {/* Main Page Body */}
-      <main className="flex-1 pt-20">
+      <main className={`flex-1 ${location.pathname === '/' ? '' : 'pt-20'}`}>
         <Outlet />
       </main>
 

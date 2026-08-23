@@ -54,10 +54,49 @@
   }
   ::-webkit-scrollbar-thumb {
     background: #c89a58;
-    border-radius: 4px;
   }
   ::-webkit-scrollbar-thumb:hover {
     background: #9e712a;
   }
+}
+
+/* Hide native video controls & browser overlay logos on background video loops */
+video::-webkit-media-controls {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+video::-webkit-media-controls-enclosure {
+  display: none !important;
+  opacity: 0 !important;
+}
+video::-webkit-media-controls-panel {
+  display: none !important;
+  opacity: 0 !important;
+}
+video::-webkit-media-controls-play-button,
+video::-webkit-media-controls-start-playback-button,
+video::-webkit-media-controls-overlay-play-button,
+video::-webkit-media-controls-overlay-enclosure,
+video::-webkit-media-controls-timeline,
+video::-webkit-media-controls-current-time-display,
+video::-webkit-media-controls-time-remaining-display,
+video::-webkit-media-controls-mute-button,
+video::-webkit-media-controls-toggle-closed-captions-button,
+video::-webkit-media-controls-volume-slider,
+video::-webkit-media-controls-fullscreen-button,
+video::-webkit-media-controls-picture-in-picture-button {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
+}
+
+/* Chrome / Safari / Edge media element shadow DOM suppression */
+video {
+  -webkit-touch-callout: none !important;
+  -webkit-user-select: none !important;
+  user-select: none !important;
 }
 

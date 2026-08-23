@@ -691,9 +691,17 @@ export default function Leads() {
                               <span>{dateInfo.time}</span>
                             </div>
                           )}
-                          <span className="text-neutral-500 text-[10px] block mt-0.5 uppercase tracking-wider font-semibold">
-                            via {lead.source || 'Website'}
-                          </span>
+                          <div className="mt-1">
+                            {lead.source?.includes('Hero Section') || lead.source?.includes('Enquire') ? (
+                              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-[#d4a359]/15 border border-[#d4a359]/30 text-[#d4a359] text-[10px] font-bold tracking-wide">
+                                <span>⚡ {lead.source}</span>
+                              </span>
+                            ) : (
+                              <span className="text-neutral-500 text-[10px] block uppercase tracking-wider font-semibold">
+                                via {lead.source || 'Website'}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </td>
 

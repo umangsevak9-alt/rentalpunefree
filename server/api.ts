@@ -1044,13 +1044,15 @@ router.post('/leads', async (req, res) => {
     const cleanName = String(name).trim();
     const cleanPhone = String(phone).trim();
 
+    const cleanSource = req.body.source ? String(req.body.source).trim() : 'Website';
+
     const result = await supabaseDb.createLead({
       name: cleanName,
       email: cleanEmail,
       phone: cleanPhone,
       notes: cleanNotes,
       property_id: cleanPropertyId,
-      source: 'Website'
+      source: cleanSource
     });
 
     return res.status(201).json({ 
