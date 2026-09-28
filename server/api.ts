@@ -38,6 +38,22 @@ const handleFileUpload = (fieldName: string) => (req: any, res: any, next: any) 
   });
 };
 
+// Flexible multi/any-field upload handler that guarantees req.file is populated regardless of field name
+const handleAnyFileUpload = (req: any, res: any, next: any) => {
+  upload.any()(req, res, (err: any) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'File size exceeds maximum 150MB limit.' });
+      }
+      return res.status(400).json({ error: err.message || 'File upload failed.' });
+    }
+    if (req.files && Array.isArray(req.files) && req.files.length > 0) {
+      req.file = req.files[0];
+    }
+    next();
+  });
+};
+
 // Cached Supabase storage bucket checker to prevent slow repeated 404s
 let supabaseBucketAvailable: boolean | null = null;
 let lastBucketCheckTime = 0;
@@ -756,113 +772,46 @@ router.post('/upload/image', optionalAuth, handleFileUpload('file'), async (req:
   }
 });
 
-router.post('/upload/video', optionalAuth, handleFileUpload('file'), async (req: any, res: any) => {
+// --- UNIFIED VIDEO UPLOAD (Handles standard uploads, chunks, and assembly on /upload/video and aliases) ---
+const handleUnifiedVideoUpload = async (req: any, res: any) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No video file provided.' });
-    }
-
-    const ext = path.extname(req.file.originalname) || '.mp4';
-    const cleanBaseName = path.parse(req.file.originalname).name.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 30);
-    const filename = `video-${Date.now()}-${cleanBaseName}${ext}`;
-
-    let finalPublicUrl = '';
-
-    // Check if Supabase bucket exists before attempting upload
-    const bucketReady = await checkSupabaseBucket();
-    if (bucketReady) {
-      try {
-        const supabase = getSupabase();
-        if (supabase) {
-          const timeoutPromise = new Promise<{ data: null; error: any }>((_, reject) =>
-            setTimeout(() => reject(new Error('Supabase storage upload timeout')), 8000)
-          );
-          const uploadPromise = supabase.storage
-            .from('property-images')
-            .upload(filename, req.file.buffer, {
-              contentType: req.file.mimetype || 'video/mp4',
-              upsert: true
-            });
-
-          const { data, error }: any = await Promise.race([uploadPromise, timeoutPromise]);
-          if (!error && data) {
-            const { data: { publicUrl } } = supabase.storage
-              .from('property-images')
-              .getPublicUrl(filename);
-            if (publicUrl) {
-              finalPublicUrl = publicUrl;
-            }
-          }
-        }
-      } catch (cloudErr) {
-        console.warn('Supabase video upload failed, saving to local uploads:', cloudErr);
-      }
-    }
-
-    // Reliable fallback to local uploads directory (accessible via /uploads/...)
-    if (!finalPublicUrl) {
-      const uploadsDir = path.join(process.cwd(), 'uploads');
-      if (!fs.existsSync(uploadsDir)) {
-        fs.mkdirSync(uploadsDir, { recursive: true });
-      }
-      fs.writeFileSync(path.join(uploadsDir, filename), req.file.buffer);
-      finalPublicUrl = `/uploads/${filename}`;
-    }
-
-    res.json({
-      success: true,
-      url: finalPublicUrl,
-      filename,
-      size: req.file.size
-    });
-  } catch (err: any) {
-    console.error('Error uploading video:', err);
-    res.status(500).json({ error: err?.message || 'Failed to upload video.' });
-  }
-});
-
-// --- CHUNKED VIDEO UPLOAD (Bypasses Cloud Run 32MB payload limit for large videos up to 150MB) ---
-router.post('/upload/chunk', optionalAuth, handleFileUpload('chunk'), async (req: any, res: any) => {
-  try {
-    const uploadId = req.query.uploadId || req.body?.uploadId;
-    const chunkIndex = req.query.chunkIndex !== undefined ? req.query.chunkIndex : req.body?.chunkIndex;
-    const totalChunks = req.query.totalChunks || req.body?.totalChunks;
+    const action = String(req.query.action || req.body?.action || '').toLowerCase();
+    const uploadId = req.query.uploadId || req.body?.uploadId || req.headers['x-upload-id'];
+    const chunkIndex = req.query.part !== undefined ? req.query.part : (req.query.chunkIndex !== undefined ? req.query.chunkIndex : (req.body?.chunkIndex !== undefined ? req.body?.chunkIndex : req.headers['x-chunk-index']));
+    const totalChunks = req.query.total || req.query.totalChunks || req.body?.totalChunks || req.headers['x-total-chunks'];
     const filename = req.query.filename || req.body?.filename || req.file?.originalname || 'video.mp4';
 
-    if (!req.file || !req.file.buffer) {
-      return res.status(400).json({ error: 'No video chunk data received in request.' });
-    }
-    if (!uploadId || chunkIndex === undefined || !totalChunks) {
-      return res.status(400).json({ error: 'Missing uploadId, chunkIndex, or totalChunks parameter.' });
-    }
-
-    const cIdx = parseInt(String(chunkIndex), 10);
-    const tChunks = parseInt(String(totalChunks), 10);
-
-    if (isNaN(cIdx) || isNaN(tChunks) || tChunks <= 0 || cIdx < 0 || cIdx >= tChunks) {
-      return res.status(400).json({ error: `Invalid chunk index (${chunkIndex}) or total chunks (${totalChunks}).` });
-    }
-
-    const safeUploadId = String(uploadId).replace(/[^a-zA-Z0-9_-]/g, '_');
-    const chunksDir = path.join(process.cwd(), 'uploads', '.chunks', safeUploadId);
-    if (!fs.existsSync(chunksDir)) {
-      fs.mkdirSync(chunksDir, { recursive: true });
-    }
-
-    const chunkPath = path.join(chunksDir, `part_${cIdx}`);
-    fs.writeFileSync(chunkPath, req.file.buffer);
-
-    // Verify which chunks have arrived
-    let allPresent = true;
-    for (let i = 0; i < tChunks; i++) {
-      if (!fs.existsSync(path.join(chunksDir, `part_${i}`))) {
-        allPresent = false;
-        break;
+    // 1. Explicit completion request (finalize and stitch parts into single video)
+    if (action === 'complete' || req.path.endsWith('/complete')) {
+      if (!uploadId || !totalChunks) {
+        return res.status(400).json({ error: 'Missing uploadId or totalChunks for chunk assembly.' });
       }
-    }
 
-    if (allPresent) {
-      // All chunks received: Assemble final video file
+      const tChunks = parseInt(String(totalChunks), 10);
+      const safeUploadId = String(uploadId).replace(/[^a-zA-Z0-9_-]/g, '_');
+      const chunksDir = path.join(process.cwd(), 'uploads', '.chunks', safeUploadId);
+
+      if (!fs.existsSync(chunksDir)) {
+        return res.status(404).json({ error: 'Upload chunk session not found or already completed.' });
+      }
+
+      const missingChunks: number[] = [];
+      for (let i = 0; i < tChunks; i++) {
+        if (!fs.existsSync(path.join(chunksDir, `part_${i}`))) {
+          missingChunks.push(i);
+        }
+      }
+
+      if (missingChunks.length > 0) {
+        return res.status(400).json({
+          success: false,
+          completed: false,
+          missingChunks,
+          error: `Upload incomplete: ${missingChunks.length} chunk(s) missing.`
+        });
+      }
+
+      // Assemble final video file
       const originalName = String(filename || 'video.mp4');
       const ext = path.extname(originalName) || '.mp4';
       const cleanBaseName = path.parse(originalName).name.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 30);
@@ -873,21 +822,17 @@ router.post('/upload/chunk', optionalAuth, handleFileUpload('chunk'), async (req
       }
       const finalPath = path.join(uploadsDir, finalFilename);
 
-      // Concat all parts in sequential order
       const writeStream = fs.createWriteStream(finalPath);
       for (let i = 0; i < tChunks; i++) {
         const partFile = path.join(chunksDir, `part_${i}`);
-        if (fs.existsSync(partFile)) {
-          const partBuf = fs.readFileSync(partFile);
-          writeStream.write(partBuf);
-        }
+        const partBuf = fs.readFileSync(partFile);
+        writeStream.write(partBuf);
       }
       await new Promise<void>((resolve, reject) => {
         writeStream.end(() => resolve());
         writeStream.on('error', reject);
       });
 
-      // Clean up temporary chunks directory
       try {
         fs.rmSync(chunksDir, { recursive: true, force: true });
       } catch (rmErr) {}
@@ -904,93 +849,152 @@ router.post('/upload/chunk', optionalAuth, handleFileUpload('chunk'), async (req
       });
     }
 
-    const arrivedChunks = fs.readdirSync(chunksDir).filter(f => f.startsWith('part_'));
-    return res.json({
-      success: true,
-      completed: false,
-      chunkIndex: cIdx,
-      totalChunks: tChunks,
-      arrived: arrivedChunks.length
-    });
-  } catch (err: any) {
-    console.error('Error handling video chunk upload:', err);
-    res.status(500).json({ error: err?.message || 'Failed to process video chunk.' });
-  }
-});
-
-// Explicit video chunk assembly endpoint (guarantees finalization if needed)
-router.post('/upload/chunk/complete', optionalAuth, async (req: any, res: any) => {
-  try {
-    const { uploadId, totalChunks, filename } = req.body;
-    if (!uploadId || !totalChunks) {
-      return res.status(400).json({ error: 'Missing uploadId or totalChunks for chunk assembly.' });
-    }
-
-    const tChunks = parseInt(String(totalChunks), 10);
-    const safeUploadId = String(uploadId).replace(/[^a-zA-Z0-9_-]/g, '_');
-    const chunksDir = path.join(process.cwd(), 'uploads', '.chunks', safeUploadId);
-
-    if (!fs.existsSync(chunksDir)) {
-      return res.status(404).json({ error: 'Upload chunk session not found or already completed.' });
-    }
-
-    const missingChunks: number[] = [];
-    for (let i = 0; i < tChunks; i++) {
-      if (!fs.existsSync(path.join(chunksDir, `part_${i}`))) {
-        missingChunks.push(i);
+    // 2. Chunk upload handling (when part/chunkIndex is provided)
+    if (chunkIndex !== undefined && uploadId && totalChunks) {
+      if (!req.file || !req.file.buffer) {
+        return res.status(400).json({ error: 'No video chunk data received in request.' });
       }
-    }
 
-    if (missingChunks.length > 0) {
-      return res.status(400).json({
-        success: false,
+      const cIdx = parseInt(String(chunkIndex), 10);
+      const tChunks = parseInt(String(totalChunks), 10);
+
+      if (isNaN(cIdx) || isNaN(tChunks) || tChunks <= 0 || cIdx < 0 || cIdx >= tChunks) {
+        return res.status(400).json({ error: `Invalid chunk index (${chunkIndex}) or total chunks (${totalChunks}).` });
+      }
+
+      const safeUploadId = String(uploadId).replace(/[^a-zA-Z0-9_-]/g, '_');
+      const chunksDir = path.join(process.cwd(), 'uploads', '.chunks', safeUploadId);
+      if (!fs.existsSync(chunksDir)) {
+        fs.mkdirSync(chunksDir, { recursive: true });
+      }
+
+      const chunkPath = path.join(chunksDir, `part_${cIdx}`);
+      fs.writeFileSync(chunkPath, req.file.buffer);
+
+      // Check if all chunks have arrived
+      let allPresent = true;
+      for (let i = 0; i < tChunks; i++) {
+        if (!fs.existsSync(path.join(chunksDir, `part_${i}`))) {
+          allPresent = false;
+          break;
+        }
+      }
+
+      if (allPresent) {
+        const originalName = String(filename || 'video.mp4');
+        const ext = path.extname(originalName) || '.mp4';
+        const cleanBaseName = path.parse(originalName).name.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 30);
+        const finalFilename = `video-${Date.now()}-${cleanBaseName || 'hero'}${ext}`;
+        const uploadsDir = path.join(process.cwd(), 'uploads');
+        if (!fs.existsSync(uploadsDir)) {
+          fs.mkdirSync(uploadsDir, { recursive: true });
+        }
+        const finalPath = path.join(uploadsDir, finalFilename);
+
+        const writeStream = fs.createWriteStream(finalPath);
+        for (let i = 0; i < tChunks; i++) {
+          const partFile = path.join(chunksDir, `part_${i}`);
+          const partBuf = fs.readFileSync(partFile);
+          writeStream.write(partBuf);
+        }
+        await new Promise<void>((resolve, reject) => {
+          writeStream.end(() => resolve());
+          writeStream.on('error', reject);
+        });
+
+        try {
+          fs.rmSync(chunksDir, { recursive: true, force: true });
+        } catch (rmErr) {}
+
+        const finalPublicUrl = `/uploads/${finalFilename}`;
+        const stats = fs.statSync(finalPath);
+
+        return res.json({
+          success: true,
+          completed: true,
+          url: finalPublicUrl,
+          filename: finalFilename,
+          size: stats.size
+        });
+      }
+
+      const arrivedChunks = fs.readdirSync(chunksDir).filter(f => f.startsWith('part_'));
+      return res.json({
+        success: true,
         completed: false,
-        missingChunks,
-        error: `Upload incomplete: ${missingChunks.length} chunk(s) missing.`
+        chunkIndex: cIdx,
+        totalChunks: tChunks,
+        arrived: arrivedChunks.length
       });
     }
 
-    // Assemble file
-    const originalName = String(filename || 'video.mp4');
-    const ext = path.extname(originalName) || '.mp4';
-    const cleanBaseName = path.parse(originalName).name.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 30);
-    const finalFilename = `video-${Date.now()}-${cleanBaseName || 'hero'}${ext}`;
-    const uploadsDir = path.join(process.cwd(), 'uploads');
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
+    // 3. Regular single-file video upload (when no chunking params are passed)
+    if (!req.file) {
+      return res.status(400).json({ error: 'No video file provided.' });
     }
-    const finalPath = path.join(uploadsDir, finalFilename);
 
-    const writeStream = fs.createWriteStream(finalPath);
-    for (let i = 0; i < tChunks; i++) {
-      const partFile = path.join(chunksDir, `part_${i}`);
-      const partBuf = fs.readFileSync(partFile);
-      writeStream.write(partBuf);
+    const ext = path.extname(req.file.originalname) || '.mp4';
+    const cleanBaseName = path.parse(req.file.originalname).name.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 30);
+    const singleFilename = `video-${Date.now()}-${cleanBaseName}${ext}`;
+
+    let finalPublicUrl = '';
+    const bucketReady = await checkSupabaseBucket();
+    if (bucketReady) {
+      try {
+        const supabase = getSupabase();
+        if (supabase) {
+          const timeoutPromise = new Promise<{ data: null; error: any }>((_, reject) =>
+            setTimeout(() => reject(new Error('Supabase storage upload timeout')), 8000)
+          );
+          const uploadPromise = supabase.storage
+            .from('property-images')
+            .upload(singleFilename, req.file.buffer, {
+              contentType: req.file.mimetype || 'video/mp4',
+              upsert: true
+            });
+
+          const { data, error }: any = await Promise.race([uploadPromise, timeoutPromise]);
+          if (!error && data) {
+            const { data: { publicUrl } } = supabase.storage
+              .from('property-images')
+              .getPublicUrl(singleFilename);
+            if (publicUrl) {
+              finalPublicUrl = publicUrl;
+            }
+          }
+        }
+      } catch (cloudErr) {
+        console.warn('Supabase video upload failed, saving to local uploads:', cloudErr);
+      }
     }
-    await new Promise<void>((resolve, reject) => {
-      writeStream.end(() => resolve());
-      writeStream.on('error', reject);
-    });
 
-    try {
-      fs.rmSync(chunksDir, { recursive: true, force: true });
-    } catch (rmErr) {}
+    if (!finalPublicUrl) {
+      const uploadsDir = path.join(process.cwd(), 'uploads');
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+      fs.writeFileSync(path.join(uploadsDir, singleFilename), req.file.buffer);
+      finalPublicUrl = `/uploads/${singleFilename}`;
+    }
 
-    const finalPublicUrl = `/uploads/${finalFilename}`;
-    const stats = fs.statSync(finalPath);
-
-    return res.json({
+    res.json({
       success: true,
-      completed: true,
       url: finalPublicUrl,
-      filename: finalFilename,
-      size: stats.size
+      filename: singleFilename,
+      size: req.file.size
     });
   } catch (err: any) {
-    console.error('Error completing video chunk assembly:', err);
-    res.status(500).json({ error: err?.message || 'Failed to assemble video.' });
+    console.error('Error handling video upload:', err);
+    res.status(500).json({ error: err?.message || 'Failed to upload video.' });
   }
-});
+};
+
+// Mount unified video handler across primary and alias routes for maximum proxy / WAF compatibility
+router.post('/upload/video', optionalAuth, handleAnyFileUpload, handleUnifiedVideoUpload);
+router.post('/upload/video/complete', optionalAuth, handleAnyFileUpload, handleUnifiedVideoUpload);
+router.post('/upload/video-chunk', optionalAuth, handleAnyFileUpload, handleUnifiedVideoUpload);
+router.post('/upload/chunk', optionalAuth, handleAnyFileUpload, handleUnifiedVideoUpload);
+router.post('/upload/chunk/complete', optionalAuth, handleAnyFileUpload, handleUnifiedVideoUpload);
 
 // --- PROPERTIES ---
 router.get('/properties', async (req, res) => {

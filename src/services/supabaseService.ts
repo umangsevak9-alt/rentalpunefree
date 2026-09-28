@@ -3823,7 +3823,7 @@ export const supabaseService = {
       const uniquePath = `videos/hero_video_${Date.now()}_${baseName || 'showcase'}.${fileExt}`;
       const token = getToken();
 
-      // 1. Primary: Resilient Chunked Server Upload (2MB chunks for smooth streaming & proxy bypass)
+      // 1. Primary: Resilient Chunked Server Upload (2MB chunks via /api/upload/video with proxy resilience)
       const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB per chunk
       const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
       const uploadId = `vid_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
@@ -3837,26 +3837,36 @@ export const supabaseService = {
           const end = Math.min(start + CHUNK_SIZE, file.size);
           const chunkBlob = file.slice(start, end);
 
-          // Append fields first in FormData for guaranteed parsing order
+          // Append fields first in FormData for guaranteed parsing order across all browsers
           const formData = new FormData();
           formData.append('uploadId', uploadId);
           formData.append('chunkIndex', String(chunkIndex));
           formData.append('totalChunks', String(totalChunks));
           formData.append('filename', rawName);
+          // Append under both 'file' and 'chunk' field names for universal middleware compatibility
+          formData.append('file', chunkBlob, `part_${chunkIndex}.bin`);
           formData.append('chunk', chunkBlob, `part_${chunkIndex}.bin`);
 
-          // Redundantly pass query parameters in URL so parameters are available before multipart parsing
-          const queryUrl = `/api/upload/chunk?uploadId=${encodeURIComponent(uploadId)}&chunkIndex=${chunkIndex}&totalChunks=${totalChunks}&filename=${encodeURIComponent(rawName)}`;
+          // Target primary /api/upload/video (guaranteed allowed on all reverse proxies/WAFs)
+          // without file extensions in query to prevent static-asset 405 triggers
+          const primaryUrl = `/api/upload/video?action=chunk&uploadId=${encodeURIComponent(uploadId)}&part=${chunkIndex}&total=${totalChunks}`;
+          const fallbackUrl = `/api/upload/chunk?uploadId=${encodeURIComponent(uploadId)}&chunkIndex=${chunkIndex}&totalChunks=${totalChunks}`;
 
           let res: Response | null = null;
           let lastErrMessage = '';
 
-          // Retry each chunk up to 3 times with exponential backoff for network resilience
+          // Retry each chunk up to 3 times with exponential backoff & endpoint fallback
           for (let attempt = 0; attempt < 3; attempt++) {
+            const targetUrl = attempt === 0 ? primaryUrl : (attempt === 1 ? fallbackUrl : primaryUrl);
             try {
-              res = await fetch(queryUrl, {
+              res = await fetch(targetUrl, {
                 method: 'POST',
-                headers: token ? { Authorization: `Bearer ${token}` } : {},
+                headers: {
+                  'X-Upload-Id': uploadId,
+                  'X-Chunk-Index': String(chunkIndex),
+                  'X-Total-Chunks': String(totalChunks),
+                  ...(token ? { Authorization: `Bearer ${token}` } : {})
+                },
                 body: formData
               });
               if (res.ok) break;
@@ -3886,14 +3896,26 @@ export const supabaseService = {
         // If all chunks uploaded but auto-assembly didn't complete, explicitly trigger assembly
         if (!finalUrl) {
           if (onProgress) onProgress(98);
-          const compRes = await fetch('/api/upload/chunk/complete', {
+          let compRes = await fetch('/api/upload/video?action=complete', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               ...(token ? { Authorization: `Bearer ${token}` } : {})
             },
-            body: JSON.stringify({ uploadId, totalChunks, filename: rawName })
+            body: JSON.stringify({ action: 'complete', uploadId, totalChunks, filename: rawName })
           });
+
+          // Fallback to /upload/chunk/complete if needed
+          if (!compRes.ok) {
+            compRes = await fetch('/api/upload/chunk/complete', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { Authorization: `Bearer ${token}` } : {})
+              },
+              body: JSON.stringify({ uploadId, totalChunks, filename: rawName })
+            });
+          }
 
           if (compRes.ok) {
             const compData = await compRes.json();
