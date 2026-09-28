@@ -67,6 +67,7 @@ export default function HeroSection() {
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [uploadingVideo, setUploadingVideo] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [videoUploadMsg, setVideoUploadMsg] = useState<{ text: string; type: 'info' | 'success' | 'error' } | null>(null);
   const [videoFileDetails, setVideoFileDetails] = useState<{ name: string; sizeMb: string } | null>(null);
   const [previewAspect, setPreviewAspect] = useState<'desktop' | 'mobile'>('desktop');
@@ -176,10 +177,17 @@ export default function HeroSection() {
 
     setVideoFileDetails({ name: file.name, sizeMb });
     setUploadingVideo(true);
+    setUploadProgress(0);
     setVideoUploadMsg({ text: `Uploading "${file.name}" (${sizeMb} MB)...`, type: 'info' });
 
     try {
-      const res = await supabaseService.storage.uploadVideo(file, file.name);
+      const res = await supabaseService.storage.uploadVideo(file, file.name, (pct) => {
+        setUploadProgress(pct);
+        setVideoUploadMsg({ 
+          text: `Uploading "${file.name}" (${sizeMb} MB): ${pct}%...`, 
+          type: 'info' 
+        });
+      });
       const videoUrl = res?.url;
 
       if (!videoUrl || videoUrl.startsWith('blob:')) {
@@ -400,10 +408,24 @@ export default function HeroSection() {
                         : 'border-neutral-800 hover:border-red-600 bg-black/60'
                     }`}>
                       {uploadingVideo ? (
-                        <div className="flex flex-col items-center space-y-2 text-center">
-                          <Loader2 className="w-10 h-10 text-yellow-500 animate-spin" />
-                          <span className="text-sm font-bold text-white">Uploading Video to Cloud...</span>
-                          <span className="text-xs text-neutral-400">Please wait while the video is uploaded & processed</span>
+                        <div className="flex flex-col items-center space-y-2 text-center w-full max-w-sm px-4">
+                          <Loader2 className="w-10 h-10 text-yellow-500 animate-spin mb-1" />
+                          <div className="flex items-center justify-between w-full text-xs font-bold text-white px-1">
+                            <span>Uploading Video</span>
+                            <span className="text-yellow-400 font-mono">{uploadProgress}%</span>
+                          </div>
+                          {/* Real-time Progress Bar */}
+                          <div className="w-full bg-neutral-800 rounded-full h-2.5 overflow-hidden border border-neutral-700">
+                            <div 
+                              className="bg-gradient-to-r from-yellow-500 via-amber-500 to-emerald-500 h-2.5 transition-all duration-300 rounded-full shadow-sm"
+                              style={{ width: `${Math.max(6, uploadProgress)}%` }}
+                            />
+                          </div>
+                          <span className="text-xs text-neutral-400">
+                            {uploadProgress >= 100 
+                              ? 'Assembling & publishing video live across all tabs...' 
+                              : `Streaming chunks securely (${uploadProgress}% completed)`}
+                          </span>
                         </div>
                       ) : (
                         <div className="flex flex-col items-center text-center space-y-2">
