@@ -12,6 +12,33 @@ const FEEDBACKS_FILE = path.join(DATA_DIR, 'feedbacks.json');
 const INVOICES_FILE = path.join(DATA_DIR, 'invoices.json');
 const PROPERTIES_FILE = path.join(DATA_DIR, 'properties.json');
 const GALLERY_FILE = path.join(DATA_DIR, 'gallery.json');
+const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
+
+const DEFAULT_SETTINGS: Record<string, string> = {
+  website_name: 'Rental Pune',
+  company_name: 'Rental Pune Luxury Real Estate Pvt. Ltd.',
+  phone: '+91 98220 12345',
+  phone_secondary: '+91 20 6789 0123',
+  phone_tagline: 'Direct Advisor Connect',
+  email: 'concierge@rentalpune.com',
+  email_support: 'info@rentalpune.com',
+  email_tagline: 'Fast 2-hour response time',
+  address: 'Balewadi High Street, Near Baner',
+  office_city: 'Pune, Maharashtra - 411045, India',
+  office_landmark: 'Near Baner & Pune-Bangalore Expressway',
+  working_hours: 'Mon - Sun: 9:00 AM – 8:30 PM',
+  working_days_note: 'Site visits open all 7 days',
+  desk_status: 'Desk Active (9 AM - 8:30 PM)',
+  contact_heading: 'Reach Out to Our Luxury Real Estate Advisors',
+  contact_subtitle: 'Have questions about residential leases, high-end commercial spaces, society guidelines, or scheduling private site visits? Contact our Pune head office directly.',
+  hero_heading: 'Curated Luxury Residences in Prime Pune',
+  hero_subheading: "Handpicked penthouses, riverside apartments, and signature villas in Pune's most exclusive enclaves.",
+  hero_media_type: 'video',
+  hero_video_url: 'https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-building-exterior-41549-large.mp4',
+  hero_video_title: 'Pune Luxury Architectural Showcase & Residences',
+  whatsapp_number: '+919822012345',
+  whatsapp_message: 'Hello Rental Pune, I am looking for a luxury rental property in Pune.'
+};
 
 const DEFAULT_GALLERY_ITEMS = [
   {
@@ -963,28 +990,61 @@ export const supabaseDb = {
 
   // --- SETTINGS ---
   async getSettings(): Promise<Record<string, string>> {
-    const supabase = getClient();
-    const { data, error } = await supabase.from('settings').select('*');
-    if (error) {
-      throw new Error(`Supabase query failed (Settings): ${error.message} (Code: ${error.code})`);
-    }
-    const map: Record<string, string> = {};
-    data?.forEach(s => {
-      map[s.key] = s.value;
-    });
-    return map;
-  },
-
-  async updateSettings(updates: Record<string, string>): Promise<boolean> {
-    const supabase = getClient();
-    const rows = Object.entries(updates).map(([key, value]) => ({ key, value }));
-    for (const row of rows) {
-      const { error } = await supabase.from('settings').upsert([row], { onConflict: 'key' });
-      if (error) {
-        throw new Error(`Supabase upsert failed (Settings Key ${row.key}): ${error.message} (Code: ${error.code})`);
+    let current = loadJsonFile<Record<string, string>>(SETTINGS_FILE, DEFAULT_SETTINGS);
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.from('settings').select('*');
+        if (!error && Array.isArray(data) && data.length > 0) {
+          const fromDb: Record<string, string> = {};
+          data.forEach((row: any) => {
+            if (row.key) {
+              if (row.key === 'hero_video_url' && String(row.value).startsWith('blob:')) {
+                fromDb[row.key] = DEFAULT_SETTINGS.hero_video_url;
+              } else {
+                fromDb[row.key] = String(row.value ?? '');
+              }
+            }
+          });
+          current = { ...DEFAULT_SETTINGS, ...current, ...fromDb };
+          saveJsonFile(SETTINGS_FILE, current);
+          return current;
+        }
+      } catch (e) {
+        console.warn('[supabaseDb] Error fetching settings from Supabase:', e);
       }
     }
-    return true;
+    if (current.hero_video_url && current.hero_video_url.startsWith('blob:')) {
+      current.hero_video_url = DEFAULT_SETTINGS.hero_video_url;
+      saveJsonFile(SETTINGS_FILE, current);
+    }
+    return { ...DEFAULT_SETTINGS, ...current };
+  },
+
+  async updateSettings(updates: Record<string, string>): Promise<Record<string, string>> {
+    const existing = await this.getSettings();
+    const cleanUpdates: Record<string, string> = {};
+    for (const [k, v] of Object.entries(updates)) {
+      if (k === 'hero_video_url' && String(v).startsWith('blob:')) {
+        continue;
+      }
+      cleanUpdates[k] = String(v ?? '');
+    }
+    const merged = { ...existing, ...cleanUpdates };
+    saveJsonFile(SETTINGS_FILE, merged);
+
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        const rows = Object.entries(cleanUpdates).map(([key, value]) => ({ key, value }));
+        if (rows.length > 0) {
+          await supabase.from('settings').upsert(rows, { onConflict: 'key' });
+        }
+      } catch (e) {
+        console.warn('[supabaseDb] Error updating settings in Supabase:', e);
+      }
+    }
+    return merged;
   },
 
   // --- FAQs ---

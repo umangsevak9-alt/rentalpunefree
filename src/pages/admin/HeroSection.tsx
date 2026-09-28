@@ -72,9 +72,22 @@ export default function HeroSection() {
   const [previewAspect, setPreviewAspect] = useState<'desktop' | 'mobile'>('desktop');
 
   useEffect(() => {
-    setFormData(settings);
-    setLogoPreview(settings.logo_url || '');
-    setHeroImagePreview(settings.hero_image_url || '');
+    supabaseService.settings.get().then(freshSettings => {
+      if (freshSettings) {
+        setSettings(freshSettings);
+        setFormData(freshSettings);
+        setLogoPreview(freshSettings.logo_url || '');
+        setHeroImagePreview(freshSettings.hero_image_url || '');
+      }
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (settings && Object.keys(settings).length > 0) {
+      setFormData(settings);
+      setLogoPreview(settings.logo_url || '');
+      setHeroImagePreview(settings.hero_image_url || '');
+    }
   }, [settings]);
 
   // Handle Logo File Upload directly to Supabase Storage
@@ -169,8 +182,8 @@ export default function HeroSection() {
       const res = await supabaseService.storage.uploadVideo(file, file.name);
       const videoUrl = res?.url;
 
-      if (!videoUrl) {
-        throw new Error('Upload completed but could not obtain a valid media URL.');
+      if (!videoUrl || videoUrl.startsWith('blob:')) {
+        throw new Error('Upload could not obtain a permanent URL. Please ensure the video is under 150MB or enter a video/YouTube link.');
       }
 
       const updated = {
@@ -186,11 +199,11 @@ export default function HeroSection() {
 
       setVideoUploadMsg({
         text: res.isCloudStorage 
-          ? `Hero video successfully uploaded to Supabase Cloud Storage & published live!`
-          : `Hero video successfully uploaded & published live on your site!`,
+          ? `Hero video uploaded to Supabase Cloud Storage & published live across all tabs!`
+          : `Hero video successfully uploaded & published live across all tabs and devices!`,
         type: 'success'
       });
-      setStatus('Hero video published to live site!');
+      setStatus('Hero video published live across all tabs!');
       setTimeout(() => setStatus(''), 4000);
     } catch (err: any) {
       console.error('Video upload error:', err);

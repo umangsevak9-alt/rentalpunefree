@@ -73,7 +73,12 @@ function parseVideoSource(rawUrl?: string, mediaType?: string) {
     return { type: 'none' as const, url: '', bgUrl: '', modalUrl: '', isDirect: false, isYouTube: false };
   }
   
-  const effectiveUrl = (rawUrl && rawUrl.trim()) ? rawUrl.trim() : DEFAULT_SAMPLE_HERO_VIDEO;
+  let effectiveUrl = (rawUrl && rawUrl.trim()) ? rawUrl.trim() : DEFAULT_SAMPLE_HERO_VIDEO;
+  // A blob: URL is only valid in the single memory session where it was generated.
+  // If opened in another tab or refreshed, blob: is invalid and will fail to render.
+  if (effectiveUrl.startsWith('blob:')) {
+    effectiveUrl = DEFAULT_SAMPLE_HERO_VIDEO;
+  }
   const url = effectiveUrl;
   
   // YouTube Detection (matches youtube.com, youtu.be, embed, shorts)
@@ -148,11 +153,13 @@ export default function Home() {
   const [activeMediaTab, setActiveMediaTab] = useState<'photos' | 'videos'>('photos');
   const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
   const [heroVideoFailed, setHeroVideoFailed] = useState(false);
+  const [videoFallbackUrl, setVideoFallbackUrl] = useState<string | null>(null);
   const heroVideoElementRef = useRef<HTMLVideoElement | null>(null);
 
   // Automatically reset failed state whenever user updates video URL or switches media format
   useEffect(() => {
     setHeroVideoFailed(false);
+    setVideoFallbackUrl(null);
   }, [settings?.hero_video_url, settings?.hero_media_type]);
 
   // Robust Autoplay handler for background loop
@@ -804,8 +811,8 @@ export default function Home() {
               <div className="absolute inset-0 z-0 overflow-hidden">
                 {heroVideoInfo.isDirect ? (
                   <video 
-                    key={heroVideoInfo.url}
-                    src={heroVideoInfo.url} 
+                    key={videoFallbackUrl || heroVideoInfo.url}
+                    src={videoFallbackUrl || heroVideoInfo.url} 
                     autoPlay 
                     muted 
                     loop 
@@ -819,8 +826,14 @@ export default function Home() {
                     // @ts-ignore
                     controlsList="nodownload nofullscreen noremoteplayback noplaybackrate"
                     onError={() => {
-                      console.warn('Hero video failed to load or unsupported format, falling back to architectural backdrop.');
-                      setHeroVideoFailed(true);
+                      const currentUrl = videoFallbackUrl || heroVideoInfo.url;
+                      if (currentUrl !== DEFAULT_SAMPLE_HERO_VIDEO) {
+                        console.warn('Custom hero video failed to load, falling back to default loop.');
+                        setVideoFallbackUrl(DEFAULT_SAMPLE_HERO_VIDEO);
+                      } else {
+                        console.warn('Hero video failed to load, falling back to architectural backdrop.');
+                        setHeroVideoFailed(true);
+                      }
                     }}
                     ref={(el) => {
                       heroVideoElementRef.current = el;

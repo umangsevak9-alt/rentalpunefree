@@ -3337,6 +3337,25 @@ export const supabaseService = {
         whatsapp_message: 'Hello Rental Pune, I am looking for a luxury rental property in Pune.'
       };
 
+      // 1. Try server-side unified settings API (guaranteed cross-device sync)
+      try {
+        const res = await fetch('/api/settings');
+        if (res.ok) {
+          const apiSettings = await res.json();
+          if (apiSettings && typeof apiSettings === 'object' && Object.keys(apiSettings).length > 0) {
+            const merged = { ...defaultSettings, ...apiSettings };
+            if (merged.hero_video_url && merged.hero_video_url.startsWith('blob:')) {
+              merged.hero_video_url = defaultSettings.hero_video_url;
+            }
+            setLocal('settings', merged);
+            return merged;
+          }
+        }
+      } catch (apiErr) {
+        console.warn('API settings fetch note:', apiErr);
+      }
+
+      // 2. Direct Supabase settings query fallback
       try {
         const { data, error } = await supabase
           .from('settings')
@@ -3345,9 +3364,18 @@ export const supabaseService = {
         if (!error && data && data.length > 0) {
           const settingsObj: Settings = {};
           data.forEach((row: any) => {
-            if (row.key) settingsObj[row.key] = row.value;
+            if (row.key) {
+              if (row.key === 'hero_video_url' && String(row.value).startsWith('blob:')) {
+                settingsObj[row.key] = defaultSettings.hero_video_url;
+              } else {
+                settingsObj[row.key] = row.value;
+              }
+            }
           });
           const merged = { ...defaultSettings, ...settingsObj };
+          if (merged.hero_video_url && merged.hero_video_url.startsWith('blob:')) {
+            merged.hero_video_url = defaultSettings.hero_video_url;
+          }
           setLocal('settings', merged);
           return merged;
         }
@@ -3357,19 +3385,44 @@ export const supabaseService = {
 
       const cached = getLocal<Settings>('settings', defaultSettings);
       const merged = { ...defaultSettings, ...cached };
+      if (merged.hero_video_url && merged.hero_video_url.startsWith('blob:')) {
+        merged.hero_video_url = defaultSettings.hero_video_url;
+      }
       return merged;
     },
 
     async update(updates: Record<string, string>): Promise<Settings> {
+      // Clean out any temporary blob URLs that cannot work across multiple tabs
+      const sanitizedUpdates: Record<string, string> = {};
+      for (const [k, v] of Object.entries(updates)) {
+        if (k === 'hero_video_url' && String(v).startsWith('blob:')) {
+          continue;
+        }
+        sanitizedUpdates[k] = String(v ?? '');
+      }
+
       // 1. Instant optimistic local update & notification
       const existing = getLocal<Settings>('settings', {});
-      const merged = { ...existing, ...updates };
+      const merged = { ...existing, ...sanitizedUpdates };
       setLocal('settings', merged);
       notifyUpdate('settings', merged);
 
-      // 2. Synchronize asynchronously with Supabase & server
+      // 2. Synchronize with server backend API
       try {
-        const entries = Object.entries(updates);
+        const token = getToken();
+        fetch('/api/settings', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify(sanitizedUpdates)
+        }).catch(() => {});
+      } catch {}
+
+      // 3. Synchronize with Supabase Cloud
+      try {
+        const entries = Object.entries(sanitizedUpdates);
         if (entries.length > 0) {
           const rows = entries.map(([key, value]) => ({ key, value: String(value ?? '') }));
           await supabase
@@ -3379,19 +3432,6 @@ export const supabaseService = {
       } catch (e) {
         console.warn('Supabase update settings note:', e);
       }
-
-      // Also notify backend API in background
-      try {
-        const token = getToken();
-        fetch('/api/settings', {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {})
-          },
-          body: JSON.stringify(updates)
-        }).catch(() => {});
-      } catch {}
 
       return merged;
     }
@@ -3834,27 +3874,7 @@ export const supabaseService = {
         console.warn('Direct Supabase video upload note:', directErr);
       }
 
-      // 3. Resilient client-side fallback: Blob Object URL so preview and playback continue uninterrupted
-      if (typeof window !== 'undefined' && window.URL && window.URL.createObjectURL) {
-        try {
-          const objectUrl = URL.createObjectURL(file);
-          return { url: objectUrl, isCloudStorage: false };
-        } catch {}
-      }
-
-      // 4. Data URL fallback for smaller video clips
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          if (reader.result) {
-            resolve({ url: reader.result as string, isCloudStorage: false });
-          } else {
-            reject(new Error('Failed to process video file.'));
-          }
-        };
-        reader.onerror = () => reject(new Error('Failed to read video file.'));
-        reader.readAsDataURL(file);
-      });
+      throw new Error('Video upload could not be saved to storage. Please ensure your video file is under 150MB, or use a direct MP4, YouTube, or Vimeo link.');
     }
   },
 
