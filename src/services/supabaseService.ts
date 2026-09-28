@@ -3861,12 +3861,7 @@ export const supabaseService = {
             try {
               res = await fetch(targetUrl, {
                 method: 'POST',
-                headers: {
-                  'X-Upload-Id': uploadId,
-                  'X-Chunk-Index': String(chunkIndex),
-                  'X-Total-Chunks': String(totalChunks),
-                  ...(token ? { Authorization: `Bearer ${token}` } : {})
-                },
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
                 body: formData
               });
               if (res.ok) break;
