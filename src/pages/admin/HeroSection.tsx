@@ -96,18 +96,19 @@ export default function HeroSection() {
         setFormData(updated);
         setSettings(updated);
         await supabaseService.settings.update({ logo_url: res.url });
-        setStatus('Logo uploaded to Supabase Storage and published live!');
+        setStatus('Logo uploaded successfully and published live!');
         setTimeout(() => setStatus(''), 4000);
       }
     } catch (err: any) {
       console.error('Logo upload error:', err);
-      alert('Failed to upload logo to Supabase storage.');
+      setStatus('Failed to upload logo. Please try another image.');
+      setTimeout(() => setStatus(''), 4000);
     } finally {
       setUploadingLogo(false);
     }
   };
 
-  // Handle Hero Image File Upload directly to Supabase Storage
+  // Handle Hero Image File Upload directly to Supabase Storage or server
   const handleHeroImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -126,18 +127,19 @@ export default function HeroSection() {
         setFormData(updated);
         setSettings(updated);
         await supabaseService.settings.update({ hero_image_url: res.url, hero_media_type: 'image' });
-        setStatus('Hero image uploaded to Supabase Storage and published live!');
+        setStatus('Hero image uploaded successfully and published live!');
         setTimeout(() => setStatus(''), 4000);
       }
     } catch (err: any) {
       console.error('Hero image upload error:', err);
-      alert('Failed to upload hero image to Supabase storage.');
+      setStatus('Failed to upload hero image. Please try another file.');
+      setTimeout(() => setStatus(''), 4000);
     } finally {
       setUploadingImage(false);
     }
   };
 
-  // Handle Hero Video File Upload directly to Supabase Storage
+  // Handle Hero Video File Upload
   const handleHeroVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -161,15 +163,14 @@ export default function HeroSection() {
 
     setVideoFileDetails({ name: file.name, sizeMb });
     setUploadingVideo(true);
-    setVideoUploadMsg({ text: `Uploading "${file.name}" (${sizeMb} MB) to Supabase Storage...`, type: 'info' });
+    setVideoUploadMsg({ text: `Uploading "${file.name}" (${sizeMb} MB)...`, type: 'info' });
 
     try {
-      // 1. Direct Supabase Storage upload (compatible with Cloudflare & CDN streaming)
       const res = await supabaseService.storage.uploadVideo(file, file.name);
       const videoUrl = res?.url;
 
       if (!videoUrl) {
-        throw new Error('Supabase Storage did not return a public URL.');
+        throw new Error('Upload completed but could not obtain a valid media URL.');
       }
 
       const updated = {
@@ -184,7 +185,9 @@ export default function HeroSection() {
       await supabaseService.settings.update(updated);
 
       setVideoUploadMsg({
-        text: `Hero video successfully uploaded to Supabase Storage & published live on Cloudflare!`,
+        text: res.isCloudStorage 
+          ? `Hero video successfully uploaded to Supabase Cloud Storage & published live!`
+          : `Hero video successfully uploaded & published live on your site!`,
         type: 'success'
       });
       setStatus('Hero video published to live site!');
@@ -192,7 +195,7 @@ export default function HeroSection() {
     } catch (err: any) {
       console.error('Video upload error:', err);
       setVideoUploadMsg({
-        text: `Upload error: ${err?.message || 'Failed to upload video to cloud storage.'}`,
+        text: `Upload note: ${err?.message || 'Failed to upload video.'}`,
         type: 'error'
       });
     } finally {
@@ -430,22 +433,28 @@ export default function HeroSection() {
                         <span className="font-medium">{videoUploadMsg.text}</span>
                       </div>
 
-                      {videoUploadMsg.type === 'error' && videoUploadMsg.text.toLowerCase().includes('bucket') && (
-                        <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs space-y-2">
-                          <div className="font-bold flex items-center gap-1.5 text-amber-300">
-                            <Sparkles className="w-4 h-4" />
-                            <span>1-Step Setup for Supabase Video & Image Storage:</span>
-                          </div>
-                          <ol className="list-decimal list-inside space-y-1 text-neutral-300">
-                            <li>Open your <a href="https://supabase.com/dashboard" target="_blank" rel="noreferrer" className="text-amber-400 underline font-bold">Supabase Dashboard</a> and go to <strong>Storage</strong>.</li>
-                            <li>Click <strong>New Bucket</strong>, enter name <code className="bg-black/60 px-1 py-0.5 rounded text-amber-300 font-mono">property-images</code>.</li>
-                            <li>Toggle <strong>Public bucket</strong> to <strong className="text-emerald-400">ON</strong> and click Save.</li>
-                          </ol>
-                          <p className="text-[11px] text-neutral-400 pt-1">
-                            Tip: You can also paste any YouTube, Vimeo, or external MP4 URL below to go live immediately on Cloudflare!
-                          </p>
+                      {/* Supabase Storage info / guide */}
+                      <div className="p-3.5 rounded-xl bg-neutral-900/80 border border-neutral-800 text-neutral-300 text-xs space-y-2">
+                        <div className="font-semibold flex items-center justify-between text-neutral-200">
+                          <span className="flex items-center gap-1.5 text-neutral-300">
+                            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                            Storage & Cloud CDN Status:
+                          </span>
+                          <span className="text-[11px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                            ✓ Auto-Storage Active
+                          </span>
                         </div>
-                      )}
+                        <p className="text-neutral-400 text-[11px] leading-relaxed">
+                          Your uploaded videos and images are automatically stored and published live. If you also want them hosted on your Supabase Cloud Storage bucket, create a public bucket in your Supabase dashboard:
+                        </p>
+                        <div className="flex items-center gap-2 pt-1 font-mono text-[11px] text-amber-300 bg-black/50 p-2 rounded-lg border border-neutral-800">
+                          <span>Bucket Name:</span>
+                          <strong className="text-white bg-neutral-800 px-1.5 py-0.5 rounded">property-images</strong>
+                          <span className="text-neutral-500">•</span>
+                          <span>Visibility:</span>
+                          <strong className="text-emerald-400">Public</strong>
+                        </div>
+                      </div>
                     </div>
                   )}
 

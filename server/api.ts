@@ -22,8 +22,52 @@ const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key';
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 100 * 1024 * 1024 } // 100MB limit for rich media
+  limits: { fileSize: 150 * 1024 * 1024 } // 150MB limit for rich media
 });
+
+// Resilient wrapper for single file uploads that returns friendly JSON errors on limit / format failures
+const handleFileUpload = (fieldName: string) => (req: any, res: any, next: any) => {
+  upload.single(fieldName)(req, res, (err: any) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'File size exceeds maximum 150MB limit.' });
+      }
+      return res.status(400).json({ error: err.message || 'File upload failed.' });
+    }
+    next();
+  });
+};
+
+// Cached Supabase storage bucket checker to prevent slow repeated 404s
+let supabaseBucketAvailable: boolean | null = null;
+let lastBucketCheckTime = 0;
+
+export async function checkSupabaseBucket(): Promise<boolean> {
+  const now = Date.now();
+  if (supabaseBucketAvailable !== null && now - lastBucketCheckTime < 60000) {
+    return supabaseBucketAvailable;
+  }
+  const client = getSupabase();
+  if (!client) {
+    supabaseBucketAvailable = false;
+    return false;
+  }
+  try {
+    const timeoutPromise = new Promise<{ data: null; error: any }>((_, reject) =>
+      setTimeout(() => reject(new Error('timeout')), 3000)
+    );
+    const checkPromise = client.storage.getBucket('property-images');
+    const res: any = await Promise.race([checkPromise, timeoutPromise]);
+    if (!res?.error && res?.data) {
+      supabaseBucketAvailable = true;
+      lastBucketCheckTime = now;
+      return true;
+    }
+  } catch {}
+  supabaseBucketAvailable = false;
+  lastBucketCheckTime = now;
+  return false;
+}
 
 // --- SYSTEM HEALTH & DATABASE DIAGNOSTICS ---
 router.get('/health', async (req, res) => {
@@ -610,9 +654,21 @@ const optionalAuth = (req: any, res: any, next: any) => {
   next();
 };
 
-router.post('/upload/image', optionalAuth, upload.single('file'), async (req: any, res: any) => {
+// Check storage status
+router.get('/storage/status', async (req, res) => {
+  const isBucketReady = await checkSupabaseBucket();
+  const config = getSupabaseConfig();
+  res.json({
+    configured: Boolean(config.url && config.key),
+    bucketExists: isBucketReady,
+    bucketName: 'property-images',
+    localFallbackActive: true,
+    uploadsPath: '/uploads'
+  });
+});
+
+router.post('/upload/image', optionalAuth, handleFileUpload('file'), async (req: any, res: any) => {
   try {
-    const supabase = getSupabase();
     let inputBuffer: Buffer;
     let originalName = 'photo';
     let originalSize = 0;
@@ -641,27 +697,38 @@ router.post('/upload/image', optionalAuth, upload.single('file'), async (req: an
 
     let finalPublicUrl = '';
 
-    if (supabase) {
+    // Check if Supabase bucket exists before attempting upload
+    const bucketReady = await checkSupabaseBucket();
+    if (bucketReady) {
       try {
-        await supabase.storage.createBucket('property-images', { public: true });
-      } catch (e) {}
+        const supabase = getSupabase();
+        if (supabase) {
+          const timeoutPromise = new Promise<{ data: null; error: any }>((_, reject) =>
+            setTimeout(() => reject(new Error('Supabase storage upload timeout')), 5000)
+          );
+          const uploadPromise = supabase.storage
+            .from('property-images')
+            .upload(filename, webpBuffer, {
+              contentType: 'image/webp',
+              upsert: true
+            });
 
-      const { data, error } = await supabase.storage
-        .from('property-images')
-        .upload(filename, webpBuffer, {
-          contentType: 'image/webp',
-          upsert: true
-        });
-
-      if (!error) {
-        const { data: { publicUrl } } = supabase.storage
-          .from('property-images')
-          .getPublicUrl(filename);
-        finalPublicUrl = publicUrl;
+          const { data, error }: any = await Promise.race([uploadPromise, timeoutPromise]);
+          if (!error && data) {
+            const { data: { publicUrl } } = supabase.storage
+              .from('property-images')
+              .getPublicUrl(filename);
+            if (publicUrl) {
+              finalPublicUrl = publicUrl;
+            }
+          }
+        }
+      } catch (cloudErr) {
+        console.warn('Supabase storage upload failed, saving to local uploads:', cloudErr);
       }
     }
 
-    // If Supabase wasn't configured or threw an error, save to local uploads directory
+    // Reliable fallback to local uploads directory (accessible via /uploads/...)
     if (!finalPublicUrl) {
       const uploadsDir = path.join(process.cwd(), 'uploads');
       if (!fs.existsSync(uploadsDir)) {
@@ -689,9 +756,8 @@ router.post('/upload/image', optionalAuth, upload.single('file'), async (req: an
   }
 });
 
-router.post('/upload/video', optionalAuth, upload.single('file'), async (req: any, res: any) => {
+router.post('/upload/video', optionalAuth, handleFileUpload('file'), async (req: any, res: any) => {
   try {
-    const supabase = getSupabase();
     if (!req.file) {
       return res.status(400).json({ error: 'No video file provided.' });
     }
@@ -702,26 +768,38 @@ router.post('/upload/video', optionalAuth, upload.single('file'), async (req: an
 
     let finalPublicUrl = '';
 
-    if (supabase) {
+    // Check if Supabase bucket exists before attempting upload
+    const bucketReady = await checkSupabaseBucket();
+    if (bucketReady) {
       try {
-        await supabase.storage.createBucket('property-images', { public: true });
-      } catch (e) {}
+        const supabase = getSupabase();
+        if (supabase) {
+          const timeoutPromise = new Promise<{ data: null; error: any }>((_, reject) =>
+            setTimeout(() => reject(new Error('Supabase storage upload timeout')), 8000)
+          );
+          const uploadPromise = supabase.storage
+            .from('property-images')
+            .upload(filename, req.file.buffer, {
+              contentType: req.file.mimetype || 'video/mp4',
+              upsert: true
+            });
 
-      const { data, error } = await supabase.storage
-        .from('property-images')
-        .upload(filename, req.file.buffer, {
-          contentType: req.file.mimetype || 'video/mp4',
-          upsert: true
-        });
-
-      if (!error) {
-        const { data: { publicUrl } } = supabase.storage
-          .from('property-images')
-          .getPublicUrl(filename);
-        finalPublicUrl = publicUrl;
+          const { data, error }: any = await Promise.race([uploadPromise, timeoutPromise]);
+          if (!error && data) {
+            const { data: { publicUrl } } = supabase.storage
+              .from('property-images')
+              .getPublicUrl(filename);
+            if (publicUrl) {
+              finalPublicUrl = publicUrl;
+            }
+          }
+        }
+      } catch (cloudErr) {
+        console.warn('Supabase video upload failed, saving to local uploads:', cloudErr);
       }
     }
 
+    // Reliable fallback to local uploads directory (accessible via /uploads/...)
     if (!finalPublicUrl) {
       const uploadsDir = path.join(process.cwd(), 'uploads');
       if (!fs.existsSync(uploadsDir)) {

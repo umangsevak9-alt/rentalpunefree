@@ -372,6 +372,13 @@ CREATE POLICY "home_gallery_public_select" ON home_gallery FOR SELECT USING (is_
 -- 11. Settings policies (exclude private settings)
 CREATE POLICY "settings_admin_all" ON settings FOR ALL USING (public.is_admin());
 CREATE POLICY "settings_public_select" ON settings FOR SELECT USING (key LIKE 'public_%' OR key IN ('site_title', 'site_description', 'contact_email', 'contact_phone', 'currency', 'company_name', 'address', 'about_text', 'logo_url', 'primary_color', 'social_links'));
+
+-- 12. Supabase Storage: Public Bucket 'property-images' & RLS Policies
+INSERT INTO storage.buckets (id, name, public) VALUES ('property-images', 'property-images', true) ON CONFLICT (id) DO UPDATE SET public = true;
+CREATE POLICY "Public Read Storage" ON storage.objects FOR SELECT USING (bucket_id = 'property-images');
+CREATE POLICY "Public Insert Storage" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'property-images');
+CREATE POLICY "Public Update Storage" ON storage.objects FOR UPDATE USING (bucket_id = 'property-images');
+CREATE POLICY "Public Delete Storage" ON storage.objects FOR DELETE USING (bucket_id = 'property-images');
 `;
 
 import crypto from 'crypto';

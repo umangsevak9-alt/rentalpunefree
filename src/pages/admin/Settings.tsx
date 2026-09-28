@@ -304,23 +304,25 @@ export default function Settings() {
     }
 
     setUploadingVideo(true);
-    setVideoUploadMsg('Uploading video to Supabase Storage...');
+    setVideoUploadMsg('Uploading video file...');
 
     try {
       const res = await supabaseService.storage.uploadVideo(file, file.name);
       if (res?.url) {
-        setFormData(prev => ({
+        setFormData((prev: any) => ({
           ...prev,
           hero_video_url: res.url,
           hero_media_type: 'video'
         }));
-        setVideoUploadMsg('Hero video uploaded to Supabase Storage successfully! Click "Save Settings" below to publish.');
+        setVideoUploadMsg(res.isCloudStorage 
+          ? 'Hero video uploaded to Supabase Storage successfully! Click "Save Settings" below to publish.'
+          : 'Hero video uploaded successfully! Click "Save Settings" below to publish.');
       } else {
-        throw new Error('Could not obtain public URL from Supabase Storage');
+        throw new Error('Could not obtain media URL');
       }
     } catch (err: any) {
       console.error('Video upload error:', err);
-      setVideoUploadMsg(`Upload error: ${err?.message || 'Failed to upload video to cloud storage.'}`);
+      setVideoUploadMsg(`Upload note: ${err?.message || 'Failed to upload video.'}`);
     } finally {
       setUploadingVideo(false);
     }
