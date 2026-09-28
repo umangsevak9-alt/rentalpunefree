@@ -824,16 +824,24 @@ router.post('/upload/video', optionalAuth, handleFileUpload('file'), async (req:
 // --- CHUNKED VIDEO UPLOAD (Bypasses Cloud Run 32MB payload limit for large videos up to 150MB) ---
 router.post('/upload/chunk', optionalAuth, handleFileUpload('chunk'), async (req: any, res: any) => {
   try {
-    const { uploadId, chunkIndex, totalChunks, filename } = req.body;
-    if (!req.file) {
-      return res.status(400).json({ error: 'No video chunk data received.' });
+    const uploadId = req.query.uploadId || req.body?.uploadId;
+    const chunkIndex = req.query.chunkIndex !== undefined ? req.query.chunkIndex : req.body?.chunkIndex;
+    const totalChunks = req.query.totalChunks || req.body?.totalChunks;
+    const filename = req.query.filename || req.body?.filename || req.file?.originalname || 'video.mp4';
+
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({ error: 'No video chunk data received in request.' });
     }
     if (!uploadId || chunkIndex === undefined || !totalChunks) {
-      return res.status(400).json({ error: 'Missing uploadId, chunkIndex, or totalChunks in chunk upload.' });
+      return res.status(400).json({ error: 'Missing uploadId, chunkIndex, or totalChunks parameter.' });
     }
 
-    const cIdx = parseInt(chunkIndex, 10);
-    const tChunks = parseInt(totalChunks, 10);
+    const cIdx = parseInt(String(chunkIndex), 10);
+    const tChunks = parseInt(String(totalChunks), 10);
+
+    if (isNaN(cIdx) || isNaN(tChunks) || tChunks <= 0 || cIdx < 0 || cIdx >= tChunks) {
+      return res.status(400).json({ error: `Invalid chunk index (${chunkIndex}) or total chunks (${totalChunks}).` });
+    }
 
     const safeUploadId = String(uploadId).replace(/[^a-zA-Z0-9_-]/g, '_');
     const chunksDir = path.join(process.cwd(), 'uploads', '.chunks', safeUploadId);
@@ -844,15 +852,21 @@ router.post('/upload/chunk', optionalAuth, handleFileUpload('chunk'), async (req
     const chunkPath = path.join(chunksDir, `part_${cIdx}`);
     fs.writeFileSync(chunkPath, req.file.buffer);
 
-    // Check arrived chunks
-    const arrivedChunks = fs.readdirSync(chunksDir).filter(f => f.startsWith('part_'));
+    // Verify which chunks have arrived
+    let allPresent = true;
+    for (let i = 0; i < tChunks; i++) {
+      if (!fs.existsSync(path.join(chunksDir, `part_${i}`))) {
+        allPresent = false;
+        break;
+      }
+    }
 
-    if (arrivedChunks.length >= tChunks) {
+    if (allPresent) {
       // All chunks received: Assemble final video file
-      const originalName = filename || req.file.originalname || 'video.mp4';
+      const originalName = String(filename || 'video.mp4');
       const ext = path.extname(originalName) || '.mp4';
       const cleanBaseName = path.parse(originalName).name.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 30);
-      const finalFilename = `video-${Date.now()}-${cleanBaseName}${ext}`;
+      const finalFilename = `video-${Date.now()}-${cleanBaseName || 'hero'}${ext}`;
       const uploadsDir = path.join(process.cwd(), 'uploads');
       if (!fs.existsSync(uploadsDir)) {
         fs.mkdirSync(uploadsDir, { recursive: true });
@@ -890,6 +904,7 @@ router.post('/upload/chunk', optionalAuth, handleFileUpload('chunk'), async (req
       });
     }
 
+    const arrivedChunks = fs.readdirSync(chunksDir).filter(f => f.startsWith('part_'));
     return res.json({
       success: true,
       completed: false,
@@ -900,6 +915,80 @@ router.post('/upload/chunk', optionalAuth, handleFileUpload('chunk'), async (req
   } catch (err: any) {
     console.error('Error handling video chunk upload:', err);
     res.status(500).json({ error: err?.message || 'Failed to process video chunk.' });
+  }
+});
+
+// Explicit video chunk assembly endpoint (guarantees finalization if needed)
+router.post('/upload/chunk/complete', optionalAuth, async (req: any, res: any) => {
+  try {
+    const { uploadId, totalChunks, filename } = req.body;
+    if (!uploadId || !totalChunks) {
+      return res.status(400).json({ error: 'Missing uploadId or totalChunks for chunk assembly.' });
+    }
+
+    const tChunks = parseInt(String(totalChunks), 10);
+    const safeUploadId = String(uploadId).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const chunksDir = path.join(process.cwd(), 'uploads', '.chunks', safeUploadId);
+
+    if (!fs.existsSync(chunksDir)) {
+      return res.status(404).json({ error: 'Upload chunk session not found or already completed.' });
+    }
+
+    const missingChunks: number[] = [];
+    for (let i = 0; i < tChunks; i++) {
+      if (!fs.existsSync(path.join(chunksDir, `part_${i}`))) {
+        missingChunks.push(i);
+      }
+    }
+
+    if (missingChunks.length > 0) {
+      return res.status(400).json({
+        success: false,
+        completed: false,
+        missingChunks,
+        error: `Upload incomplete: ${missingChunks.length} chunk(s) missing.`
+      });
+    }
+
+    // Assemble file
+    const originalName = String(filename || 'video.mp4');
+    const ext = path.extname(originalName) || '.mp4';
+    const cleanBaseName = path.parse(originalName).name.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 30);
+    const finalFilename = `video-${Date.now()}-${cleanBaseName || 'hero'}${ext}`;
+    const uploadsDir = path.join(process.cwd(), 'uploads');
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+    const finalPath = path.join(uploadsDir, finalFilename);
+
+    const writeStream = fs.createWriteStream(finalPath);
+    for (let i = 0; i < tChunks; i++) {
+      const partFile = path.join(chunksDir, `part_${i}`);
+      const partBuf = fs.readFileSync(partFile);
+      writeStream.write(partBuf);
+    }
+    await new Promise<void>((resolve, reject) => {
+      writeStream.end(() => resolve());
+      writeStream.on('error', reject);
+    });
+
+    try {
+      fs.rmSync(chunksDir, { recursive: true, force: true });
+    } catch (rmErr) {}
+
+    const finalPublicUrl = `/uploads/${finalFilename}`;
+    const stats = fs.statSync(finalPath);
+
+    return res.json({
+      success: true,
+      completed: true,
+      url: finalPublicUrl,
+      filename: finalFilename,
+      size: stats.size
+    });
+  } catch (err: any) {
+    console.error('Error completing video chunk assembly:', err);
+    res.status(500).json({ error: err?.message || 'Failed to assemble video.' });
   }
 });
 

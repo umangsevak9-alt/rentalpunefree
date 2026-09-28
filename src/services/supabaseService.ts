@@ -3823,47 +3823,58 @@ export const supabaseService = {
       const uniquePath = `videos/hero_video_${Date.now()}_${baseName || 'showcase'}.${fileExt}`;
       const token = getToken();
 
-      // 1. Primary: Resilient Chunked Server Upload (4MB chunks, safely bypassing any 32MB proxy limits)
-      const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB per chunk
+      // 1. Primary: Resilient Chunked Server Upload (2MB chunks for smooth streaming & proxy bypass)
+      const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB per chunk
       const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
       const uploadId = `vid_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
+      let finalUrl = '';
+      let chunkError: Error | null = null;
+
       try {
-        let finalUrl = '';
         for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
           const start = chunkIndex * CHUNK_SIZE;
           const end = Math.min(start + CHUNK_SIZE, file.size);
           const chunkBlob = file.slice(start, end);
 
+          // Append fields first in FormData for guaranteed parsing order
           const formData = new FormData();
-          formData.append('chunk', chunkBlob, `part_${chunkIndex}`);
           formData.append('uploadId', uploadId);
           formData.append('chunkIndex', String(chunkIndex));
           formData.append('totalChunks', String(totalChunks));
           formData.append('filename', rawName);
+          formData.append('chunk', chunkBlob, `part_${chunkIndex}.bin`);
+
+          // Redundantly pass query parameters in URL so parameters are available before multipart parsing
+          const queryUrl = `/api/upload/chunk?uploadId=${encodeURIComponent(uploadId)}&chunkIndex=${chunkIndex}&totalChunks=${totalChunks}&filename=${encodeURIComponent(rawName)}`;
 
           let res: Response | null = null;
-          // Retry each chunk up to 2 times for flaky networks
-          for (let attempt = 0; attempt < 2; attempt++) {
+          let lastErrMessage = '';
+
+          // Retry each chunk up to 3 times with exponential backoff for network resilience
+          for (let attempt = 0; attempt < 3; attempt++) {
             try {
-              res = await fetch('/api/upload/chunk', {
+              res = await fetch(queryUrl, {
                 method: 'POST',
                 headers: token ? { Authorization: `Bearer ${token}` } : {},
                 body: formData
               });
               if (res.ok) break;
-            } catch (err) {
-              if (attempt === 1) throw err;
+              const errJson = await res.json().catch(() => null);
+              lastErrMessage = errJson?.error || `HTTP ${res.status}`;
+            } catch (netErr: any) {
+              lastErrMessage = netErr?.message || 'Network request failed';
             }
+            // Wait with exponential backoff before retry (300ms, 600ms, 900ms)
+            await new Promise(r => setTimeout(r, 300 * (attempt + 1)));
           }
 
           if (!res || !res.ok) {
-            const errData = await res?.json().catch(() => null);
-            throw new Error(errData?.error || `Chunk ${chunkIndex + 1}/${totalChunks} upload failed.`);
+            throw new Error(`Part ${chunkIndex + 1}/${totalChunks} upload error: ${lastErrMessage || 'Connection failed'}`);
           }
 
-          const resData = await res.json();
-          const percent = Math.min(99, Math.round(((chunkIndex + 1) / totalChunks) * 100));
+          const resData = await res.json().catch(() => ({}));
+          const percent = Math.min(96, Math.round(((chunkIndex + 1) / totalChunks) * 100));
           if (onProgress) onProgress(percent);
 
           if (resData.completed && resData.url) {
@@ -3872,37 +3883,63 @@ export const supabaseService = {
           }
         }
 
+        // If all chunks uploaded but auto-assembly didn't complete, explicitly trigger assembly
+        if (!finalUrl) {
+          if (onProgress) onProgress(98);
+          const compRes = await fetch('/api/upload/chunk/complete', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify({ uploadId, totalChunks, filename: rawName })
+          });
+
+          if (compRes.ok) {
+            const compData = await compRes.json();
+            if (compData.completed && compData.url) {
+              finalUrl = compData.url;
+            }
+          } else {
+            const compErr = await compRes.json().catch(() => null);
+            throw new Error(compErr?.error || 'Video chunks could not be merged on server.');
+          }
+        }
+
         if (finalUrl) {
           if (onProgress) onProgress(100);
           return { url: finalUrl, isCloudStorage: false };
         }
-      } catch (chunkErr: any) {
-        console.warn('Chunked upload note, attempting standard endpoint:', chunkErr);
+      } catch (err: any) {
+        console.warn('Chunked video upload note:', err);
+        chunkError = err;
       }
 
-      // 2. Secondary: Standard server upload route (for files under Cloud Run limits)
-      try {
-        const formData = new FormData();
-        formData.append('file', file);
-        const res = await fetch('/api/upload/video', {
-          method: 'POST',
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-          body: formData
-        });
+      // 2. Secondary fallback: Standard single-file upload (only for files under 25MB)
+      if (file.size < 25 * 1024 * 1024) {
+        try {
+          const formData = new FormData();
+          formData.append('file', file);
+          const res = await fetch('/api/upload/video', {
+            method: 'POST',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            body: formData
+          });
 
-        if (res.ok) {
-          const data = await res.json();
-          if (data?.url) {
-            const isCloud = data.url.includes('supabase.co');
-            if (onProgress) onProgress(100);
-            return { url: data.url, isCloudStorage: isCloud };
+          if (res.ok) {
+            const data = await res.json();
+            if (data?.url) {
+              const isCloud = data.url.includes('supabase.co');
+              if (onProgress) onProgress(100);
+              return { url: data.url, isCloudStorage: isCloud };
+            }
           }
+        } catch (serverErr) {
+          console.warn('Standard server upload fallback note:', serverErr);
         }
-      } catch (serverErr) {
-        console.warn('Server upload endpoint note, trying direct Supabase:', serverErr);
       }
 
-      // 3. Tertiary: Direct Supabase Storage upload if bucket is confirmed
+      // 3. Tertiary fallback: Direct Supabase Storage upload if bucket is confirmed
       try {
         const hasBucket = await this.isBucketAvailable();
         if (hasBucket) {
@@ -3931,6 +3968,11 @@ export const supabaseService = {
         }
       } catch (directErr) {
         console.warn('Direct Supabase video upload note:', directErr);
+      }
+
+      // If chunked upload had a specific error, report the precise reason
+      if (chunkError) {
+        throw new Error(chunkError.message);
       }
 
       throw new Error('Video upload failed across all storage pathways. Please ensure your file format is MP4/WebM/MOV or use a direct video link.');
