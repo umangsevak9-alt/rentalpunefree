@@ -3344,9 +3344,6 @@ export const supabaseService = {
           const apiSettings = await res.json();
           if (apiSettings && typeof apiSettings === 'object' && Object.keys(apiSettings).length > 0) {
             const merged = { ...defaultSettings, ...apiSettings };
-            if (merged.hero_video_url && merged.hero_video_url.startsWith('blob:')) {
-              merged.hero_video_url = defaultSettings.hero_video_url;
-            }
             setLocal('settings', merged);
             return merged;
           }
@@ -3365,17 +3362,10 @@ export const supabaseService = {
           const settingsObj: Settings = {};
           data.forEach((row: any) => {
             if (row.key) {
-              if (row.key === 'hero_video_url' && String(row.value).startsWith('blob:')) {
-                settingsObj[row.key] = defaultSettings.hero_video_url;
-              } else {
-                settingsObj[row.key] = row.value;
-              }
+              settingsObj[row.key] = row.value;
             }
           });
           const merged = { ...defaultSettings, ...settingsObj };
-          if (merged.hero_video_url && merged.hero_video_url.startsWith('blob:')) {
-            merged.hero_video_url = defaultSettings.hero_video_url;
-          }
           setLocal('settings', merged);
           return merged;
         }
@@ -3385,19 +3375,12 @@ export const supabaseService = {
 
       const cached = getLocal<Settings>('settings', defaultSettings);
       const merged = { ...defaultSettings, ...cached };
-      if (merged.hero_video_url && merged.hero_video_url.startsWith('blob:')) {
-        merged.hero_video_url = defaultSettings.hero_video_url;
-      }
       return merged;
     },
 
     async update(updates: Record<string, string>): Promise<Settings> {
-      // Clean out any temporary blob URLs that cannot work across multiple tabs
       const sanitizedUpdates: Record<string, string> = {};
       for (const [k, v] of Object.entries(updates)) {
-        if (k === 'hero_video_url' && String(v).startsWith('blob:')) {
-          continue;
-        }
         sanitizedUpdates[k] = String(v ?? '');
       }
 
@@ -3887,7 +3870,23 @@ export const supabaseService = {
         }
       }
 
-      // Strategy 3: Resilient Local Object URL (ensures immediate 100% functional video playback in hero section)
+      // Strategy 3: Resilient Base64 Data URL (ensures permanent 100% functional video playback in hero section across reloads)
+      if (file.size <= 50 * 1024 * 1024) {
+        try {
+          const base64Data = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
+          if (base64Data) {
+            if (onProgress) onProgress(100);
+            return { url: base64Data, isCloudStorage: false };
+          }
+        } catch {}
+      }
+
+      // Strategy 4: Local Object URL
       if (typeof window !== 'undefined' && window.URL) {
         const localBlobUrl = URL.createObjectURL(file);
         if (onProgress) onProgress(100);

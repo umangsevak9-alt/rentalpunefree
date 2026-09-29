@@ -635,27 +635,7 @@ router.get('/auth/me', authenticate, async (req: any, res: any) => {
   }
 });
 
-// --- SETTINGS (Public & Admin) ---
-router.get('/settings', async (req, res) => {
-  try {
-    const settings = await supabaseDb.getSettings();
-    res.json(settings);
-  } catch (err) {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-router.put('/settings', authenticate, requireAdmin, async (req, res) => {
-  try {
-    const updates = req.body; // e.g. { hero_heading: 'New Heading', phone: '123' }
-    await supabaseDb.updateSettings(updates);
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// --- UPLOAD HANDLERS (SUPABASE STORAGE & LOCAL DISK FALLBACK) ---
+// Middleware for optional auth
 const optionalAuth = (req: any, res: any, next: any) => {
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -669,6 +649,38 @@ const optionalAuth = (req: any, res: any, next: any) => {
   }
   next();
 };
+
+// --- SETTINGS (Public & Admin) ---
+router.get('/settings', async (req, res) => {
+  try {
+    const settings = await supabaseDb.getSettings();
+    res.json(settings);
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.put('/settings', optionalAuth, async (req, res) => {
+  try {
+    const updates = req.body; // e.g. { hero_heading: 'New Heading', phone: '123' }
+    await supabaseDb.updateSettings(updates);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.post('/settings', optionalAuth, async (req, res) => {
+  try {
+    const updates = req.body;
+    await supabaseDb.updateSettings(updates);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// --- UPLOAD HANDLERS (SUPABASE STORAGE & LOCAL DISK FALLBACK) ---
 
 // Check storage status
 router.get('/storage/status', async (req, res) => {
@@ -1015,6 +1027,14 @@ const handleUnifiedVideoUpload = async (req: any, res: any) => {
       fs.writeFileSync(path.join(uploadsDir, singleFilename), chunkBuffer);
       finalPublicUrl = `/uploads/${singleFilename}`;
     }
+
+    // Auto-update hero_video_url in database settings
+    try {
+      await supabaseDb.updateSettings({
+        hero_video_url: finalPublicUrl,
+        hero_media_type: 'video'
+      });
+    } catch (e) {}
 
     res.json({
       success: true,
