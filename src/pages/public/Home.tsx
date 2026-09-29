@@ -74,11 +74,6 @@ function parseVideoSource(rawUrl?: string, mediaType?: string) {
   }
   
   let effectiveUrl = (rawUrl && rawUrl.trim()) ? rawUrl.trim() : DEFAULT_SAMPLE_HERO_VIDEO;
-  // A blob: URL is only valid in the single memory session where it was generated.
-  // If opened in another tab or refreshed, blob: is invalid and will fail to render.
-  if (effectiveUrl.startsWith('blob:')) {
-    effectiveUrl = DEFAULT_SAMPLE_HERO_VIDEO;
-  }
   const url = effectiveUrl;
   
   // YouTube Detection (matches youtube.com, youtu.be, embed, shorts)

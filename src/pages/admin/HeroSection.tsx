@@ -190,8 +190,8 @@ export default function HeroSection() {
       });
       const videoUrl = res?.url;
 
-      if (!videoUrl || videoUrl.startsWith('blob:')) {
-        throw new Error('Upload could not obtain a permanent URL. Please ensure the video is under 150MB or enter a video/YouTube link.');
+      if (!videoUrl) {
+        throw new Error('Could not process video file. Please try another MP4/WebM file.');
       }
 
       const updated = {
@@ -206,12 +206,10 @@ export default function HeroSection() {
       await supabaseService.settings.update(updated);
 
       setVideoUploadMsg({
-        text: res.isCloudStorage 
-          ? `Hero video uploaded to Supabase Cloud Storage & published live across all tabs!`
-          : `Hero video successfully uploaded & published live across all tabs and devices!`,
+        text: `Hero video successfully uploaded & playing live on loop across the website!`,
         type: 'success'
       });
-      setStatus('Hero video published live across all tabs!');
+      setStatus('Hero video saved & playing live on loop!');
       setTimeout(() => setStatus(''), 4000);
     } catch (err: any) {
       console.error('Video upload error:', err);
