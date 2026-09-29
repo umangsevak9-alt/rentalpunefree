@@ -69,7 +69,7 @@ import { supabaseService } from '../../services/supabaseService.js';
 export const DEFAULT_SAMPLE_HERO_VIDEO = 'https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-building-exterior-41549-large.mp4';
 
 function parseVideoSource(rawUrl?: string, mediaType?: string) {
-  if (mediaType === 'image') {
+  if (mediaType === 'image' && (!rawUrl || rawUrl === DEFAULT_SAMPLE_HERO_VIDEO)) {
     return { type: 'none' as const, url: '', bgUrl: '', modalUrl: '', isDirect: false, isYouTube: false };
   }
   
@@ -368,6 +368,21 @@ export default function Home() {
   ];
 
   useEffect(() => {
+    // 0. Fetch latest fresh settings from backend/database
+    supabaseService.settings.get().then(freshSettings => {
+      if (freshSettings) {
+        useAppStore.getState().setSettings(freshSettings);
+      }
+    }).catch(() => {});
+
+    const handleSettingsUpdate = (e: any) => {
+      if (e.detail) {
+        useAppStore.getState().setSettings(e.detail);
+      }
+    };
+    window.addEventListener('settings_updated', handleSettingsUpdate);
+    window.addEventListener('rp_settings_synced', handleSettingsUpdate);
+
     // 1. Initial cached render immediately (0ms delay)
     const cachedProps = supabaseService.getLocal<Property[]>('properties', []);
     if (cachedProps.length > 0) {
@@ -426,6 +441,8 @@ export default function Home() {
     window.addEventListener('rp_gallery_synced', handleGalleryUpdate);
 
     return () => {
+      window.removeEventListener('settings_updated', handleSettingsUpdate);
+      window.removeEventListener('rp_settings_synced', handleSettingsUpdate);
       window.removeEventListener('properties_updated', handlePropertiesUpdated);
       window.removeEventListener('rp_properties_synced', handlePropertiesUpdated);
       window.removeEventListener('storage', handleStorageChange);
@@ -813,23 +830,10 @@ export default function Home() {
                     loop 
                     playsInline 
                     preload="auto"
-                    controls={false}
-                    tabIndex={-1}
-                    aria-hidden="true"
                     disablePictureInPicture
                     disableRemotePlayback
                     // @ts-ignore
                     controlsList="nodownload nofullscreen noremoteplayback noplaybackrate"
-                    onError={() => {
-                      const currentUrl = videoFallbackUrl || heroVideoInfo.url;
-                      if (currentUrl !== DEFAULT_SAMPLE_HERO_VIDEO) {
-                        console.warn('Custom hero video failed to load, falling back to default loop.');
-                        setVideoFallbackUrl(DEFAULT_SAMPLE_HERO_VIDEO);
-                      } else {
-                        console.warn('Hero video failed to load, falling back to architectural backdrop.');
-                        setHeroVideoFailed(true);
-                      }
-                    }}
                     ref={(el) => {
                       heroVideoElementRef.current = el;
                       if (el) {
@@ -837,13 +841,15 @@ export default function Home() {
                         el.defaultMuted = true;
                         el.loop = true;
                         el.playsInline = true;
-                        el.play().catch(() => {
-                          // Browser autoplay permission catch
-                        });
+                        el.play().catch(() => {});
                       }
                     }}
-                    className="w-full h-full object-cover object-center brightness-85 scale-105 transition-all duration-1000 ease-out pointer-events-none select-none"
-                  />
+                    className="w-full h-full object-cover object-center brightness-85 scale-105 pointer-events-none select-none"
+                  >
+                    <source src={videoFallbackUrl || heroVideoInfo.url} type="video/mp4" />
+                    <source src={videoFallbackUrl || heroVideoInfo.url} type="video/webm" />
+                    <source src={videoFallbackUrl || heroVideoInfo.url} />
+                  </video>
                 ) : heroVideoInfo.type === 'youtube' ? (
                   <div className="w-full h-full relative overflow-hidden pointer-events-none">
                     <iframe
