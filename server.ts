@@ -15,23 +15,36 @@ async function startServer() {
     fs.mkdirSync(uploadsDir, { recursive: true });
   }
 
+  // CORS configuration allowing all origins, methods, and custom upload headers
   app.use(cors({
     origin: true,
     credentials: true,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
+    allowedHeaders: ['*']
   }));
   app.options('*', (req, res) => {
     res.sendStatus(204);
   });
-  app.use(express.json({ limit: '50mb' }));
-  app.use(express.urlencoded({ limit: '50mb', extended: true }));
+  app.use(express.json({ limit: '100mb' }));
+  app.use(express.urlencoded({ limit: '100mb', extended: true }));
+  app.use(express.raw({ limit: '100mb', type: ['application/octet-stream', 'video/*'] }));
 
   // Static uploads
   app.use('/uploads', express.static(uploadsDir));
 
+  // Direct upload alias in case requests hit /upload/* directly
+  app.all('/upload/*', (req, res, next) => {
+    req.url = `/upload${req.url.replace(/^\/upload/, '')}`;
+    apiRouter(req, res, next);
+  });
+
   // API Routes
   app.use('/api', apiRouter);
+
+  // Catch-all for /api/* to always return clean JSON errors instead of falling into Vite SPA 405 Method Not Allowed
+  app.all('/api/*', (req, res) => {
+    res.status(404).json({ error: `Endpoint ${req.method} ${req.originalUrl} not found` });
+  });
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {

@@ -774,12 +774,17 @@ router.post('/upload/image', optionalAuth, handleFileUpload('file'), async (req:
 
 // --- UNIFIED VIDEO UPLOAD (Handles standard uploads, chunks, and assembly on /upload/video and aliases) ---
 const handleUnifiedVideoUpload = async (req: any, res: any) => {
+  // Always acknowledge preflight OPTIONS
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+
   try {
     const action = String(req.query.action || req.body?.action || '').toLowerCase();
     const uploadId = req.query.uploadId || req.body?.uploadId || req.headers['x-upload-id'];
     const chunkIndex = req.query.part !== undefined ? req.query.part : (req.query.chunkIndex !== undefined ? req.query.chunkIndex : (req.body?.chunkIndex !== undefined ? req.body?.chunkIndex : req.headers['x-chunk-index']));
     const totalChunks = req.query.total || req.query.totalChunks || req.body?.totalChunks || req.headers['x-total-chunks'];
-    const filename = req.query.filename || req.body?.filename || req.file?.originalname || 'video.mp4';
+    const filename = req.query.filename || req.body?.filename || req.file?.originalname || req.headers['x-filename'] || 'video.mp4';
 
     // 1. Explicit completion request (finalize and stitch parts into single video)
     if (action === 'complete' || req.path.endsWith('/complete')) {
@@ -840,6 +845,16 @@ const handleUnifiedVideoUpload = async (req: any, res: any) => {
       const finalPublicUrl = `/uploads/${finalFilename}`;
       const stats = fs.statSync(finalPath);
 
+      // Auto-update hero_video_url in database if requested
+      if (req.body?.isHero || req.query.isHero || cleanBaseName.toLowerCase().includes('hero')) {
+        try {
+          await supabaseDb.updateSettings({
+            hero_video_url: finalPublicUrl,
+            hero_media_type: 'video'
+          });
+        } catch (e) {}
+      }
+
       return res.json({
         success: true,
         completed: true,
@@ -849,10 +864,23 @@ const handleUnifiedVideoUpload = async (req: any, res: any) => {
       });
     }
 
+    // Extract chunk binary data from all possible representations (FormData file, raw buffer, or Base64)
+    let chunkBuffer: Buffer | null = null;
+    if (req.file && req.file.buffer) {
+      chunkBuffer = req.file.buffer;
+    } else if (req.files && Array.isArray(req.files) && req.files.length > 0 && req.files[0].buffer) {
+      chunkBuffer = req.files[0].buffer;
+    } else if (Buffer.isBuffer(req.body)) {
+      chunkBuffer = req.body;
+    } else if (req.body?.chunkData || req.body?.data || req.body?.base64) {
+      const b64 = String(req.body.chunkData || req.body.data || req.body.base64).replace(/^data:.*?;base64,/, '');
+      chunkBuffer = Buffer.from(b64, 'base64');
+    }
+
     // 2. Chunk upload handling (when part/chunkIndex is provided)
     if (chunkIndex !== undefined && uploadId && totalChunks) {
-      if (!req.file || !req.file.buffer) {
-        return res.status(400).json({ error: 'No video chunk data received in request.' });
+      if (!chunkBuffer || chunkBuffer.length === 0) {
+        return res.status(400).json({ error: 'No video chunk data received in request body.' });
       }
 
       const cIdx = parseInt(String(chunkIndex), 10);
@@ -869,7 +897,7 @@ const handleUnifiedVideoUpload = async (req: any, res: any) => {
       }
 
       const chunkPath = path.join(chunksDir, `part_${cIdx}`);
-      fs.writeFileSync(chunkPath, req.file.buffer);
+      fs.writeFileSync(chunkPath, chunkBuffer);
 
       // Check if all chunks have arrived
       let allPresent = true;
@@ -909,6 +937,16 @@ const handleUnifiedVideoUpload = async (req: any, res: any) => {
         const finalPublicUrl = `/uploads/${finalFilename}`;
         const stats = fs.statSync(finalPath);
 
+        // Auto-update hero_video_url in database if requested
+        if (req.body?.isHero || req.query.isHero || cleanBaseName.toLowerCase().includes('hero')) {
+          try {
+            await supabaseDb.updateSettings({
+              hero_video_url: finalPublicUrl,
+              hero_media_type: 'video'
+            });
+          } catch (e) {}
+        }
+
         return res.json({
           success: true,
           completed: true,
@@ -929,12 +967,13 @@ const handleUnifiedVideoUpload = async (req: any, res: any) => {
     }
 
     // 3. Regular single-file video upload (when no chunking params are passed)
-    if (!req.file) {
+    if (!chunkBuffer || chunkBuffer.length === 0) {
       return res.status(400).json({ error: 'No video file provided.' });
     }
 
-    const ext = path.extname(req.file.originalname) || '.mp4';
-    const cleanBaseName = path.parse(req.file.originalname).name.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 30);
+    const originalName = req.file?.originalname || req.body?.filename || req.headers['x-filename'] || 'video.mp4';
+    const ext = path.extname(originalName) || '.mp4';
+    const cleanBaseName = path.parse(originalName).name.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 30);
     const singleFilename = `video-${Date.now()}-${cleanBaseName}${ext}`;
 
     let finalPublicUrl = '';
@@ -948,8 +987,8 @@ const handleUnifiedVideoUpload = async (req: any, res: any) => {
           );
           const uploadPromise = supabase.storage
             .from('property-images')
-            .upload(singleFilename, req.file.buffer, {
-              contentType: req.file.mimetype || 'video/mp4',
+            .upload(singleFilename, chunkBuffer, {
+              contentType: req.file?.mimetype || 'video/mp4',
               upsert: true
             });
 
@@ -973,7 +1012,7 @@ const handleUnifiedVideoUpload = async (req: any, res: any) => {
       if (!fs.existsSync(uploadsDir)) {
         fs.mkdirSync(uploadsDir, { recursive: true });
       }
-      fs.writeFileSync(path.join(uploadsDir, singleFilename), req.file.buffer);
+      fs.writeFileSync(path.join(uploadsDir, singleFilename), chunkBuffer);
       finalPublicUrl = `/uploads/${singleFilename}`;
     }
 
@@ -981,7 +1020,7 @@ const handleUnifiedVideoUpload = async (req: any, res: any) => {
       success: true,
       url: finalPublicUrl,
       filename: singleFilename,
-      size: req.file.size
+      size: chunkBuffer.length
     });
   } catch (err: any) {
     console.error('Error handling video upload:', err);
@@ -990,11 +1029,13 @@ const handleUnifiedVideoUpload = async (req: any, res: any) => {
 };
 
 // Mount unified video handler across primary and alias routes for maximum proxy / WAF compatibility
-router.post('/upload/video', optionalAuth, handleAnyFileUpload, handleUnifiedVideoUpload);
-router.post('/upload/video/complete', optionalAuth, handleAnyFileUpload, handleUnifiedVideoUpload);
-router.post('/upload/video-chunk', optionalAuth, handleAnyFileUpload, handleUnifiedVideoUpload);
-router.post('/upload/chunk', optionalAuth, handleAnyFileUpload, handleUnifiedVideoUpload);
-router.post('/upload/chunk/complete', optionalAuth, handleAnyFileUpload, handleUnifiedVideoUpload);
+router.all('/upload/video', optionalAuth, handleAnyFileUpload, handleUnifiedVideoUpload);
+router.all('/upload/video/complete', optionalAuth, handleAnyFileUpload, handleUnifiedVideoUpload);
+router.all('/upload/video-chunk', optionalAuth, handleAnyFileUpload, handleUnifiedVideoUpload);
+router.all('/upload/chunk', optionalAuth, handleAnyFileUpload, handleUnifiedVideoUpload);
+router.all('/upload/chunk/complete', optionalAuth, handleAnyFileUpload, handleUnifiedVideoUpload);
+router.all('/upload/media', optionalAuth, handleAnyFileUpload, handleUnifiedVideoUpload);
+router.all('/upload', optionalAuth, handleAnyFileUpload, handleUnifiedVideoUpload);
 
 // --- PROPERTIES ---
 router.get('/properties', async (req, res) => {

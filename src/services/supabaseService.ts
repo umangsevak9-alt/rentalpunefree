@@ -3809,7 +3809,7 @@ export const supabaseService = {
 
     /**
      * Upload a video with guaranteed zero-fail fallback.
-     * Uses resilient chunked uploading (4MB chunks) to bypass Cloud Run 32MB payload limits,
+     * Uses direct upload for files <= 15MB or resilient 2MB chunked uploading for large files (up to 150MB),
      * assembling the permanent file in /uploads/ with real-time progress callbacks.
      */
     async uploadVideo(
@@ -3823,7 +3823,40 @@ export const supabaseService = {
       const uniquePath = `videos/hero_video_${Date.now()}_${baseName || 'showcase'}.${fileExt}`;
       const token = getToken();
 
-      // 1. Primary: Resilient Chunked Server Upload (2MB chunks via /api/upload/video with proxy resilience)
+      // 1. Fast Direct Single-Shot Upload for files <= 15MB
+      if (file.size <= 15 * 1024 * 1024) {
+        try {
+          if (onProgress) onProgress(15);
+          const formData = new FormData();
+          formData.append('file', file, rawName);
+          formData.append('filename', rawName);
+          formData.append('isHero', 'true');
+
+          const directEndpoints = ['/api/upload/video', '/api/upload', '/upload/video'];
+          for (const endpoint of directEndpoints) {
+            try {
+              const res = await fetch(endpoint, {
+                method: 'POST',
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
+                body: formData
+              });
+              if (res.ok) {
+                const data = await res.json();
+                if (data?.url) {
+                  if (onProgress) onProgress(100);
+                  return { url: data.url, isCloudStorage: Boolean(data.url?.includes('supabase.co')) };
+                }
+              }
+            } catch (epErr) {
+              console.warn(`Direct upload to ${endpoint} note:`, epErr);
+            }
+          }
+        } catch (fastErr) {
+          console.warn('Fast single-shot upload fallback note:', fastErr);
+        }
+      }
+
+      // 2. Resilient Chunked Server Upload for larger files (or if direct single-shot was skipped/failed)
       const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB per chunk
       const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
       const uploadId = `vid_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
@@ -3843,12 +3876,9 @@ export const supabaseService = {
           formData.append('chunkIndex', String(chunkIndex));
           formData.append('totalChunks', String(totalChunks));
           formData.append('filename', rawName);
-          // Append under both 'file' and 'chunk' field names for universal middleware compatibility
           formData.append('file', chunkBlob, `part_${chunkIndex}.bin`);
           formData.append('chunk', chunkBlob, `part_${chunkIndex}.bin`);
 
-          // Target primary /api/upload/video (guaranteed allowed on all reverse proxies/WAFs)
-          // without file extensions in query to prevent static-asset 405 triggers
           const primaryUrl = `/api/upload/video?action=chunk&uploadId=${encodeURIComponent(uploadId)}&part=${chunkIndex}&total=${totalChunks}`;
           const fallbackUrl = `/api/upload/chunk?uploadId=${encodeURIComponent(uploadId)}&chunkIndex=${chunkIndex}&totalChunks=${totalChunks}`;
 
@@ -3861,7 +3891,13 @@ export const supabaseService = {
             try {
               res = await fetch(targetUrl, {
                 method: 'POST',
-                headers: token ? { Authorization: `Bearer ${token}` } : {},
+                headers: {
+                  'X-Upload-Id': uploadId,
+                  'X-Chunk-Index': String(chunkIndex),
+                  'X-Total-Chunks': String(totalChunks),
+                  'X-Filename': encodeURIComponent(rawName),
+                  ...(token ? { Authorization: `Bearer ${token}` } : {})
+                },
                 body: formData
               });
               if (res.ok) break;
@@ -3870,8 +3906,8 @@ export const supabaseService = {
             } catch (netErr: any) {
               lastErrMessage = netErr?.message || 'Network request failed';
             }
-            // Wait with exponential backoff before retry (300ms, 600ms, 900ms)
-            await new Promise(r => setTimeout(r, 300 * (attempt + 1)));
+            // Wait with exponential backoff before retry (200ms, 400ms, 600ms)
+            await new Promise(r => setTimeout(r, 200 * (attempt + 1)));
           }
 
           if (!res || !res.ok) {
@@ -3897,7 +3933,7 @@ export const supabaseService = {
               'Content-Type': 'application/json',
               ...(token ? { Authorization: `Bearer ${token}` } : {})
             },
-            body: JSON.stringify({ action: 'complete', uploadId, totalChunks, filename: rawName })
+            body: JSON.stringify({ action: 'complete', uploadId, totalChunks, filename: rawName, isHero: true })
           });
 
           // Fallback to /upload/chunk/complete if needed
@@ -3908,7 +3944,7 @@ export const supabaseService = {
                 'Content-Type': 'application/json',
                 ...(token ? { Authorization: `Bearer ${token}` } : {})
               },
-              body: JSON.stringify({ uploadId, totalChunks, filename: rawName })
+              body: JSON.stringify({ uploadId, totalChunks, filename: rawName, isHero: true })
             });
           }
 
@@ -3932,31 +3968,30 @@ export const supabaseService = {
         chunkError = err;
       }
 
-      // 2. Secondary fallback: Standard single-file upload (only for files under 25MB)
-      if (file.size < 25 * 1024 * 1024) {
-        try {
-          const formData = new FormData();
-          formData.append('file', file);
-          const res = await fetch('/api/upload/video', {
-            method: 'POST',
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
-            body: formData
-          });
+      // 3. Fallback: Standard single-file upload
+      try {
+        const formData = new FormData();
+        formData.append('file', file, rawName);
+        formData.append('filename', rawName);
+        const res = await fetch('/api/upload/video', {
+          method: 'POST',
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          body: formData
+        });
 
-          if (res.ok) {
-            const data = await res.json();
-            if (data?.url) {
-              const isCloud = data.url.includes('supabase.co');
-              if (onProgress) onProgress(100);
-              return { url: data.url, isCloudStorage: isCloud };
-            }
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.url) {
+            const isCloud = data.url.includes('supabase.co');
+            if (onProgress) onProgress(100);
+            return { url: data.url, isCloudStorage: isCloud };
           }
-        } catch (serverErr) {
-          console.warn('Standard server upload fallback note:', serverErr);
         }
+      } catch (serverErr) {
+        console.warn('Standard server upload fallback note:', serverErr);
       }
 
-      // 3. Tertiary fallback: Direct Supabase Storage upload if bucket is confirmed
+      // 4. Fallback: Direct Supabase Storage upload if bucket is confirmed
       try {
         const hasBucket = await this.isBucketAvailable();
         if (hasBucket) {
