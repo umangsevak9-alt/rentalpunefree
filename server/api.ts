@@ -872,8 +872,8 @@ const handleUnifiedVideoUpload = async (req: any, res: any) => {
       chunkBuffer = req.files[0].buffer;
     } else if (Buffer.isBuffer(req.body)) {
       chunkBuffer = req.body;
-    } else if (req.body?.chunkData || req.body?.data || req.body?.base64) {
-      const b64 = String(req.body.chunkData || req.body.data || req.body.base64).replace(/^data:.*?;base64,/, '');
+    } else if (req.body?.video || req.body?.chunkData || req.body?.data || req.body?.base64 || req.body?.file) {
+      const b64 = String(req.body.video || req.body.chunkData || req.body.data || req.body.base64 || req.body.file).replace(/^data:.*?;base64,/, '');
       chunkBuffer = Buffer.from(b64, 'base64');
     }
 
