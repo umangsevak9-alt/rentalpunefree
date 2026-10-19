@@ -14,6 +14,7 @@ import {
   Image, 
   Building2, 
   MessageSquareQuote,
+  MessageSquare,
   FileText,
   HelpCircle,
   BookmarkCheck,
@@ -56,6 +57,7 @@ export default function AdminLayout() {
     { name: 'Gallery & Showcase', path: '/admin/gallery', icon: Image },
     { name: 'Agents', path: '/admin/agents', icon: Users },
     { name: 'Hero Section', path: '/admin/hero', icon: Film },
+    { name: 'WhatsApp', path: '/admin/whatsapp', icon: MessageSquare },
     { name: 'Settings', path: '/admin/settings', icon: Settings },
   ];
 

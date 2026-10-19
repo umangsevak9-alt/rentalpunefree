@@ -66,6 +66,8 @@ CREATE TABLE IF NOT EXISTS public.leads (
   property_title TEXT,
   assigned_agent_id BIGINT,
   notes TEXT,
+  whatsapp_consent BOOLEAN DEFAULT FALSE,
+  whatsapp_consent_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -225,18 +227,49 @@ CREATE TRIGGER on_auth_user_created
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
 -- Helper function to check if caller is an admin
+-- Only server-controlled sources (service_role, app_metadata, verified profiles/users) can grant admin access
 CREATE OR REPLACE FUNCTION public.is_admin()
-RETURNS BOOLEAN AS $$
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
 BEGIN
-  RETURN (
-    EXISTS (
+  -- Service role always has administrative privileges
+  IF (auth.jwt() ->> 'role') = 'service_role' THEN
+    RETURN TRUE;
+  END IF;
+
+  -- Server-controlled app_metadata (cannot be forged by end users)
+  IF (auth.jwt() -> 'app_metadata' ->> 'role') IN ('MAIN_ADMIN', 'ADMIN') THEN
+    RETURN TRUE;
+  END IF;
+
+  -- Check public.profiles where role is MAIN_ADMIN or ADMIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'profiles') THEN
+    IF EXISTS (
       SELECT 1 FROM public.profiles 
       WHERE public.profiles.id = auth.uid() 
       AND public.profiles.role IN ('MAIN_ADMIN', 'ADMIN')
-    ) OR (auth.jwt() ->> 'role') = 'service_role'
-  );
+    ) THEN
+      RETURN TRUE;
+    END IF;
+  END IF;
+
+  -- Check public.users where email matches auth email AND role is MAIN_ADMIN or ADMIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'users') THEN
+    IF EXISTS (
+      SELECT 1 FROM public.users 
+      WHERE LOWER(public.users.email) = LOWER(auth.jwt() ->> 'email')
+      AND public.users.role IN ('MAIN_ADMIN', 'ADMIN')
+    ) THEN
+      RETURN TRUE;
+    END IF;
+  END IF;
+
+  RETURN FALSE;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
 
 -- ==============================================================================
 -- 4. ROW LEVEL SECURITY (RLS) POLICIES
@@ -256,41 +289,50 @@ ALTER TABLE public.settings ENABLE ROW LEVEL SECURITY;
 
 -- 4.1 Profiles Policies
 CREATE POLICY "Public can view basic profiles" ON public.profiles FOR SELECT USING (true);
-CREATE POLICY "Users can update own profile" ON public.profiles FOR UPDATE USING (auth.uid() = id);
-CREATE POLICY "Admins have full access to profiles" ON public.profiles FOR ALL USING (public.is_admin() OR auth.role() = 'authenticated');
+CREATE POLICY "Users can update own profile" ON public.profiles 
+  FOR UPDATE 
+  USING (auth.uid() = id)
+  WITH CHECK (
+    auth.uid() = id 
+    AND (
+      role = (SELECT p.role FROM public.profiles p WHERE p.id = auth.uid())
+      OR public.is_admin()
+    )
+  );
+CREATE POLICY "Admins have full access to profiles" ON public.profiles FOR ALL USING (public.is_admin());
 
 -- 4.2 Users Policies
 CREATE POLICY "Public read users" ON public.users FOR SELECT USING (true);
-CREATE POLICY "Admin full access users" ON public.users FOR ALL USING (public.is_admin() OR auth.role() = 'authenticated');
+CREATE POLICY "Admin full access users" ON public.users FOR ALL USING (public.is_admin());
 
 -- 4.3 Properties Policies
 CREATE POLICY "Public read properties" ON public.properties FOR SELECT USING (true);
-CREATE POLICY "Admin write properties" ON public.properties FOR ALL USING (public.is_admin() OR auth.role() = 'authenticated');
+CREATE POLICY "Admin write properties" ON public.properties FOR ALL USING (public.is_admin());
 
 -- 4.4 Leads Policies (Public can submit leads, Admin can view/edit/delete)
 CREATE POLICY "Public insert leads" ON public.leads FOR INSERT WITH CHECK (true);
-CREATE POLICY "Admin full access leads" ON public.leads FOR ALL USING (public.is_admin() OR auth.role() = 'authenticated');
+CREATE POLICY "Admin full access leads" ON public.leads FOR ALL USING (public.is_admin());
 
 -- 4.5 Site Visits Policies
-CREATE POLICY "Admin full access site visits" ON public.site_visits FOR ALL USING (public.is_admin() OR auth.role() = 'authenticated');
+CREATE POLICY "Admin full access site visits" ON public.site_visits FOR ALL USING (public.is_admin());
 
 -- 4.6 Feedback Policies
-CREATE POLICY "Admin full access feedback" ON public.site_visit_feedback FOR ALL USING (public.is_admin() OR auth.role() = 'authenticated');
+CREATE POLICY "Admin full access feedback" ON public.site_visit_feedback FOR ALL USING (public.is_admin());
 
 -- 4.7 Invoices Policies
-CREATE POLICY "Admin full access invoices" ON public.invoices FOR ALL USING (public.is_admin() OR auth.role() = 'authenticated');
+CREATE POLICY "Admin full access invoices" ON public.invoices FOR ALL USING (public.is_admin());
 
 -- 4.8 Home FAQs Policies
 CREATE POLICY "Public read FAQs" ON public.home_faqs FOR SELECT USING (true);
-CREATE POLICY "Admin full access FAQs" ON public.home_faqs FOR ALL USING (public.is_admin() OR auth.role() = 'authenticated');
+CREATE POLICY "Admin full access FAQs" ON public.home_faqs FOR ALL USING (public.is_admin());
 
 -- 4.9 Owner Submissions Policies (Public can submit property, Admin can view/approve/delete)
 CREATE POLICY "Public insert owner submissions" ON public.owner_submissions FOR INSERT WITH CHECK (true);
-CREATE POLICY "Admin full access owner submissions" ON public.owner_submissions FOR ALL USING (public.is_admin() OR auth.role() = 'authenticated');
+CREATE POLICY "Admin full access owner submissions" ON public.owner_submissions FOR ALL USING (public.is_admin());
 
 -- 4.10 Settings Policies
 CREATE POLICY "Public read settings" ON public.settings FOR SELECT USING (true);
-CREATE POLICY "Admin write settings" ON public.settings FOR ALL USING (public.is_admin() OR auth.role() = 'authenticated');
+CREATE POLICY "Admin write settings" ON public.settings FOR ALL USING (public.is_admin());
 
 -- ==============================================================================
 -- 5. STORAGE BUCKET & POLICIES
@@ -433,3 +475,54 @@ VALUES
 ON CONFLICT (id) DO NOTHING;
 
 SELECT setval('users_id_seq', (SELECT COALESCE(MAX(id), 1) FROM public.users));
+
+-- ==============================================================================
+-- 7. WHATSAPP NOTIFICATIONS LOGS TABLE & POLICIES
+-- ==============================================================================
+
+CREATE TABLE IF NOT EXISTS public.whatsapp_logs (
+  id BIGSERIAL PRIMARY KEY,
+  lead_id BIGINT REFERENCES public.leads(id) ON DELETE SET NULL,
+  recipient_type TEXT NOT NULL CHECK (recipient_type IN ('CUSTOMER', 'ADMIN', 'TEST')),
+  recipient_phone TEXT NOT NULL,
+  message_type TEXT NOT NULL CHECK (message_type IN ('CUSTOMER_CONFIRMATION', 'ADMIN_ALERT', 'TEST')),
+  status TEXT NOT NULL DEFAULT 'SENT' CHECK (status IN ('SENT', 'DELIVERED', 'READ', 'FAILED')),
+  whatsapp_message_id TEXT,
+  error_message TEXT,
+  payload JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_whatsapp_logs_lead_id ON public.whatsapp_logs (lead_id);
+CREATE INDEX IF NOT EXISTS idx_whatsapp_logs_created_at ON public.whatsapp_logs (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_whatsapp_logs_status ON public.whatsapp_logs (status);
+CREATE INDEX IF NOT EXISTS idx_whatsapp_logs_recipient_phone ON public.whatsapp_logs (recipient_phone);
+CREATE INDEX IF NOT EXISTS idx_whatsapp_logs_message_id ON public.whatsapp_logs (whatsapp_message_id);
+
+ALTER TABLE public.whatsapp_logs ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "whatsapp_logs_admin_all" ON public.whatsapp_logs;
+CREATE POLICY "whatsapp_logs_admin_all" ON public.whatsapp_logs 
+  FOR ALL USING (public.is_admin());
+
+DROP POLICY IF EXISTS "whatsapp_logs_service_role" ON public.whatsapp_logs;
+CREATE POLICY "whatsapp_logs_service_role" ON public.whatsapp_logs 
+  FOR ALL USING ((auth.jwt() ->> 'role') = 'service_role');
+
+-- Protected Server-Side Credentials Table (Admin & Service Role Only, Never Public)
+CREATE TABLE IF NOT EXISTS public.whatsapp_credentials (
+  id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  access_token TEXT,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.whatsapp_credentials ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "whatsapp_credentials_admin_all" ON public.whatsapp_credentials;
+CREATE POLICY "whatsapp_credentials_admin_all" ON public.whatsapp_credentials 
+  FOR ALL USING (public.is_admin());
+
+DROP POLICY IF EXISTS "whatsapp_credentials_service_role" ON public.whatsapp_credentials;
+CREATE POLICY "whatsapp_credentials_service_role" ON public.whatsapp_credentials 
+  FOR ALL USING ((auth.jwt() ->> 'role') = 'service_role');
+

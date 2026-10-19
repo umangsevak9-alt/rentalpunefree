@@ -33,6 +33,7 @@ import Feedback from './pages/admin/Feedback.js';
 import Invoices from './pages/admin/Invoices.js';
 import Faqs from './pages/admin/Faqs.js';
 import Gallery from './pages/admin/Gallery.js';
+import WhatsAppSettings from './pages/admin/WhatsAppSettings.js';
 
 /**
  * Route protection wrapper based directly on verified Supabase Auth Session
@@ -164,6 +165,7 @@ export default function App() {
           <Route path="bookings" element={<Bookings />} />
           <Route path="leads" element={<ProtectedRoute requireAdmin><Leads /></ProtectedRoute>} />
           <Route path="settings" element={<ProtectedRoute requireAdmin><Settings /></ProtectedRoute>} />
+          <Route path="whatsapp" element={<ProtectedRoute requireAdmin><WhatsAppSettings /></ProtectedRoute>} />
           <Route path="agents" element={<ProtectedRoute requireAdmin><Agents /></ProtectedRoute>} />
           <Route path="invoices" element={<ProtectedRoute requireAdmin><Invoices /></ProtectedRoute>} />
           <Route path="visits" element={<Visits />} />

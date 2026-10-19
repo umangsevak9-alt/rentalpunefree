@@ -16,6 +16,20 @@ import {
   createAuthAgentUser,
   supabaseStorage
 } from './supabase.js';
+import {
+  getWhatsAppConfig,
+  updateWhatsAppConfig,
+  maskToken,
+  cleanWhatsAppNumber,
+  testWhatsAppConnection,
+  sendMetaWhatsAppMessage,
+  sendLeadWhatsAppNotifications,
+  getWhatsAppLogs,
+  handleMetaWebhookPayload,
+  getBusinessBranding,
+  invalidateBrandingCache,
+  listWhatsAppTenants
+} from './whatsappService.js';
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key';
@@ -548,24 +562,40 @@ const authenticate = async (req: any, res: any, next: any) => {
     try {
       const { data: { user }, error } = await supabase.auth.getUser(token);
       if (user && !error) {
-        let role = user.user_metadata?.role || 'ADMIN';
+        // SECURITY HARDENING: Never trust client-writable user_metadata for role authorization.
+        // user_metadata is user-editable via supabase.auth.updateUser().
+        // Only trust server-controlled app_metadata or verified database records.
+        let role = user.app_metadata?.role || '';
         try {
           const { data: profile } = await supabase
             .from('profiles')
-            .select('*')
+            .select('role')
             .or(`id.eq.${user.id},user_id.eq.${user.id}`)
             .maybeSingle();
           if (profile?.role) {
             role = profile.role;
+          } else {
+            const { data: dbUser } = await supabase
+              .from('users')
+              .select('role')
+              .eq('email', user.email)
+              .maybeSingle();
+            if (dbUser?.role) {
+              role = dbUser.role;
+            }
           }
         } catch {}
+
+        const normalizedRole = String(role || '').toUpperCase();
+        const isAdmin = normalizedRole === 'MAIN_ADMIN' || normalizedRole === 'ADMIN';
+        const isAgent = normalizedRole === 'AGENT';
 
         req.user = {
           id: user.id,
           user_id: user.id,
           email: user.email,
-          role: String(role).toUpperCase() === 'AGENT' || String(role).toLowerCase() === 'agent' ? 'AGENT' : 'ADMIN',
-          rawRole: role,
+          role: isAdmin ? 'ADMIN' : (isAgent ? 'AGENT' : 'CUSTOMER'),
+          rawRole: role || 'CUSTOMER',
           name: user.user_metadata?.name || user.email?.split('@')[0],
           isSupabaseUser: true
         };
@@ -660,20 +690,22 @@ router.get('/settings', async (req, res) => {
   }
 });
 
-router.put('/settings', optionalAuth, async (req, res) => {
+router.put('/settings', authenticate, requireAdmin, async (req, res) => {
   try {
     const updates = req.body; // e.g. { hero_heading: 'New Heading', phone: '123' }
     await supabaseDb.updateSettings(updates);
+    invalidateBrandingCache();
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-router.post('/settings', optionalAuth, async (req, res) => {
+router.post('/settings', authenticate, requireAdmin, async (req, res) => {
   try {
     const updates = req.body;
     await supabaseDb.updateSettings(updates);
+    invalidateBrandingCache();
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -1359,6 +1391,8 @@ router.post('/leads', async (req, res) => {
     const cleanPhone = String(phone).trim();
 
     const cleanSource = req.body.source ? String(req.body.source).trim() : 'Website';
+    const hasConsent = req.body.whatsapp_consent === true || req.body.whatsapp_consent === 'true';
+    const consentTime = hasConsent ? (req.body.whatsapp_consent_at || new Date().toISOString()) : null;
 
     const result = await supabaseDb.createLead({
       name: cleanName,
@@ -1366,8 +1400,57 @@ router.post('/leads', async (req, res) => {
       phone: cleanPhone,
       notes: cleanNotes,
       property_id: cleanPropertyId,
-      source: cleanSource
+      source: cleanSource,
+      whatsapp_consent: hasConsent,
+      whatsapp_consent_at: consentTime
     });
+
+    // Trigger WhatsApp notification asynchronously (Lead is safely saved first)
+    (async () => {
+      try {
+        let propTitle = 'Luxury Residence';
+        let propLoc = 'Pune';
+        let propPrice = 'Not provided';
+        if (cleanPropertyId) {
+          try {
+            const props = await supabaseDb.getProperties();
+            const found = props.find((p: any) => String(p.id) === String(cleanPropertyId));
+            if (found) {
+              propTitle = found.title || propTitle;
+              propLoc = found.location || propLoc;
+              if (found.price) {
+                propPrice = typeof found.price === 'number' 
+                  ? `₹${found.price.toLocaleString('en-IN')}` 
+                  : String(found.price).startsWith('₹') ? String(found.price) : `₹${found.price}`;
+              }
+            }
+          } catch {}
+        }
+        if (req.body.property_price) {
+          propPrice = String(req.body.property_price).startsWith('₹') 
+            ? String(req.body.property_price) 
+            : `₹${req.body.property_price}`;
+        }
+
+        await sendLeadWhatsAppNotifications({
+          id: result?.id || Date.now(),
+          name: cleanName,
+          phone: cleanPhone,
+          email: cleanEmail,
+          property_id: cleanPropertyId,
+          property_title: propTitle,
+          property_location: propLoc,
+          property_price: propPrice,
+          notes: cleanNotes,
+          source: cleanSource,
+          whatsapp_consent: hasConsent,
+          whatsapp_consent_at: consentTime,
+          created_at: new Date().toISOString()
+        });
+      } catch (waErr) {
+        console.warn('Background WhatsApp lead notification warning:', waErr);
+      }
+    })();
 
     return res.status(201).json({ 
       success: true, 
@@ -1577,8 +1660,36 @@ router.post('/bookings', async (req, res) => {
       notes,
       token_amount: token_amount || 0,
       status: 'NEW',
-      source: 'PROPERTY_BOOKED'
+      source: 'PROPERTY_BOOKED',
+      whatsapp_consent: req.body.whatsapp_consent === true || req.body.whatsapp_consent === 'true',
+      whatsapp_consent_at: req.body.whatsapp_consent_at || (req.body.whatsapp_consent ? new Date().toISOString() : null)
     });
+
+    const hasBookingConsent = req.body.whatsapp_consent === true || req.body.whatsapp_consent === 'true';
+    const bookingConsentTime = hasBookingConsent ? (req.body.whatsapp_consent_at || new Date().toISOString()) : null;
+
+    // Trigger WhatsApp notification asynchronously (Booking lead is saved first)
+    (async () => {
+      try {
+        await sendLeadWhatsAppNotifications({
+          id: booking?.id || Date.now(),
+          name: customer_name,
+          phone: customer_phone,
+          email: customer_email,
+          property_id: property_id,
+          property_title: resolvedTitle,
+          property_location: resolvedLocation,
+          property_price: resolvedPrice ? (String(resolvedPrice).startsWith('₹') ? String(resolvedPrice) : `₹${resolvedPrice}`) : 'Not provided',
+          notes: notes || `Preferred inspection date: ${preferred_date || 'Flexible'} at ${preferred_time || '11:00 AM'}. Move-in: ${move_in_timeline || 'Standard'}.`,
+          source: 'Property Booking Request',
+          whatsapp_consent: hasBookingConsent,
+          whatsapp_consent_at: bookingConsentTime,
+          created_at: new Date().toISOString()
+        });
+      } catch (waErr) {
+        console.warn('Background WhatsApp booking notification warning:', waErr);
+      }
+    })();
 
     return res.status(201).json({
       success: true,
@@ -2580,6 +2691,261 @@ router.post('/gallery/reset', authenticate, requireAdmin, async (req, res) => {
   } catch (err) {
     console.error('Error resetting gallery items:', err);
     return res.status(500).json({ error: 'Failed to reset gallery items' });
+  }
+});
+
+// =============================================================================
+// --- META WHATSAPP CLOUD API ENDPOINTS (ADMIN SECURE) ---
+// =============================================================================
+
+// 0. List Configured Client Profiles / Tenants
+router.get('/whatsapp/tenants', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const tenants = listWhatsAppTenants();
+    return res.json(tenants);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to list WhatsApp tenants' });
+  }
+});
+
+// 1. Get WhatsApp Configuration (Returns masked access token for security)
+router.get('/whatsapp/settings', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const tenantId = (req.query.tenant_id as string) || 'rental_pune';
+    const config = getWhatsAppConfig(tenantId);
+    return res.json({
+      tenant_id: config.tenant_id,
+      client_name: config.client_name,
+      provider: config.provider,
+      api_base_url: config.api_base_url,
+      graph_version: config.graph_version,
+      phone_number_id: config.phone_number_id,
+      business_account_id: config.business_account_id,
+      admin_phone: config.admin_phone,
+      enabled: config.enabled,
+      customer_confirmation_enabled: config.customer_confirmation_enabled,
+      admin_alerts_enabled: config.admin_alerts_enabled,
+      template_name_customer: config.template_name_customer || 'rental_pune_enquiry_customer',
+      template_language_customer: config.template_language_customer || 'en',
+      template_name_admin: config.template_name_admin || 'rental_pune_admin_alert',
+      template_language_admin: config.template_language_admin || 'en',
+      has_access_token: Boolean(config.access_token && config.access_token.trim().length > 10),
+      masked_access_token: maskToken(config.access_token),
+      webhook_verify_token: config.webhook_verify_token,
+      updated_at: config.updated_at,
+      last_test_at: config.last_test_at,
+      last_test_status: config.last_test_status,
+      last_test_error: config.last_test_error,
+      last_error: config.last_error,
+      last_error_at: config.last_error_at
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to fetch WhatsApp settings' });
+  }
+});
+
+// 2. Save WhatsApp Configuration (Never exposes raw secret tokens to unauthorized parties)
+router.post('/whatsapp/settings', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const {
+      tenant_id,
+      client_name,
+      api_base_url,
+      graph_version,
+      phone_number_id,
+      business_account_id,
+      access_token,
+      admin_phone,
+      enabled,
+      customer_confirmation_enabled,
+      admin_alerts_enabled,
+      template_name_customer,
+      template_language_customer,
+      template_name_admin,
+      template_language_admin,
+      webhook_verify_token
+    } = req.body;
+
+    const targetTenantId = (tenant_id || 'rental_pune').trim().toLowerCase();
+
+    // Validation
+    if (enabled && phone_number_id && !/^\d+$/.test(phone_number_id.trim())) {
+      return res.status(400).json({ error: 'WhatsApp Phone Number ID must contain only digits.' });
+    }
+
+    if (admin_phone && !cleanWhatsAppNumber(admin_phone)) {
+      return res.status(400).json({ error: 'Admin Phone Number must be a valid international WhatsApp number.' });
+    }
+
+    const updated = updateWhatsAppConfig({
+      tenant_id: targetTenantId,
+      client_name,
+      api_base_url,
+      graph_version,
+      phone_number_id,
+      business_account_id,
+      access_token,
+      admin_phone,
+      enabled,
+      customer_confirmation_enabled,
+      admin_alerts_enabled,
+      template_name_customer,
+      template_language_customer,
+      template_name_admin,
+      template_language_admin,
+      webhook_verify_token
+    }, targetTenantId);
+
+    return res.json({
+      success: true,
+      message: `WhatsApp settings for "${updated.client_name}" saved securely.`,
+      settings: {
+        tenant_id: updated.tenant_id,
+        client_name: updated.client_name,
+        provider: updated.provider,
+        api_base_url: updated.api_base_url,
+        graph_version: updated.graph_version,
+        phone_number_id: updated.phone_number_id,
+        business_account_id: updated.business_account_id,
+        admin_phone: updated.admin_phone,
+        enabled: updated.enabled,
+        customer_confirmation_enabled: updated.customer_confirmation_enabled,
+        admin_alerts_enabled: updated.admin_alerts_enabled,
+        template_name_customer: updated.template_name_customer,
+        template_language_customer: updated.template_language_customer,
+        template_name_admin: updated.template_name_admin,
+        template_language_admin: updated.template_language_admin,
+        has_access_token: Boolean(updated.access_token && updated.access_token.trim().length > 10),
+        masked_access_token: maskToken(updated.access_token),
+        webhook_verify_token: updated.webhook_verify_token,
+        updated_at: updated.updated_at,
+        last_test_at: updated.last_test_at,
+        last_test_status: updated.last_test_status,
+        last_test_error: updated.last_test_error
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to save WhatsApp settings' });
+  }
+});
+
+// 3. Test Connection with Meta Graph API
+router.post('/whatsapp/test-connection', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { tenant_id, phone_number_id, access_token, api_base_url, graph_version } = req.body || {};
+    const result = await testWhatsAppConnection({
+      tenant_id: tenant_id || undefined,
+      phone_number_id: phone_number_id || undefined,
+      api_base_url: api_base_url || undefined,
+      graph_version: graph_version || undefined,
+      access_token: access_token && !access_token.includes('••') && !access_token.includes('*') ? access_token : undefined
+    }, tenant_id || 'rental_pune');
+    return res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ connected: false, message: err.message, error: err.message });
+  }
+});
+
+// 4. Send Test Message via Meta WhatsApp Cloud API
+router.post('/whatsapp/send-test', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { phone, message, tenant_id } = req.body;
+    const targetTenant = tenant_id || 'rental_pune';
+    const config = getWhatsAppConfig(targetTenant);
+    const targetPhone = phone || config.admin_phone;
+
+    if (!targetPhone) {
+      return res.status(400).json({ error: 'Please enter a test recipient WhatsApp number.' });
+    }
+
+    const branding = await getBusinessBranding();
+    const testText = message || `✅ *${branding.websiteName} WhatsApp Integration Test*\n\nThis is a verified test notification confirming that Meta WhatsApp Business Platform Cloud API is successfully configured and active!\n\n🏢 ${config.client_name || branding.companyName}\n📅 Timestamp: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`;
+
+    const result = await sendMetaWhatsAppMessage({
+      to: targetPhone,
+      text: testText,
+      recipientType: 'TEST',
+      messageType: 'TEST',
+      tenantId: targetTenant
+    });
+
+    if (result.success) {
+      return res.json({
+        success: true,
+        message: `Test message sent successfully to ${targetPhone}!`,
+        messageId: result.messageId
+      });
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: result.error || 'Failed to send test message via Meta API.'
+      });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Error sending test message' });
+  }
+});
+
+// 5. Recent Notification Activity & Status Logs
+router.get('/whatsapp/logs', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 50, 100);
+    const tenantId = (req.query.tenant_id as string) || undefined;
+    const logs = await getWhatsAppLogs(limit, tenantId);
+    return res.json(logs);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to fetch WhatsApp notification logs' });
+  }
+});
+
+// 6. Meta Webhook Verification (Public endpoint for Meta WhatsApp Cloud API)
+router.get('/whatsapp/webhook', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  const config = getWhatsAppConfig();
+  if (mode === 'subscribe' && token === config.webhook_verify_token) {
+    console.log('[Meta Webhook] Verification succeeded');
+    return res.status(200).send(challenge);
+  }
+  return res.status(403).json({ error: 'Verification token mismatch' });
+});
+
+// 7. Meta Webhook Callback Event Listener (Public endpoint for delivery updates)
+router.post('/whatsapp/webhook', async (req, res) => {
+  try {
+    await handleMetaWebhookPayload(req.body);
+    return res.status(200).send('EVENT_RECEIVED');
+  } catch (e) {
+    return res.status(200).send('EVENT_RECEIVED');
+  }
+});
+
+// 8. Manual trigger endpoint for newly created leads (Admin Only)
+router.post('/whatsapp/notify-lead', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { lead } = req.body;
+    if (!lead || !lead.name || !lead.phone) {
+      return res.status(400).json({ error: 'Valid lead details with name and phone are required.' });
+    }
+
+    const result = await sendLeadWhatsAppNotifications({
+      id: lead.id,
+      name: lead.name,
+      phone: lead.phone,
+      email: lead.email,
+      property_id: lead.property_id,
+      property_title: lead.property_title,
+      property_location: lead.property_location,
+      notes: lead.notes,
+      source: lead.source,
+      created_at: lead.created_at || new Date().toISOString()
+    });
+
+    return res.json({ success: true, result });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to trigger lead WhatsApp notifications' });
   }
 });
 

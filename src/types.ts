@@ -105,6 +105,8 @@ export type Lead = {
   assigned_agent_id?: number;
   assigned_agent_name?: string;
   notes?: string;
+  whatsapp_consent?: boolean;
+  whatsapp_consent_at?: string;
   created_at?: string;
 };
 
@@ -129,6 +131,8 @@ export type PropertyBooking = {
   assigned_agent_id?: number | string;
   assigned_agent_name?: string;
   source?: string;
+  whatsapp_consent?: boolean;
+  whatsapp_consent_at?: string;
   created_at?: string;
   updated_at?: string;
 };

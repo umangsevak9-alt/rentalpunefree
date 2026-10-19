@@ -208,7 +208,8 @@ export default function Home() {
     visitDate: '', 
     visitTime: '11:00',
     notes: '',
-    preferredLocation: 'Baner'
+    preferredLocation: 'Baner',
+    whatsappConsent: false
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formStatus, setFormStatus] = useState('');
@@ -718,6 +719,8 @@ export default function Home() {
 
     const targetProp = referredProperty || selectedProperty;
     let submittedSuccessfully = false;
+    const hasConsent = Boolean(leadForm.whatsappConsent);
+    const consentTimestamp = hasConsent ? new Date().toISOString() : undefined;
 
     if (targetProp) {
       // 1. Property Booking Submission -> Dedicated "Property Booked" System
@@ -736,7 +739,9 @@ export default function Home() {
         move_in_timeline: 'Immediate / Within 15 Days',
         occupancy_type: leadForm.preferredLocation ? `Locality Preference: ${leadForm.preferredLocation}` : 'Standard',
         notes: trimmedNotes || `Booking request for ${targetProp.title}`,
-        source: 'PROPERTY_BOOKED'
+        source: 'PROPERTY_BOOKED',
+        whatsapp_consent: hasConsent,
+        whatsapp_consent_at: consentTimestamp
       };
 
       try {
@@ -753,7 +758,9 @@ export default function Home() {
         email: trimmedEmail || undefined,
         phone: trimmedPhone,
         notes: `[${currentSource}] Location: ${leadForm.preferredLocation || 'Pune'} | Preferred Date: ${leadForm.visitDate || 'Flexible'} ${leadForm.visitTime || ''} | Requirement: ${trimmedNotes || 'General Enquiry'}`,
-        source: currentSource
+        source: currentSource,
+        whatsapp_consent: hasConsent,
+        whatsapp_consent_at: consentTimestamp
       };
 
       try {
@@ -777,7 +784,9 @@ export default function Home() {
             email: trimmedEmail || undefined,
             phone: trimmedPhone,
             notes: leadPayload.notes,
-            source: currentSource
+            source: currentSource,
+            whatsapp_consent: hasConsent,
+            whatsapp_consent_at: consentTimestamp
           });
           submittedSuccessfully = true;
         } catch (fallbackErr: any) {
@@ -787,7 +796,7 @@ export default function Home() {
     }
 
     if (submittedSuccessfully) {
-      setLeadForm({ name: '', email: '', phone: '', visitDate: '', visitTime: '11:00', notes: '', preferredLocation: 'Baner' });
+      setLeadForm({ name: '', email: '', phone: '', visitDate: '', visitTime: '11:00', notes: '', preferredLocation: 'Baner', whatsappConsent: false });
       setReferredProperty(null);
       setIsVisitModalOpen(false);
       navigate('/thank-you');
@@ -2597,6 +2606,24 @@ export default function Home() {
                 ></textarea>
               </div>
 
+              {/* WhatsApp Consent Checkbox (Optional, Unchecked by default) */}
+              <div className="flex items-start space-x-3 p-3.5 rounded-xl bg-white/5 border border-white/10 hover:border-[#d4a359]/30 transition-colors">
+                <input 
+                  type="checkbox"
+                  id="consent_lead_form"
+                  checked={Boolean(leadForm.whatsappConsent)}
+                  onChange={e => setLeadForm({ ...leadForm, whatsappConsent: e.target.checked })}
+                  className="mt-0.5 h-4 w-4 rounded border-gray-600 text-[#d4a359] focus:ring-[#d4a359] cursor-pointer"
+                />
+                <label htmlFor="consent_lead_form" className="text-xs text-neutral-300 cursor-pointer select-none leading-relaxed">
+                  <span className="font-semibold text-white flex items-center gap-1.5 mb-0.5">
+                    <MessageCircle className="w-3.5 h-3.5 text-emerald-400" />
+                    Receive WhatsApp Updates (Optional)
+                  </span>
+                  I agree to receive transaction updates and site-visit coordination regarding this enquiry via WhatsApp on the provided phone number.
+                </label>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <button 
                   type="submit"
@@ -2758,6 +2785,24 @@ export default function Home() {
                   onChange={e => setLeadForm({...leadForm, notes: e.target.value})}
                   className="w-full px-4 py-2.5 bg-[#080f1a] border border-white/15 rounded-xl text-white text-sm focus:outline-none focus:border-[#d4a359]"
                 />
+              </div>
+
+              {/* WhatsApp Consent Checkbox (Optional, Unchecked by default) */}
+              <div className="flex items-start space-x-3 p-3.5 rounded-xl bg-white/5 border border-white/10 hover:border-[#d4a359]/30 transition-colors">
+                <input 
+                  type="checkbox"
+                  id="consent_visit_modal"
+                  checked={Boolean(leadForm.whatsappConsent)}
+                  onChange={e => setLeadForm({ ...leadForm, whatsappConsent: e.target.checked })}
+                  className="mt-0.5 h-4 w-4 rounded border-gray-600 text-[#d4a359] focus:ring-[#d4a359] cursor-pointer"
+                />
+                <label htmlFor="consent_visit_modal" className="text-xs text-neutral-300 cursor-pointer select-none leading-relaxed">
+                  <span className="font-semibold text-white flex items-center gap-1.5 mb-0.5">
+                    <MessageCircle className="w-3.5 h-3.5 text-emerald-400" />
+                    Receive WhatsApp Confirmation (Optional)
+                  </span>
+                  I agree to receive transaction updates and site-visit confirmation regarding this property via WhatsApp on the provided phone number.
+                </label>
               </div>
 
               <button 

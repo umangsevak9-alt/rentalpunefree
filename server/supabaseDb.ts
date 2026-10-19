@@ -408,7 +408,16 @@ export const supabaseDb = {
 
   async createLead(l: any): Promise<any> {
     const supabase = getClient();
-    const payload = {
+    const consentTime = l.whatsapp_consent_at || (l.whatsapp_consent ? new Date().toISOString() : null);
+    const consentAudit = l.whatsapp_consent
+      ? `[WhatsApp Consent: Opted-In on ${consentTime}]`
+      : `[WhatsApp Consent: Not Provided]`;
+    
+    const combinedNotes = l.notes 
+      ? `${l.notes}\n${consentAudit}`
+      : consentAudit;
+
+    const payload: any = {
       name: l.name,
       email: l.email || '',
       phone: l.phone,
@@ -416,11 +425,29 @@ export const supabaseDb = {
       source: l.source || 'Website',
       assigned_agent_id: l.assigned_agent_id ? String(l.assigned_agent_id) : null,
       property_id: l.property_id ? Number(l.property_id) : null,
-      notes: l.notes || ''
+      notes: combinedNotes
     };
-    return executeWithInsertRetry<any>(async () => 
-      await supabase.from('leads').insert([payload]).select().single()
-    );
+
+    if (l.whatsapp_consent !== undefined) {
+      payload.whatsapp_consent = Boolean(l.whatsapp_consent);
+      payload.whatsapp_consent_at = consentTime;
+    }
+
+    try {
+      return await executeWithInsertRetry<any>(async () => 
+        await supabase.from('leads').insert([payload]).select().single()
+      );
+    } catch (err: any) {
+      // If table does not have whatsapp_consent columns yet before migration, gracefully retry
+      if (err?.message?.includes('whatsapp_consent') || err?.code === 'PGRST204' || err?.code === '42703') {
+        delete payload.whatsapp_consent;
+        delete payload.whatsapp_consent_at;
+        return await executeWithInsertRetry<any>(async () => 
+          await supabase.from('leads').insert([payload]).select().single()
+        );
+      }
+      throw err;
+    }
   },
 
   async updateLead(id: any, l: any): Promise<boolean> {
@@ -540,6 +567,8 @@ export const supabaseDb = {
       assigned_agent_id: b.assigned_agent_id ? String(b.assigned_agent_id) : null,
       assigned_agent_name: b.assigned_agent_name || '',
       source: 'PROPERTY_BOOKED',
+      whatsapp_consent: Boolean(b.whatsapp_consent),
+      whatsapp_consent_at: b.whatsapp_consent_at || (b.whatsapp_consent ? new Date().toISOString() : null),
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };

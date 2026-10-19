@@ -97,11 +97,19 @@ export default function Leads() {
       fetchData(false);
     };
     window.addEventListener('leads_updated', handleUpdate);
+    window.addEventListener('rp_data_updated', handleUpdate);
     window.addEventListener('storage', handleUpdate);
+
+    // Live background polling every 4 seconds for instant cross-device updates
+    const interval = setInterval(() => {
+      fetchData(false);
+    }, 4000);
 
     return () => {
       window.removeEventListener('leads_updated', handleUpdate);
+      window.removeEventListener('rp_data_updated', handleUpdate);
       window.removeEventListener('storage', handleUpdate);
+      clearInterval(interval);
     };
   }, [token, user]);
 

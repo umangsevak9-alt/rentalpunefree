@@ -1777,10 +1777,12 @@ export const supabaseService = {
     },
 
     async create(lead: Partial<Lead>): Promise<Lead> {
+      // 1. Try server API
       try {
-        const { data, error } = await supabase
-          .from('leads')
-          .insert([{
+        const res = await fetch('/api/leads', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
             name: lead.name,
             email: lead.email,
             phone: lead.phone,
@@ -1788,19 +1790,60 @@ export const supabaseService = {
             source: lead.source || 'Website Concierge',
             property_id: lead.property_id ? Number(lead.property_id) : null,
             assigned_agent_id: lead.assigned_agent_id ? Number(lead.assigned_agent_id) : null,
-            notes: lead.notes
-          }])
+            notes: lead.notes,
+            whatsapp_consent: Boolean(lead.whatsapp_consent),
+            whatsapp_consent_at: lead.whatsapp_consent_at || (lead.whatsapp_consent ? new Date().toISOString() : null)
+          })
+        });
+        if (res.ok) {
+          const apiData = await res.json();
+          const newLead: Lead = {
+            id: Number(apiData.id || Date.now()),
+            ...lead,
+            created_at: new Date().toISOString()
+          } as Lead;
+          const all = getLocal<Lead[]>('leads', []);
+          setLocal('leads', [newLead, ...all.filter(l => l.id !== newLead.id)]);
+          notifyUpdate('leads', [newLead, ...all]);
+          return newLead;
+        }
+      } catch (err) {
+        console.warn('API lead creation fallback:', err);
+      }
+
+      // 2. Direct Supabase fallback
+      try {
+        const insertPayload: any = {
+          name: lead.name,
+          email: lead.email,
+          phone: lead.phone,
+          status: lead.status || 'New',
+          source: lead.source || 'Website Concierge',
+          property_id: lead.property_id ? Number(lead.property_id) : null,
+          assigned_agent_id: lead.assigned_agent_id ? Number(lead.assigned_agent_id) : null,
+          notes: lead.notes
+        };
+        if (lead.whatsapp_consent !== undefined) {
+          insertPayload.whatsapp_consent = Boolean(lead.whatsapp_consent);
+          insertPayload.whatsapp_consent_at = lead.whatsapp_consent_at || (lead.whatsapp_consent ? new Date().toISOString() : null);
+        }
+
+        const { data, error } = await supabase
+          .from('leads')
+          .insert([insertPayload])
           .select()
           .single();
 
         if (!error && data) {
           const newLead = { id: Number(data.id), ...lead } as Lead;
           const all = getLocal<Lead[]>('leads', []);
-          setLocal('leads', [newLead, ...all]);
+          setLocal('leads', [newLead, ...all.filter(l => l.id !== newLead.id)]);
+          notifyUpdate('leads', [newLead, ...all]);
           return newLead;
         }
       } catch {}
 
+      // 3. Local fallback
       const all = getLocal<Lead[]>('leads', []);
       const newLead: Lead = {
         id: Date.now(),
@@ -1814,10 +1857,25 @@ export const supabaseService = {
         created_at: new Date().toISOString()
       };
       setLocal('leads', [newLead, ...all]);
+      notifyUpdate('leads', [newLead, ...all]);
       return newLead;
     },
 
     async update(id: number, updates: Partial<Lead>): Promise<void> {
+      // 1. Try server API
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        await fetch(`/api/leads/${id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {})
+          },
+          body: JSON.stringify(updates)
+        });
+      } catch {}
+
+      // 2. Direct Supabase
       try {
         await supabase.from('leads').update({
           name: updates.name,
@@ -1830,13 +1888,27 @@ export const supabaseService = {
           notes: updates.notes
         }).eq('id', id);
       } catch {}
+
       const all = getLocal<Lead[]>('leads', []);
-      setLocal('leads', all.map(l => l.id === id ? { ...l, ...updates } : l));
+      const updated = all.map(l => l.id === id ? { ...l, ...updates } : l);
+      setLocal('leads', updated);
+      notifyUpdate('leads', updated);
     },
 
     async delete(id: number): Promise<void> {
+      // 1. Try server API
       try {
-        // Clean up visits/invoices related to this lead
+        const { data: { session } } = await supabase.auth.getSession();
+        await fetch(`/api/leads/${id}`, {
+          method: 'DELETE',
+          headers: {
+            ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {})
+          }
+        });
+      } catch {}
+
+      // 2. Direct Supabase
+      try {
         const { data: visits } = await supabase.from('site_visits').select('id').eq('lead_id', id);
         if (visits && visits.length > 0) {
           const visitIds = visits.map((v: any) => v.id);
@@ -1846,11 +1918,28 @@ export const supabaseService = {
         await supabase.from('invoices').delete().eq('lead_id', id);
         await supabase.from('leads').delete().eq('id', id);
       } catch {}
+
       const all = getLocal<Lead[]>('leads', []);
-      setLocal('leads', all.filter(l => l.id !== id));
+      const remaining = all.filter(l => l.id !== id);
+      setLocal('leads', remaining);
+      notifyUpdate('leads', remaining);
     },
 
     async bulkDelete(ids: number[]): Promise<void> {
+      // 1. Try server API
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        await fetch('/api/leads/bulk-delete', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {})
+          },
+          body: JSON.stringify({ ids })
+        });
+      } catch {}
+
+      // 2. Direct Supabase
       try {
         const { data: visits } = await supabase.from('site_visits').select('id').in('lead_id', ids);
         if (visits && visits.length > 0) {
@@ -1861,8 +1950,11 @@ export const supabaseService = {
         await supabase.from('invoices').delete().in('lead_id', ids);
         await supabase.from('leads').delete().in('id', ids);
       } catch {}
+
       const all = getLocal<Lead[]>('leads', []);
-      setLocal('leads', all.filter(l => !ids.includes(l.id)));
+      const remaining = all.filter(l => !ids.includes(l.id));
+      setLocal('leads', remaining);
+      notifyUpdate('leads', remaining);
     }
   },
 
@@ -3893,7 +3985,131 @@ export const supabaseService = {
         return { url: localBlobUrl, isCloudStorage: false };
       }
 
-      return { url: DEFAULT_SAMPLE_HERO_VIDEO, isCloudStorage: false };
+      return { url: 'https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-building-at-sunset-41617-large.mp4', isCloudStorage: false };
+    }
+  },
+
+  // --- WHATSAPP CLOUD API INTEGRATION ---
+  whatsapp: {
+    async getTenants(): Promise<any[]> {
+      try {
+        const token = getToken();
+        const res = await fetch('/api/whatsapp/tenants', {
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        if (res.ok) {
+          return await res.json();
+        }
+      } catch (e) {
+        console.warn('Error fetching whatsapp tenants:', e);
+      }
+      return [];
+    },
+
+    async getSettings(tenantId = 'rental_pune'): Promise<any> {
+      try {
+        const token = getToken();
+        const res = await fetch(`/api/whatsapp/settings?tenant_id=${encodeURIComponent(tenantId)}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        if (res.ok) {
+          return await res.json();
+        }
+      } catch (e) {
+        console.warn('Error fetching whatsapp settings:', e);
+      }
+      return {
+        tenant_id: 'rental_pune',
+        client_name: 'Rental Pune Luxury Real Estate',
+        provider: 'META_CLOUD_API',
+        api_base_url: 'https://graph.facebook.com',
+        graph_version: 'v21.0',
+        phone_number_id: '',
+        business_account_id: '',
+        admin_phone: '+919822012345',
+        enabled: true,
+        customer_confirmation_enabled: true,
+        admin_alerts_enabled: true,
+        template_name_customer: 'rental_pune_enquiry_customer',
+        template_language_customer: 'en',
+        template_name_admin: 'rental_pune_admin_alert',
+        template_language_admin: 'en',
+        has_access_token: false,
+        masked_access_token: ''
+      };
+    },
+
+    async updateSettings(settings: any): Promise<{ success: boolean; message?: string; settings?: any; error?: string }> {
+      try {
+        const token = getToken();
+        const res = await fetch('/api/whatsapp/settings', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify(settings)
+        });
+        const data = await res.json();
+        if (res.ok) {
+          return { success: true, message: data.message, settings: data.settings };
+        }
+        return { success: false, error: data.error || 'Failed to save settings' };
+      } catch (err: any) {
+        return { success: false, error: err.message || 'Network error saving settings' };
+      }
+    },
+
+    async testConnection(settings?: any): Promise<{ connected: boolean; message: string; details?: any; error?: string }> {
+      try {
+        const token = getToken();
+        const res = await fetch('/api/whatsapp/test-connection', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify(settings || {})
+        });
+        const data = await res.json();
+        return data;
+      } catch (err: any) {
+        return { connected: false, message: err.message, error: err.message };
+      }
+    },
+
+    async sendTestMessage(phone?: string, message?: string, tenantId = 'rental_pune'): Promise<{ success: boolean; message?: string; error?: string }> {
+      try {
+        const token = getToken();
+        const res = await fetch('/api/whatsapp/send-test', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({ phone, message, tenant_id: tenantId })
+        });
+        const data = await res.json();
+        return data;
+      } catch (err: any) {
+        return { success: false, error: err.message || 'Failed to send test message' };
+      }
+    },
+
+    async getLogs(limit = 50, tenantId?: string): Promise<any[]> {
+      try {
+        const token = getToken();
+        const url = tenantId ? `/api/whatsapp/logs?limit=${limit}&tenant_id=${encodeURIComponent(tenantId)}` : `/api/whatsapp/logs?limit=${limit}`;
+        const res = await fetch(url, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        if (res.ok) {
+          return await res.json();
+        }
+      } catch (e) {
+        console.warn('Error fetching whatsapp logs:', e);
+      }
+      return [];
     }
   },
 
