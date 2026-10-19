@@ -745,13 +745,15 @@ export default function Home() {
       };
 
       try {
-        await supabaseService.bookings.create(bookingPayload);
-        submittedSuccessfully = true;
+        const createdBooking = await supabaseService.bookings.create(bookingPayload);
+        if (createdBooking) {
+          submittedSuccessfully = true;
+        }
       } catch (err: any) {
         console.error('Booking creation error:', err);
       }
     } else {
-      // 2. General Lead Submission
+      // 2. General Lead Submission - Handled cleanly through supabaseService with instant state notification
       const currentSource = leadModalSource || 'Hero Section - Enquire Now';
       const leadPayload = {
         name: trimmedName,
@@ -764,34 +766,12 @@ export default function Home() {
       };
 
       try {
-        const res = await fetch('/api/leads', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(leadPayload)
-        });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok && data.success) {
+        const createdLead = await supabaseService.leads.create(leadPayload);
+        if (createdLead) {
           submittedSuccessfully = true;
         }
-      } catch (apiErr) {
-        console.warn('API lead submission fallback triggered:', apiErr);
-      }
-
-      if (!submittedSuccessfully) {
-        try {
-          await supabaseService.leads.create({
-            name: trimmedName,
-            email: trimmedEmail || undefined,
-            phone: trimmedPhone,
-            notes: leadPayload.notes,
-            source: currentSource,
-            whatsapp_consent: hasConsent,
-            whatsapp_consent_at: consentTimestamp
-          });
-          submittedSuccessfully = true;
-        } catch (fallbackErr: any) {
-          console.error('Supabase fallback lead creation failed:', fallbackErr);
-        }
+      } catch (leadErr: any) {
+        console.error('Lead creation failed:', leadErr);
       }
     }
 

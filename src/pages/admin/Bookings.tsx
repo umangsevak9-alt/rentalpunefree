@@ -113,16 +113,25 @@ export default function Bookings() {
       fetchData(false);
     };
     window.addEventListener('bookings_updated', handleUpdate);
+    window.addEventListener('property_bookings_updated', handleUpdate);
+    window.addEventListener('rp_data_updated', handleUpdate);
     window.addEventListener('storage', handleUpdate);
+    window.addEventListener('focus', handleUpdate);
 
-    // Live background sync so newly placed bookings reflect in ~2.5 seconds
+    // Smart background polling: pause when tab is inactive
     const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
       fetchData(false);
-    }, 2500);
+    }, 5000);
 
     return () => {
       window.removeEventListener('bookings_updated', handleUpdate);
+      window.removeEventListener('property_bookings_updated', handleUpdate);
+      window.removeEventListener('rp_data_updated', handleUpdate);
       window.removeEventListener('storage', handleUpdate);
+      window.removeEventListener('focus', handleUpdate);
       clearInterval(interval);
     };
   }, [token, user]);

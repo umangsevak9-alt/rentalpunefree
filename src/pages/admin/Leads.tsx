@@ -99,16 +99,21 @@ export default function Leads() {
     window.addEventListener('leads_updated', handleUpdate);
     window.addEventListener('rp_data_updated', handleUpdate);
     window.addEventListener('storage', handleUpdate);
+    window.addEventListener('focus', handleUpdate);
 
-    // Live background polling every 4 seconds for instant cross-device updates
+    // Smart background polling: only polls when tab is actively visible
     const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
       fetchData(false);
-    }, 4000);
+    }, 5000);
 
     return () => {
       window.removeEventListener('leads_updated', handleUpdate);
       window.removeEventListener('rp_data_updated', handleUpdate);
       window.removeEventListener('storage', handleUpdate);
+      window.removeEventListener('focus', handleUpdate);
       clearInterval(interval);
     };
   }, [token, user]);

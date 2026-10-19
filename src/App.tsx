@@ -13,33 +13,46 @@ import PublicLayout from './components/layout/PublicLayout.js';
 import AdminLayout from './components/layout/AdminLayout.js';
 import ScrollToTop from './components/common/ScrollToTop.js';
 
-// Public
+// Public - Landing page loaded directly for 0ms initial render
 import Home from './pages/public/Home.js';
-import ListProperty from './pages/public/ListProperty.js';
-import ThankYou from './pages/public/ThankYou.js';
-import Login from './pages/auth/Login.js';
 
-// Admin
-import Dashboard from './pages/admin/Dashboard.js';
-import Properties from './pages/admin/Properties.js';
-import OwnerSubmissions from './pages/admin/OwnerSubmissions.js';
-import Leads from './pages/admin/Leads.js';
-import Bookings from './pages/admin/Bookings.js';
-import Settings from './pages/admin/Settings.js';
-import HeroSection from './pages/admin/HeroSection.js';
-import Visits from './pages/admin/Visits.js';
-import Agents from './pages/admin/Agents.js';
-import Feedback from './pages/admin/Feedback.js';
-import Invoices from './pages/admin/Invoices.js';
-import Faqs from './pages/admin/Faqs.js';
-import Gallery from './pages/admin/Gallery.js';
-import WhatsAppSettings from './pages/admin/WhatsAppSettings.js';
+// Lazy-loaded secondary and admin routes
+const ListProperty = React.lazy(() => import('./pages/public/ListProperty.js'));
+const ThankYou = React.lazy(() => import('./pages/public/ThankYou.js'));
+const Login = React.lazy(() => import('./pages/auth/Login.js'));
+
+// Admin lazy routes
+const Dashboard = React.lazy(() => import('./pages/admin/Dashboard.js'));
+const Properties = React.lazy(() => import('./pages/admin/Properties.js'));
+const OwnerSubmissions = React.lazy(() => import('./pages/admin/OwnerSubmissions.js'));
+const Leads = React.lazy(() => import('./pages/admin/Leads.js'));
+const Bookings = React.lazy(() => import('./pages/admin/Bookings.js'));
+const Settings = React.lazy(() => import('./pages/admin/Settings.js'));
+const HeroSection = React.lazy(() => import('./pages/admin/HeroSection.js'));
+const Visits = React.lazy(() => import('./pages/admin/Visits.js'));
+const Agents = React.lazy(() => import('./pages/admin/Agents.js'));
+const Feedback = React.lazy(() => import('./pages/admin/Feedback.js'));
+const Invoices = React.lazy(() => import('./pages/admin/Invoices.js'));
+const Faqs = React.lazy(() => import('./pages/admin/Faqs.js'));
+const Gallery = React.lazy(() => import('./pages/admin/Gallery.js'));
+const WhatsAppSettings = React.lazy(() => import('./pages/admin/WhatsAppSettings.js'));
+
+function PageLoader() {
+  return (
+    <div className="min-h-[50vh] flex items-center justify-center py-20">
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-8 h-8 border-2 border-[#d4a359] border-t-transparent rounded-full animate-spin"></div>
+        <p className="text-xs text-[#d4a359] font-medium tracking-wide">Loading...</p>
+      </div>
+    </div>
+  );
+}
 
 /**
  * Route protection wrapper based directly on verified Supabase Auth Session
  */
 function ProtectedRoute({ children, requireAdmin = false }: { children: React.ReactNode, requireAdmin?: boolean }) {
-  const { user, session, isAuthLoading } = useAppStore();
+  const { user, session, token, isAuthLoading } = useAppStore();
   const location = useLocation();
 
   // If initial Supabase session verification is in-flight, show clean loading state
@@ -48,14 +61,14 @@ function ProtectedRoute({ children, requireAdmin = false }: { children: React.Re
       <div className="min-h-screen bg-[#080f1a] flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 border-2 border-[#d4a359] border-t-transparent rounded-full animate-spin"></div>
-          <p className="text-xs text-[#d4a359] font-medium tracking-wide">Verifying Supabase Session...</p>
+          <p className="text-xs text-[#d4a359] font-medium tracking-wide">Verifying Session...</p>
         </div>
       </div>
     );
   }
 
-  // Not authenticated via Supabase session
-  if (!session || !user) {
+  // Not authenticated via session or verified token
+  if (!user || (!session && !token)) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
@@ -92,6 +105,20 @@ export default function App() {
     supabase.auth.getSession().then(async ({ data: { session }, error }) => {
       if (!isSubscribed) return;
       if (error || !session?.user) {
+        // Check for local stored token and user as fallback
+        if (typeof window !== 'undefined' && window.localStorage) {
+          const storedToken = localStorage.getItem('rp_auth_token');
+          const storedUser = localStorage.getItem('rp_auth_user');
+          if (storedToken && storedUser) {
+            try {
+              const parsedUser = JSON.parse(storedUser);
+              if (parsedUser && parsedUser.role) {
+                setAuth(parsedUser, storedToken, { access_token: storedToken, user: parsedUser } as any);
+                return;
+              }
+            } catch {}
+          }
+        }
         logout();
       } else {
         try {
@@ -106,7 +133,22 @@ export default function App() {
       }
     }).catch((err) => {
       console.error('getSession error:', err);
-      if (isSubscribed) logout();
+      if (isSubscribed) {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          const storedToken = localStorage.getItem('rp_auth_token');
+          const storedUser = localStorage.getItem('rp_auth_user');
+          if (storedToken && storedUser) {
+            try {
+              const parsedUser = JSON.parse(storedUser);
+              if (parsedUser && parsedUser.role) {
+                setAuth(parsedUser, storedToken, { access_token: storedToken, user: parsedUser } as any);
+                return;
+              }
+            } catch {}
+          }
+        }
+        logout();
+      }
     });
 
     // 4. Reliable auth state listener using onAuthStateChange
@@ -138,43 +180,45 @@ export default function App() {
   return (
     <BrowserRouter>
       <ScrollToTop />
-      <Routes>
-        {/* Public Routes */}
-        <Route path="/" element={<PublicLayout />}>
-          <Route index element={<Home />} />
-          <Route path="list-property" element={<ListProperty />} />
-          <Route path="thank-you" element={<ThankYou />} />
-        </Route>
-        
-        {/* Authentication Routes */}
-        <Route path="/login" element={<Login />} />
-        <Route path="/admin/login" element={<Navigate to="/login" replace />} />
-        
-        {/* Protected Admin Routes */}
-        <Route path="/admin" element={
-          <ProtectedRoute>
-            <AdminLayout />
-          </ProtectedRoute>
-        }>
-          <Route index element={<Dashboard />} />
-          <Route path="hero" element={<ProtectedRoute requireAdmin><HeroSection /></ProtectedRoute>} />
-          <Route path="properties" element={<ProtectedRoute requireAdmin><Properties /></ProtectedRoute>} />
-          <Route path="owner-submissions" element={<ProtectedRoute requireAdmin><OwnerSubmissions /></ProtectedRoute>} />
-          <Route path="faqs" element={<ProtectedRoute requireAdmin><Faqs /></ProtectedRoute>} />
-          <Route path="gallery" element={<ProtectedRoute requireAdmin><Gallery /></ProtectedRoute>} />
-          <Route path="bookings" element={<Bookings />} />
-          <Route path="leads" element={<ProtectedRoute requireAdmin><Leads /></ProtectedRoute>} />
-          <Route path="settings" element={<ProtectedRoute requireAdmin><Settings /></ProtectedRoute>} />
-          <Route path="whatsapp" element={<ProtectedRoute requireAdmin><WhatsAppSettings /></ProtectedRoute>} />
-          <Route path="agents" element={<ProtectedRoute requireAdmin><Agents /></ProtectedRoute>} />
-          <Route path="invoices" element={<ProtectedRoute requireAdmin><Invoices /></ProtectedRoute>} />
-          <Route path="visits" element={<Visits />} />
-          <Route path="feedback" element={<Feedback />} />
-        </Route>
+      <React.Suspense fallback={<PageLoader />}>
+        <Routes>
+          {/* Public Routes */}
+          <Route path="/" element={<PublicLayout />}>
+            <Route index element={<Home />} />
+            <Route path="list-property" element={<ListProperty />} />
+            <Route path="thank-you" element={<ThankYou />} />
+          </Route>
+          
+          {/* Authentication Routes */}
+          <Route path="/login" element={<Login />} />
+          <Route path="/admin/login" element={<Navigate to="/login" replace />} />
+          
+          {/* Protected Admin Routes */}
+          <Route path="/admin" element={
+            <ProtectedRoute>
+              <AdminLayout />
+            </ProtectedRoute>
+          }>
+            <Route index element={<Dashboard />} />
+            <Route path="hero" element={<ProtectedRoute requireAdmin><HeroSection /></ProtectedRoute>} />
+            <Route path="properties" element={<ProtectedRoute requireAdmin><Properties /></ProtectedRoute>} />
+            <Route path="owner-submissions" element={<ProtectedRoute requireAdmin><OwnerSubmissions /></ProtectedRoute>} />
+            <Route path="faqs" element={<ProtectedRoute requireAdmin><Faqs /></ProtectedRoute>} />
+            <Route path="gallery" element={<ProtectedRoute requireAdmin><Gallery /></ProtectedRoute>} />
+            <Route path="bookings" element={<Bookings />} />
+            <Route path="leads" element={<ProtectedRoute requireAdmin><Leads /></ProtectedRoute>} />
+            <Route path="settings" element={<ProtectedRoute requireAdmin><Settings /></ProtectedRoute>} />
+            <Route path="whatsapp" element={<ProtectedRoute requireAdmin><WhatsAppSettings /></ProtectedRoute>} />
+            <Route path="agents" element={<ProtectedRoute requireAdmin><Agents /></ProtectedRoute>} />
+            <Route path="invoices" element={<ProtectedRoute requireAdmin><Invoices /></ProtectedRoute>} />
+            <Route path="visits" element={<Visits />} />
+            <Route path="feedback" element={<Feedback />} />
+          </Route>
 
-        {/* Catch-all fallback */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+          {/* Catch-all fallback */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </React.Suspense>
     </BrowserRouter>
   );
 }

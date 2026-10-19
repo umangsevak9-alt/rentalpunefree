@@ -502,9 +502,9 @@ export async function testWhatsAppConnection(customConfig?: Partial<WhatsAppConf
     ...(customConfig || {})
   };
 
-  const { phone_number_id, access_token, api_base_url, graph_version } = config;
+  const { phone_number_id, business_account_id, access_token, api_base_url, graph_version } = config;
 
-  if (!phone_number_id) {
+  if (!phone_number_id || !phone_number_id.trim()) {
     return {
       connected: false,
       message: 'WhatsApp Phone Number ID is missing',
@@ -512,7 +512,25 @@ export async function testWhatsAppConnection(customConfig?: Partial<WhatsAppConf
     };
   }
 
-  if (!access_token) {
+  const cleanPhoneId = phone_number_id.trim();
+  if (!/^\d+$/.test(cleanPhoneId)) {
+    return {
+      connected: false,
+      message: 'Invalid WhatsApp Phone Number ID',
+      error: 'WhatsApp Phone Number ID must contain only digits (typically 15-16 digits).'
+    };
+  }
+
+  const cleanWabaId = business_account_id ? String(business_account_id).trim() : '';
+  if (cleanWabaId && !/^\d+$/.test(cleanWabaId)) {
+    return {
+      connected: false,
+      message: 'Invalid WhatsApp Business Account ID (WABA ID)',
+      error: 'Business Account ID must contain only digits.'
+    };
+  }
+
+  if (!access_token || !access_token.trim()) {
     return {
       connected: false,
       message: 'Meta Access Token is missing',
@@ -523,27 +541,71 @@ export async function testWhatsAppConnection(customConfig?: Partial<WhatsAppConf
   try {
     const baseUrl = (api_base_url || 'https://graph.facebook.com').replace(/\/$/, '');
     const version = (graph_version || 'v21.0').replace(/^\//, '');
-    const metaUrl = `${baseUrl}/${version}/${phone_number_id}?fields=verified_name,code_verification_status,display_phone_number,quality_rating,account_mode,status`;
+    const metaUrl = `${baseUrl}/${version}/${cleanPhoneId}?fields=verified_name,code_verification_status,display_phone_number,quality_rating,account_mode,status,platform_type`;
     
-    const res = await fetch(metaUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${access_token}`,
-        'Content-Type': 'application/json'
-      }
-    });
+    let res: Response;
+    try {
+      res = await fetch(metaUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${access_token.trim()}`,
+          'Content-Type': 'application/json'
+        }
+      });
+    } catch (netErr: any) {
+      const errorMsg = redactSecrets(netErr?.message || 'Meta network connection timeout');
+      return {
+        connected: false,
+        message: `Network error reaching Meta Graph API: ${errorMsg}`,
+        error: errorMsg
+      };
+    }
 
-    const data = await res.json();
+    let rawText = '';
+    let data: any = null;
+    try {
+      rawText = await res.text();
+      if (rawText && rawText.trim().length > 0) {
+        data = JSON.parse(rawText);
+      }
+    } catch {
+      data = null;
+    }
+
+    if (!data) {
+      const sanitizedSnippet = rawText 
+        ? redactSecrets(rawText.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160)) 
+        : 'Empty response body';
+      const errorMsg = `Meta API returned HTTP ${res.status} (${res.statusText || 'No status'}): ${sanitizedSnippet}`;
+      return {
+        connected: false,
+        message: errorMsg,
+        error: errorMsg,
+        code: res.status
+      };
+    }
 
     if (!res.ok || data.error) {
-      const errorMsg = data.error?.message || `Meta API HTTP ${res.status}: ${res.statusText}`;
-      const errorCode = data.error?.code || res.status;
+      const metaErr = data.error || {};
+      const errorMsg = metaErr.message || `Meta API HTTP ${res.status}: ${res.statusText}`;
+      const errorCode = metaErr.code || res.status;
+      const errorSubcode = metaErr.error_subcode;
       let actionable = redactSecrets(errorMsg);
 
       if (errorCode === 190) {
-        actionable = 'Meta Auth Error (#190): Access token is expired, invalid, or lacks required whatsapp_business_messaging permissions.';
+        if (errorSubcode === 463) {
+          actionable = 'Meta Auth Error (#190/463): System User access token has expired. Please generate a new permanent System User token in Meta Business Settings.';
+        } else if (errorSubcode === 467) {
+          actionable = 'Meta Auth Error (#190/467): Access token is invalid or was revoked in Meta Business Manager.';
+        } else {
+          actionable = 'Meta Auth Error (#190): Access token is expired, invalid, or lacks required whatsapp_business_messaging permissions.';
+        }
       } else if (errorCode === 100) {
-        actionable = `Meta Parameter Error (#100): Phone Number ID "${phone_number_id}" was not found or is malformed.`;
+        actionable = `Meta Parameter Error (#100): Phone Number ID "${cleanPhoneId}" does not exist in Meta or is not accessible with this token.`;
+      } else if (errorCode === 200) {
+        actionable = 'Meta Permissions Error (#200): This access token lacks permissions for this WhatsApp Phone Number or Business Account.';
+      } else if (errorCode === 131030) {
+        actionable = 'Meta Sandbox Limitation (#131030): Recipient is not in your authorized test numbers list.';
       }
 
       // Record test failure in tenant config
@@ -560,8 +622,37 @@ export async function testWhatsAppConnection(customConfig?: Partial<WhatsAppConf
         message: `Connection failed: ${actionable}`,
         error: actionable,
         code: errorCode,
-        details: data.error
+        details: {
+          code: errorCode,
+          subcode: errorSubcode,
+          type: metaErr.type,
+          fbtrace_id: metaErr.fbtrace_id
+        }
       };
+    }
+
+    // Optional WABA ID validation if supplied
+    let wabaVerified = false;
+    let wabaName: string | undefined = undefined;
+    if (cleanWabaId) {
+      try {
+        const wabaUrl = `${baseUrl}/${version}/${cleanWabaId}?fields=id,name,timezone_id,currency,message_template_namespace`;
+        const wabaRes = await fetch(wabaUrl, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${access_token.trim()}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        const wabaRaw = await wabaRes.text();
+        if (wabaRaw) {
+          const wabaData = JSON.parse(wabaRaw);
+          if (wabaRes.ok && !wabaData.error) {
+            wabaVerified = true;
+            wabaName = wabaData.name;
+          }
+        }
+      } catch {}
     }
 
     const branding = await getBusinessBranding();
@@ -577,15 +668,20 @@ export async function testWhatsAppConnection(customConfig?: Partial<WhatsAppConf
       connected: true,
       message: 'Successfully connected to Meta WhatsApp Cloud API!',
       details: {
+        phone_number_id: cleanPhoneId,
+        business_account_id: cleanWabaId || undefined,
         verified_name: data.verified_name || `${branding.websiteName} Business Account`,
         display_phone_number: data.display_phone_number || '',
         quality_rating: data.quality_rating || 'GREEN',
         code_verification_status: data.code_verification_status || 'VERIFIED',
-        account_mode: data.account_mode || 'LIVE'
+        account_mode: data.account_mode || 'LIVE',
+        platform_type: data.platform_type || 'CLOUD_API',
+        waba_verified: wabaVerified,
+        waba_name: wabaName
       }
     };
   } catch (err: any) {
-    const errorMsg = redactSecrets(err.message);
+    const errorMsg = redactSecrets(err.message || 'Unknown network error');
     updateWhatsAppConfig({
       last_test_at: new Date().toISOString(),
       last_test_status: 'FAILED',
@@ -712,9 +808,18 @@ export async function sendMetaWhatsAppMessage(params: {
         body: JSON.stringify(payload)
       });
 
-      const data = await res.json();
+      let rawText = '';
+      let data: any = null;
+      try {
+        rawText = await res.text();
+        if (rawText && rawText.trim().length > 0) {
+          data = JSON.parse(rawText);
+        }
+      } catch {
+        data = null;
+      }
 
-      if (res.ok && data.messages && data.messages.length > 0) {
+      if (res.ok && data?.messages && data.messages.length > 0) {
         const msgId = data.messages[0].id;
         await logWhatsAppNotification({
           lead_id: params.leadId,
@@ -730,9 +835,9 @@ export async function sendMetaWhatsAppMessage(params: {
       }
 
       // Format clear, actionable Meta error message (Do NOT silently fall back)
-      const metaErr = data.error;
+      const metaErr = data?.error;
       const errorCode = metaErr?.code;
-      let actionableMsg = metaErr?.message || `Meta API Error (HTTP ${res.status})`;
+      let actionableMsg = metaErr?.message || (rawText ? rawText.replace(/<[^>]*>/g, ' ').slice(0, 150) : `Meta API Error (HTTP ${res.status})`);
 
       if (errorCode === 190) {
         actionableMsg = 'Meta Auth Error (#190): Access token expired or invalid. Please rotate your System User Token in Meta Business Settings.';

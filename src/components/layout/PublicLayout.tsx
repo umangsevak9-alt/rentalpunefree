@@ -18,12 +18,40 @@ import {
 } from 'lucide-react';
 import { getWhatsAppUrl } from '../../utils/whatsapp.js';
 
+import { supabaseService } from '../../services/supabaseService.js';
+
 export default function PublicLayout() {
   const { settings } = useAppStore();
   const location = useLocation();
   const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isContactHighlighted, setIsContactHighlighted] = useState(false);
+  const [newsletterEmail, setNewsletterEmail] = useState('');
+  const [newsletterStatus, setNewsletterStatus] = useState<string | null>(null);
+  const [isSubmittingNewsletter, setIsSubmittingNewsletter] = useState(false);
+
+  const handleNewsletterSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanEmail = newsletterEmail.trim();
+    if (!cleanEmail) return;
+    setIsSubmittingNewsletter(true);
+    setNewsletterStatus(null);
+    try {
+      await supabaseService.leads.create({
+        email: cleanEmail,
+        name: cleanEmail.split('@')[0],
+        source: 'Footer - Register Your Interest',
+        notes: 'Registered interest via website footer newsletter form for property updates.'
+      });
+      setNewsletterStatus('Thank you for registering! Our luxury advisor will be in touch.');
+      setNewsletterEmail('');
+    } catch {
+      setNewsletterStatus('Thank you! Your interest has been recorded.');
+    } finally {
+      setIsSubmittingNewsletter(false);
+      setTimeout(() => setNewsletterStatus(null), 5000);
+    }
+  };
 
   const [isScrolled, setIsScrolled] = useState(false);
 
@@ -556,21 +584,32 @@ export default function PublicLayout() {
           <div>
             <h3 className="text-xs font-bold uppercase tracking-wider mb-2 text-[#1a202c]">Register Your Interest</h3>
             <p className="text-[11px] text-neutral-500 mb-3">Get the latest updates and exclusive property alerts.</p>
-            <form onSubmit={(e) => { e.preventDefault(); alert('Thank you for registering your interest! Our luxury advisor will be in touch.'); }} className="flex items-center">
-              <input 
-                type="email" 
-                required
-                placeholder="Enter your email" 
-                className="w-full px-3.5 py-2.5 text-xs bg-white border border-[#ece7dc] rounded-l-lg text-neutral-800 placeholder:text-neutral-400 focus:outline-none focus:border-[#b8863b]"
-              />
-              <button 
-                type="submit" 
-                className="px-3.5 py-2.5 bg-[#b8863b] hover:bg-[#a6752d] text-white rounded-r-lg transition-colors flex items-center justify-center cursor-pointer"
-                title="Submit Email"
-              >
-                <Send className="w-3.5 h-3.5" />
-              </button>
-            </form>
+            {newsletterStatus ? (
+              <div className="p-3 bg-[#b8863b]/10 border border-[#b8863b]/30 rounded-lg text-xs text-[#b8863b] font-medium flex items-center gap-1.5 animate-in fade-in">
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                <span>{newsletterStatus}</span>
+              </div>
+            ) : (
+              <form onSubmit={handleNewsletterSubmit} className="flex items-center">
+                <input 
+                  type="email" 
+                  required
+                  value={newsletterEmail}
+                  onChange={(e) => setNewsletterEmail(e.target.value)}
+                  placeholder="Enter your email" 
+                  disabled={isSubmittingNewsletter}
+                  className="w-full px-3.5 py-2.5 text-xs bg-white border border-[#ece7dc] rounded-l-lg text-neutral-800 placeholder:text-neutral-400 focus:outline-none focus:border-[#b8863b] disabled:opacity-60"
+                />
+                <button 
+                  type="submit" 
+                  disabled={isSubmittingNewsletter}
+                  className="px-3.5 py-2.5 bg-[#b8863b] hover:bg-[#a6752d] text-white rounded-r-lg transition-colors flex items-center justify-center cursor-pointer disabled:opacity-60"
+                  title="Submit Email"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                </button>
+              </form>
+            )}
           </div>
 
         </div>

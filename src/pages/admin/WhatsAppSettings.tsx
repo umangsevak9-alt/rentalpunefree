@@ -232,14 +232,31 @@ export default function WhatsAppSettings() {
   };
 
   const handleTestConnection = async () => {
+    if (!config.phone_number_id.trim()) {
+      setStatusMessage({
+        type: 'error',
+        text: 'Please enter your WhatsApp Phone Number ID before testing the connection.'
+      });
+      return;
+    }
+
+    if (!config.has_access_token && !config.access_token.trim()) {
+      setStatusMessage({
+        type: 'error',
+        text: 'Please provide or save a Meta System User Access Token before testing.'
+      });
+      return;
+    }
+
     setTestingConnection(true);
     setStatusMessage(null);
     try {
       const payload: any = {
         tenant_id: selectedTenantId,
-        phone_number_id: config.phone_number_id,
-        api_base_url: config.api_base_url,
-        graph_version: config.graph_version
+        phone_number_id: config.phone_number_id.trim(),
+        business_account_id: config.business_account_id.trim(),
+        api_base_url: config.api_base_url.trim(),
+        graph_version: config.graph_version.trim()
       };
       if (config.access_token.trim()) {
         payload.access_token = config.access_token.trim();
@@ -257,7 +274,7 @@ export default function WhatsAppSettings() {
       if (res.connected) {
         setStatusMessage({
           type: 'success',
-          text: `Verified with Meta! Connected to phone: ${res.details?.display_phone_number || config.phone_number_id} (${res.details?.verified_name || 'Business Account'})`
+          text: `Verified with Meta! Connected to phone: ${res.details?.display_phone_number || config.phone_number_id} (${res.details?.verified_name || 'Business Account'})${res.details?.waba_name ? ` · WABA: ${res.details.waba_name}` : ''}`
         });
       } else {
         setStatusMessage({
@@ -269,11 +286,11 @@ export default function WhatsAppSettings() {
       setConnectionStatus({
         tested: true,
         connected: false,
-        error: err.message
+        error: err?.message || 'Connection test failed'
       });
       setStatusMessage({
         type: 'error',
-        text: err.message || 'Connection test failed'
+        text: err?.message || 'Connection test failed'
       });
     } finally {
       setTestingConnection(false);

@@ -1,0 +1,27 @@
+{
+  "rental_pune": {
+    "tenant_id": "rental_pune",
+    "client_name": "Rental Pune Luxury Real Estate",
+    "provider": "META_CLOUD_API",
+    "api_base_url": "https://graph.facebook.com",
+    "graph_version": "v21.0",
+    "phone_number_id": "",
+    "business_account_id": "",
+    "access_token": "",
+    "admin_phone": "+919822012345",
+    "enabled": true,
+    "customer_confirmation_enabled": true,
+    "admin_alerts_enabled": true,
+    "template_name_customer": "rental_pune_enquiry_customer",
+    "template_language_customer": "en",
+    "template_name_admin": "rental_pune_admin_alert",
+    "template_language_admin": "en",
+    "webhook_verify_token": "rental_pune_secure_verify_2026",
+    "updated_at": "2026-10-19T22:42:36.889Z",
+    "last_test_at": "2026-10-19T22:42:36.888Z",
+    "last_test_status": "FAILED",
+    "last_test_error": "Meta Auth Error (#190): Access token is expired, invalid, or lacks required whatsapp_business_messaging permissions.",
+    "last_error": "Meta Auth Error (#190): Access token is expired, invalid, or lacks required whatsapp_business_messaging permissions.",
+    "last_error_at": "2026-10-19T22:42:36.888Z"
+  }
+}

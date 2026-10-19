@@ -41,11 +41,21 @@ async function sendWhatsAppMessage(
         text: { preview_url: false, body: text },
       }),
     });
-    const data = await res.json();
-    if (res.ok && data.messages?.[0]?.id) {
+    let rawText = "";
+    let data: any = null;
+    try {
+      rawText = await res.text();
+      if (rawText && rawText.trim().length > 0) {
+        data = JSON.parse(rawText);
+      }
+    } catch {
+      data = null;
+    }
+
+    if (res.ok && data?.messages?.[0]?.id) {
       return { success: true, data };
     }
-    return { success: false, error: data.error?.message || "Meta API error", data };
+    return { success: false, error: data?.error?.message || (rawText ? rawText.slice(0, 150) : `Meta API HTTP ${res.status}`), data };
   } catch (err: any) {
     return { success: false, error: err.message };
   }
@@ -69,7 +79,18 @@ serve(async (req) => {
       );
     }
 
-    const payload = await req.json();
+    let payload: any = {};
+    try {
+      const rawBody = await req.text();
+      if (rawBody && rawBody.trim().length > 0) {
+        payload = JSON.parse(rawBody);
+      }
+    } catch {
+      return new Response(
+        JSON.stringify({ error: "Malformed or empty request payload." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
     // Support Supabase Database Webhook payload ({ record: { ... } }) or direct { lead: { ... } }
     const lead = payload.record || payload.lead || payload;
 

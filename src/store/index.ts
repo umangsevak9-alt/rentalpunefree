@@ -21,9 +21,20 @@ export const useAppStore = create<AppState>((set) => ({
   isAuthLoading: true,
   settings: {},
   setAuth: (user, token, session = null) => {
+    const activeToken = token || session?.access_token || null;
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        if (activeToken) {
+          localStorage.setItem('rp_auth_token', activeToken);
+        }
+        if (user) {
+          localStorage.setItem('rp_auth_user', JSON.stringify(user));
+        }
+      } catch {}
+    }
     set({ 
       user, 
-      token: token || session?.access_token || null, 
+      token: activeToken, 
       session: session || null, 
       isAuthLoading: false 
     });
@@ -31,6 +42,12 @@ export const useAppStore = create<AppState>((set) => ({
   setAuthLoading: (isAuthLoading) => set({ isAuthLoading }),
   setSettings: (settings) => set({ settings }),
   logout: () => {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        localStorage.removeItem('rp_auth_token');
+        localStorage.removeItem('rp_auth_user');
+      } catch {}
+    }
     set({ user: null, token: null, session: null, isAuthLoading: false });
   }
 }));

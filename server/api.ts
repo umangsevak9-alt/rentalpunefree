@@ -2831,18 +2831,20 @@ router.post('/whatsapp/settings', authenticate, requireAdmin, async (req, res) =
 
 // 3. Test Connection with Meta Graph API
 router.post('/whatsapp/test-connection', authenticate, requireAdmin, async (req, res) => {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
   try {
-    const { tenant_id, phone_number_id, access_token, api_base_url, graph_version } = req.body || {};
+    const { tenant_id, phone_number_id, business_account_id, access_token, api_base_url, graph_version } = req.body || {};
     const result = await testWhatsAppConnection({
       tenant_id: tenant_id || undefined,
-      phone_number_id: phone_number_id || undefined,
+      phone_number_id: phone_number_id ? String(phone_number_id).trim() : undefined,
+      business_account_id: business_account_id ? String(business_account_id).trim() : undefined,
       api_base_url: api_base_url || undefined,
       graph_version: graph_version || undefined,
-      access_token: access_token && !access_token.includes('••') && !access_token.includes('*') ? access_token : undefined
+      access_token: access_token && !access_token.includes('••') && !access_token.includes('*') ? String(access_token).trim() : undefined
     }, tenant_id || 'rental_pune');
     return res.json(result);
   } catch (err: any) {
-    res.status(500).json({ connected: false, message: err.message, error: err.message });
+    return res.status(500).json({ connected: false, message: err?.message || 'Server error testing connection', error: err?.message || 'Server error testing connection' });
   }
 });
 

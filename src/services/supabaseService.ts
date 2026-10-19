@@ -104,6 +104,19 @@ export function notifyUpdate(key: string, data?: any): void {
     localStorage.setItem(`rp_${key}_updated_at`, timestamp);
     localStorage.setItem(`rp_last_sync_all`, timestamp);
     window.dispatchEvent(new CustomEvent(`${key}_updated`, { detail: data }));
+
+    // Cross-dispatch alias events for instant cross-component sync
+    if (key === 'submissions' || key === 'owner_submissions') {
+      window.dispatchEvent(new CustomEvent('owner_submissions_updated', { detail: data }));
+      window.dispatchEvent(new CustomEvent('submissions_updated', { detail: data }));
+    } else if (key === 'bookings' || key === 'property_bookings') {
+      window.dispatchEvent(new CustomEvent('bookings_updated', { detail: data }));
+      window.dispatchEvent(new CustomEvent('property_bookings_updated', { detail: data }));
+    } else if (key === 'visits' || key === 'site_visits') {
+      window.dispatchEvent(new CustomEvent('visits_updated', { detail: data }));
+      window.dispatchEvent(new CustomEvent('site_visits_updated', { detail: data }));
+    }
+
     window.dispatchEvent(new CustomEvent('rp_data_updated', { detail: { entity: key, data } }));
   } catch (e) {}
 }
@@ -111,12 +124,98 @@ export function notifyUpdate(key: string, data?: any): void {
 export function getStoredToken(): string {
   if (typeof window === 'undefined' || !window.localStorage) return '';
   try {
-    return localStorage.getItem('rp_auth_token') || localStorage.getItem('token') || '';
+    // 1. Direct explicit token storage
+    const direct = localStorage.getItem('rp_auth_token') || localStorage.getItem('token') || localStorage.getItem('supabase_auth_token');
+    if (direct && direct.trim().length > 10) return direct.trim();
+
+    // 2. Scan for Supabase session in localStorage (sb-*-auth-token)
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('sb-') && key.endsWith('-auth-token')) {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            const token = parsed?.access_token || parsed?.currentSession?.access_token;
+            if (token && typeof token === 'string' && token.length > 10) {
+              return token;
+            }
+          } catch {}
+        }
+      }
+    }
   } catch {
     return '';
   }
+  return '';
 }
 const getToken = getStoredToken;
+
+/**
+ * Robust HTTP response parser that prevents "Unexpected end of JSON input" errors.
+ * Safely inspects raw text before parsing, returning meaningful diagnostics for empty or non-JSON responses.
+ */
+export async function safeParseApiResponse<T = any>(
+  res: Response,
+  fallbackError = 'Server error'
+): Promise<{ ok: boolean; status: number; data: T | null; error?: string }> {
+  let rawText = '';
+  try {
+    rawText = await res.text();
+  } catch (readErr: any) {
+    return {
+      ok: false,
+      status: res.status || 500,
+      data: null,
+      error: `Failed to read server response: ${readErr?.message || 'Network stream error'}`
+    };
+  }
+
+  const trimmed = rawText.trim();
+  if (!trimmed) {
+    return {
+      ok: res.ok,
+      status: res.status,
+      data: null,
+      error: res.ok 
+        ? undefined 
+        : `Server returned HTTP ${res.status} ${res.statusText || ''} with an empty response body.`
+    };
+  }
+
+  let data: any = null;
+  try {
+    data = JSON.parse(trimmed);
+  } catch {
+    const sanitizedSnippet = trimmed
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 160);
+    return {
+      ok: false,
+      status: res.status,
+      data: null,
+      error: `Server returned non-JSON response (HTTP ${res.status}): ${sanitizedSnippet || 'Unparseable response'}`
+    };
+  }
+
+  if (!res.ok) {
+    const errorMsg = data?.error || data?.message || `${fallbackError} (HTTP ${res.status})`;
+    return {
+      ok: false,
+      status: res.status,
+      data,
+      error: typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg)
+    };
+  }
+
+  return {
+    ok: true,
+    status: res.status,
+    data
+  };
+}
 
 // Local storage caching helpers
 export function getLocal<T>(key: string, fallback: T): T {
@@ -798,6 +897,29 @@ export const supabaseService = {
         });
 
         if (error) {
+          // Secondary fallback to server authentication endpoint
+          try {
+            const apiRes = await fetch('/api/auth/login', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email: cleanEmail, password })
+            });
+            if (apiRes.ok) {
+              const apiData = await apiRes.json();
+              if (apiData.success && apiData.user && apiData.token) {
+                if (typeof window !== 'undefined' && window.localStorage) {
+                  localStorage.setItem('rp_auth_token', apiData.token);
+                  localStorage.setItem('rp_auth_user', JSON.stringify(apiData.user));
+                }
+                return {
+                  success: true,
+                  user: apiData.user,
+                  token: apiData.token,
+                  session: apiData.session || { access_token: apiData.token, user: apiData.user }
+                };
+              }
+            }
+          } catch {}
           return { success: false, error: error.message };
         }
 
@@ -2045,8 +2167,10 @@ export const supabaseService = {
           const data = await res.json();
           if (data.booking) {
             const all = getLocal<PropertyBooking[]>('property_bookings', []);
-            setLocal('property_bookings', [data.booking, ...all]);
-            window.dispatchEvent(new CustomEvent('bookings_updated'));
+            const updated = [data.booking, ...all.filter(b => b.id !== data.booking.id)];
+            setLocal('property_bookings', updated);
+            notifyUpdate('property_bookings', updated);
+            notifyUpdate('bookings', updated);
             return data.booking;
           }
         }
@@ -2075,8 +2199,10 @@ export const supabaseService = {
         source: 'PROPERTY_BOOKED',
         created_at: new Date().toISOString()
       };
-      setLocal('property_bookings', [newBooking, ...all]);
-      window.dispatchEvent(new CustomEvent('bookings_updated'));
+      const updated = [newBooking, ...all.filter(b => b.id !== newBooking.id)];
+      setLocal('property_bookings', updated);
+      notifyUpdate('property_bookings', updated);
+      notifyUpdate('bookings', updated);
       return newBooking;
     },
 
@@ -3997,8 +4123,9 @@ export const supabaseService = {
         const res = await fetch('/api/whatsapp/tenants', {
           headers: token ? { Authorization: `Bearer ${token}` } : {}
         });
-        if (res.ok) {
-          return await res.json();
+        const parsed = await safeParseApiResponse<any[]>(res, 'Failed to fetch WhatsApp tenants');
+        if (parsed.ok && Array.isArray(parsed.data)) {
+          return parsed.data;
         }
       } catch (e) {
         console.warn('Error fetching whatsapp tenants:', e);
@@ -4012,14 +4139,15 @@ export const supabaseService = {
         const res = await fetch(`/api/whatsapp/settings?tenant_id=${encodeURIComponent(tenantId)}`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {}
         });
-        if (res.ok) {
-          return await res.json();
+        const parsed = await safeParseApiResponse<any>(res, 'Failed to fetch WhatsApp settings');
+        if (parsed.ok && parsed.data) {
+          return parsed.data;
         }
       } catch (e) {
         console.warn('Error fetching whatsapp settings:', e);
       }
       return {
-        tenant_id: 'rental_pune',
+        tenant_id: tenantId,
         client_name: 'Rental Pune Luxury Real Estate',
         provider: 'META_CLOUD_API',
         api_base_url: 'https://graph.facebook.com',
@@ -4050,17 +4178,17 @@ export const supabaseService = {
           },
           body: JSON.stringify(settings)
         });
-        const data = await res.json();
-        if (res.ok) {
-          return { success: true, message: data.message, settings: data.settings };
+        const parsed = await safeParseApiResponse<any>(res, 'Failed to save settings');
+        if (parsed.ok && parsed.data) {
+          return { success: true, message: parsed.data.message, settings: parsed.data.settings };
         }
-        return { success: false, error: data.error || 'Failed to save settings' };
+        return { success: false, error: parsed.error || parsed.data?.error || 'Failed to save settings' };
       } catch (err: any) {
         return { success: false, error: err.message || 'Network error saving settings' };
       }
     },
 
-    async testConnection(settings?: any): Promise<{ connected: boolean; message: string; details?: any; error?: string }> {
+    async testConnection(settings?: any): Promise<{ connected: boolean; message: string; details?: any; error?: string; code?: number }> {
       try {
         const token = getToken();
         const res = await fetch('/api/whatsapp/test-connection', {
@@ -4071,10 +4199,24 @@ export const supabaseService = {
           },
           body: JSON.stringify(settings || {})
         });
-        const data = await res.json();
-        return data;
+        const parsed = await safeParseApiResponse<any>(res, 'Failed to test Meta connection');
+        if (parsed.data && typeof parsed.data === 'object') {
+          return {
+            connected: Boolean(parsed.data.connected),
+            message: parsed.data.message || (parsed.data.connected ? 'Connected' : 'Connection failed'),
+            details: parsed.data.details,
+            error: parsed.data.error || (parsed.data.connected ? undefined : parsed.error),
+            code: parsed.data.code || parsed.status
+          };
+        }
+        return {
+          connected: false,
+          message: parsed.error || `HTTP ${parsed.status} error from server`,
+          error: parsed.error || `HTTP ${parsed.status} error from server`,
+          code: parsed.status
+        };
       } catch (err: any) {
-        return { connected: false, message: err.message, error: err.message };
+        return { connected: false, message: err.message || 'Connection test error', error: err.message || 'Connection test error' };
       }
     },
 
@@ -4089,8 +4231,11 @@ export const supabaseService = {
           },
           body: JSON.stringify({ phone, message, tenant_id: tenantId })
         });
-        const data = await res.json();
-        return data;
+        const parsed = await safeParseApiResponse<any>(res, 'Failed to send test message');
+        if (parsed.ok && parsed.data) {
+          return { success: true, message: parsed.data.message };
+        }
+        return { success: false, error: parsed.error || parsed.data?.error || 'Failed to send test message' };
       } catch (err: any) {
         return { success: false, error: err.message || 'Failed to send test message' };
       }
@@ -4103,8 +4248,9 @@ export const supabaseService = {
         const res = await fetch(url, {
           headers: token ? { Authorization: `Bearer ${token}` } : {}
         });
-        if (res.ok) {
-          return await res.json();
+        const parsed = await safeParseApiResponse<any[]>(res, 'Failed to fetch WhatsApp logs');
+        if (parsed.ok && Array.isArray(parsed.data)) {
+          return parsed.data;
         }
       } catch (e) {
         console.warn('Error fetching whatsapp logs:', e);
@@ -4143,6 +4289,15 @@ export const supabaseService = {
               console.log('[Supabase Realtime] leads changed:', payload);
               const data = await supabaseService.leads.getAll();
               notifyUpdate('leads', data);
+            }
+          )
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'property_bookings' },
+            async (payload) => {
+              console.log('[Supabase Realtime] property_bookings changed:', payload);
+              const data = await supabaseService.bookings.getAll();
+              notifyUpdate('property_bookings', data);
             }
           )
           .on(

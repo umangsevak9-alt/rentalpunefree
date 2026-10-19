@@ -433,6 +433,44 @@ export const supabaseDb = {
       payload.whatsapp_consent_at = consentTime;
     }
 
+    // Smart deduplication: check if lead with matching phone exists within last 5 minutes
+    const cleanPhoneDigits = String(l.phone || '').replace(/\D/g, '');
+    if (cleanPhoneDigits.length >= 7) {
+      try {
+        const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+        const { data: recentLeads } = await supabase
+          .from('leads')
+          .select('id, name, phone, notes, created_at')
+          .gte('created_at', fiveMinAgo)
+          .order('created_at', { ascending: false })
+          .limit(10);
+
+        if (Array.isArray(recentLeads) && recentLeads.length > 0) {
+          const match = recentLeads.find((rl: any) => {
+            const rlDigits = String(rl.phone || '').replace(/\D/g, '');
+            return rlDigits.endsWith(cleanPhoneDigits.slice(-10)) || cleanPhoneDigits.endsWith(rlDigits.slice(-10));
+          });
+
+          if (match) {
+            const updatedNotes = l.notes 
+              ? `${match.notes || ''}\n[Follow-up Update ${new Date().toLocaleTimeString()}]: ${l.notes}`.trim()
+              : match.notes;
+            const { data: updated } = await supabase
+              .from('leads')
+              .update({
+                notes: updatedNotes
+              })
+              .eq('id', match.id)
+              .select()
+              .single();
+            if (updated) return updated;
+          }
+        }
+      } catch (dupErr) {
+        console.warn('Lead deduplication notice:', dupErr);
+      }
+    }
+
     try {
       return await executeWithInsertRetry<any>(async () => 
         await supabase.from('leads').insert([payload]).select().single()
@@ -573,8 +611,37 @@ export const supabaseDb = {
       updated_at: new Date().toISOString()
     };
 
-    // 1. Save to local JSON storage
+    // 1. Save to local JSON storage with deduplication check
     const current = loadJsonFile<any[]>(BOOKINGS_FILE, []);
+    const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+    const cleanPhoneDigits = payload.customer_phone.replace(/\D/g, '');
+
+    const existingIndex = current.findIndex(item => {
+      const itemPhoneDigits = String(item.customer_phone || '').replace(/\D/g, '');
+      const samePhone = itemPhoneDigits.endsWith(cleanPhoneDigits.slice(-10)) || cleanPhoneDigits.endsWith(itemPhoneDigits.slice(-10));
+      const sameProp = String(item.property_id || '') === String(payload.property_id || '');
+      const isRecent = new Date(item.created_at).getTime() > fiveMinutesAgo;
+      return samePhone && sameProp && isRecent;
+    });
+
+    if (existingIndex >= 0) {
+      const existing = current[existingIndex];
+      const updated = {
+        ...existing,
+        ...payload,
+        id: existing.id,
+        created_at: existing.created_at,
+        updated_at: new Date().toISOString(),
+        notes: payload.notes ? `${existing.notes || ''}\n[Update ${new Date().toLocaleTimeString()}]: ${payload.notes}`.trim() : existing.notes
+      };
+      current[existingIndex] = updated;
+      saveJsonFile(BOOKINGS_FILE, current);
+      try {
+        await supabase.from('property_bookings').update(updated).eq('id', existing.id);
+      } catch {}
+      return updated;
+    }
+
     saveJsonFile(BOOKINGS_FILE, [payload, ...current]);
 
     // 2. Also try inserting to Supabase if table exists
@@ -1235,6 +1302,34 @@ export const supabaseDb = {
       status: os.status || 'PENDING',
       admin_notes: os.admin_notes || ''
     };
+
+    // Deduplication check: if submission with same phone & property title exists within last 5 minutes
+    const cleanPhoneDigits = String(payload.owner_phone || '').replace(/\D/g, '');
+    const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+    const existingMatch = this._ownerSubmissionsMemory.find((item: any) => {
+      const itemPhone = String(item.owner_phone || '').replace(/\D/g, '');
+      const samePhone = itemPhone.endsWith(cleanPhoneDigits.slice(-10)) || cleanPhoneDigits.endsWith(itemPhone.slice(-10));
+      const sameTitle = String(item.property_title || '').trim().toLowerCase() === String(payload.property_title || '').trim().toLowerCase();
+      const isRecent = new Date(item.created_at || 0).getTime() > fiveMinutesAgo;
+      return samePhone && sameTitle && isRecent;
+    });
+
+    if (existingMatch) {
+      const updated = {
+        ...existingMatch,
+        ...payload,
+        id: existingMatch.id,
+        created_at: existingMatch.created_at,
+        updated_at: new Date().toISOString()
+      };
+      this._ownerSubmissionsMemory = this._ownerSubmissionsMemory.map(m => String(m.id) === String(existingMatch.id) ? updated : m);
+      saveSubmissionsToFile(this._ownerSubmissionsMemory);
+      try {
+        const supabase = getClient();
+        await supabase.from('owner_submissions').update(payload).eq('id', existingMatch.id);
+      } catch {}
+      return updated;
+    }
 
     let createdRecord: any = null;
 
