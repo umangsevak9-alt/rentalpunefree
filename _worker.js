@@ -2,15 +2,18 @@
  * Cloudflare Worker Entry Point (_worker.js)
  * 
  * Production handler for Rental Pune CRM on Cloudflare Workers:
- * - CORS preflight (OPTIONS)
- * - POST /api/leads (Saves enquiry & sends WhatsApp notification to Admin & Customer)
- * - POST /api/bookings (Saves booking & sends WhatsApp notification)
- * - POST /api/whatsapp/test-connection (Live Meta Graph API verification)
- * - GET /api/whatsapp/settings & POST /api/whatsapp/settings (Retrieve & Save config)
- * - POST /api/whatsapp/send-test (Sends verified hello_world or custom template)
- * - GET /api/whatsapp/tenants & GET /api/whatsapp/logs
- * - Static assets & SPA fallback via env.ASSETS.fetch(request)
+ * 1. Persistent configuration & audit logs backed by Supabase Cloud Database.
+ * 2. POST /api/leads (Saves enquiry to Supabase & dispatches live Meta WhatsApp notifications).
+ * 3. POST /api/bookings (Saves booking to Supabase & dispatches live Meta WhatsApp notifications).
+ * 4. POST /api/whatsapp/test-connection (Live Meta Graph API test).
+ * 5. GET & POST /api/whatsapp/settings (Live sync to Supabase settings table).
+ * 6. POST /api/whatsapp/send-test (Dispatches verified template message via Meta API).
+ * 7. GET /api/whatsapp/logs (Real-time audit log from Supabase).
+ * 8. Static assets & SPA fallback via env.ASSETS.fetch(request).
  */
+
+const SUPABASE_DEFAULT_URL = 'https://ddfsfemggwjtryosdgya.supabase.co';
+const SUPABASE_DEFAULT_KEY = 'sb_publishable_l4em_aFSdxQIpW2gLbShHA_r8Gjpt-j';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -18,31 +21,6 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With, Accept',
   'Access-Control-Max-Age': '86400',
 };
-
-let storedConfig = {
-  tenant_id: 'rental_pune',
-  client_name: 'Rental Pune Luxury Real Estate',
-  provider: 'META_CLOUD_API',
-  api_base_url: 'https://graph.facebook.com',
-  graph_version: 'v21.0',
-  phone_number_id: '',
-  business_account_id: '',
-  access_token: '',
-  admin_phone: '+919822012345',
-  enabled: true,
-  customer_confirmation_enabled: true,
-  admin_alerts_enabled: true,
-  template_name_customer: 'rental_pune_enquiry_customer',
-  template_language_customer: 'en',
-  template_name_admin: 'rental_pune_admin_alert',
-  template_language_admin: 'en',
-  webhook_verify_token: 'rental_pune_secure_verify_2026',
-  has_access_token: false,
-  masked_access_token: '',
-  updated_at: new Date().toISOString()
-};
-
-let storedLogs = [];
 
 function jsonResponse(data, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(data), {
@@ -78,12 +56,160 @@ function cleanPhone(phone) {
   return digits;
 }
 
-// Meta message dispatch on Cloudflare Worker
-async function dispatchMetaMessage({ to, templateName, templateLanguage, templateParams, recipientType, leadId, text }) {
+// Supabase REST Helper
+function getSupabaseCredentials(env) {
+  const url = (env && env.SUPABASE_URL) || SUPABASE_DEFAULT_URL;
+  const key = (env && env.SUPABASE_ANON_KEY) || SUPABASE_DEFAULT_KEY;
+  return { url: url.replace(/\/$/, ''), key };
+}
+
+async function fetchFromSupabase(path, env, options = {}) {
+  const { url, key } = getSupabaseCredentials(env);
+  const headers = {
+    'apikey': key,
+    'Authorization': `Bearer ${key}`,
+    'Content-Type': 'application/json',
+    ...(options.headers || {})
+  };
+  return await fetch(`${url}/rest/v1/${path}`, {
+    ...options,
+    headers
+  });
+}
+
+// Load WhatsApp configuration permanently from Supabase settings table
+async function loadWhatsAppConfig(env) {
+  const fallback = {
+    tenant_id: 'rental_pune',
+    client_name: 'Rental Pune Luxury Real Estate',
+    provider: 'META_CLOUD_API',
+    api_base_url: 'https://graph.facebook.com',
+    graph_version: 'v21.0',
+    phone_number_id: (env && env.WHATSAPP_PHONE_NUMBER_ID) || '',
+    business_account_id: (env && env.WHATSAPP_BUSINESS_ACCOUNT_ID) || '',
+    access_token: (env && env.WHATSAPP_ACCESS_TOKEN) || '',
+    admin_phone: (env && env.WHATSAPP_ADMIN_PHONE) || '+919822012345',
+    enabled: true,
+    customer_confirmation_enabled: true,
+    admin_alerts_enabled: true,
+    template_name_customer: 'rental_pune_enquiry_customer',
+    template_language_customer: 'en',
+    template_name_admin: 'rental_pune_admin_alert',
+    template_language_admin: 'en',
+    webhook_verify_token: 'rental_pune_secure_verify_2026',
+    has_access_token: false,
+    masked_access_token: '',
+    updated_at: new Date().toISOString()
+  };
+
+  try {
+    const res = await fetchFromSupabase('settings?select=key,value&key=like.whatsapp*', env);
+    if (res.ok) {
+      const rows = await res.json();
+      if (Array.isArray(rows) && rows.length > 0) {
+        const map = {};
+        for (const r of rows) {
+          if (r.key && r.value !== null && r.value !== undefined) {
+            map[r.key] = r.value;
+          }
+        }
+        fallback.phone_number_id = map['whatsapp_phone_number_id'] || fallback.phone_number_id;
+        fallback.business_account_id = map['whatsapp_business_account_id'] || fallback.business_account_id;
+        fallback.access_token = map['whatsapp_access_token'] || fallback.access_token;
+        fallback.admin_phone = map['whatsapp_admin_phone'] || fallback.admin_phone;
+        fallback.enabled = map['whatsapp_enabled'] !== 'false';
+        fallback.customer_confirmation_enabled = map['whatsapp_customer_confirmation_enabled'] !== 'false';
+        fallback.admin_alerts_enabled = map['whatsapp_admin_alerts_enabled'] !== 'false';
+        fallback.template_name_customer = map['whatsapp_template_name_customer'] || fallback.template_name_customer;
+        fallback.template_name_admin = map['whatsapp_template_name_admin'] || fallback.template_name_admin;
+        fallback.template_language_customer = map['whatsapp_template_language_customer'] || fallback.template_language_customer;
+        fallback.template_language_admin = map['whatsapp_template_language_admin'] || fallback.template_language_admin;
+        fallback.has_access_token = Boolean(fallback.access_token);
+        fallback.masked_access_token = getMaskedToken(fallback.access_token);
+      }
+    }
+  } catch (err) {
+    console.warn('Error loading config from Supabase:', err);
+  }
+
+  return fallback;
+}
+
+// Persist WhatsApp configuration permanently to Supabase settings table
+async function saveWhatsAppConfigToSupabase(newConfig, env) {
+  const rows = [
+    { key: 'whatsapp_phone_number_id', value: newConfig.phone_number_id || '' },
+    { key: 'whatsapp_business_account_id', value: newConfig.business_account_id || '' },
+    { key: 'whatsapp_admin_phone', value: newConfig.admin_phone || '+919822012345' },
+    { key: 'whatsapp_enabled', value: String(newConfig.enabled !== false) },
+    { key: 'whatsapp_customer_confirmation_enabled', value: String(newConfig.customer_confirmation_enabled !== false) },
+    { key: 'whatsapp_admin_alerts_enabled', value: String(newConfig.admin_alerts_enabled !== false) },
+    { key: 'whatsapp_template_name_customer', value: newConfig.template_name_customer || 'rental_pune_enquiry_customer' },
+    { key: 'whatsapp_template_name_admin', value: newConfig.template_name_admin || 'rental_pune_admin_alert' },
+    { key: 'whatsapp_template_language_customer', value: newConfig.template_language_customer || 'en' },
+    { key: 'whatsapp_template_language_admin', value: newConfig.template_language_admin || 'en' },
+    { key: 'whatsapp_updated_at', value: new Date().toISOString() }
+  ];
+
+  if (newConfig.access_token && !newConfig.access_token.includes('••') && !newConfig.access_token.includes('*')) {
+    rows.push({ key: 'whatsapp_access_token', value: newConfig.access_token.trim() });
+  }
+
+  try {
+    await fetchFromSupabase('settings', env, {
+      method: 'POST',
+      headers: { 'Prefer': 'resolution=merge-duplicates' },
+      body: JSON.stringify(rows)
+    });
+  } catch (e) {
+    console.error('Failed to save settings to Supabase:', e);
+  }
+}
+
+// Append notification log entry permanently to Supabase
+async function appendWhatsAppLog(logEntry, env) {
+  try {
+    const res = await fetchFromSupabase('settings?select=value&key=eq.whatsapp_audit_logs', env);
+    let logs = [];
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data[0]?.value) {
+        try { logs = JSON.parse(data[0].value); } catch {}
+      }
+    }
+    logs.unshift(logEntry);
+    if (logs.length > 100) logs.length = 100;
+
+    await fetchFromSupabase('settings', env, {
+      method: 'POST',
+      headers: { 'Prefer': 'resolution=merge-duplicates' },
+      body: JSON.stringify([{ key: 'whatsapp_audit_logs', value: JSON.stringify(logs) }])
+    });
+  } catch (e) {
+    console.error('Failed to persist audit log:', e);
+  }
+}
+
+// Load logs permanently from Supabase
+async function loadWhatsAppLogs(env) {
+  try {
+    const res = await fetchFromSupabase('settings?select=value&key=eq.whatsapp_audit_logs', env);
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data[0]?.value) {
+        return JSON.parse(data[0].value);
+      }
+    }
+  } catch {}
+  return [];
+}
+
+// Send message via Meta WhatsApp Cloud API with Sandbox Fallback
+async function sendMetaWhatsAppMessageOnWorker({ to, templateName, templateLanguage, templateParams, recipientType, leadId, env, config }) {
   const recipientPhone = cleanPhone(to);
   if (!recipientPhone) {
     const err = `Invalid phone number: ${to}`;
-    storedLogs.unshift({
+    await appendWhatsAppLog({
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       lead_id: leadId,
       recipient_type: recipientType,
@@ -91,14 +217,14 @@ async function dispatchMetaMessage({ to, templateName, templateLanguage, templat
       status: 'FAILED',
       error_message: err,
       created_at: new Date().toISOString()
-    });
+    }, env);
     return { success: false, error: err };
   }
 
-  const { phone_number_id, access_token, api_base_url, graph_version } = storedConfig;
+  const { phone_number_id, access_token, api_base_url, graph_version } = config;
   if (!phone_number_id || !access_token) {
     const err = 'WhatsApp credentials not configured (Phone Number ID or Access Token missing).';
-    storedLogs.unshift({
+    await appendWhatsAppLog({
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       lead_id: leadId,
       recipient_type: recipientType,
@@ -106,7 +232,7 @@ async function dispatchMetaMessage({ to, templateName, templateLanguage, templat
       status: 'FAILED',
       error_message: err,
       created_at: new Date().toISOString()
-    });
+    }, env);
     return { success: false, error: err };
   }
 
@@ -128,7 +254,7 @@ async function dispatchMetaMessage({ to, templateName, templateLanguage, templat
     }
   };
 
-  if (tName !== 'hello_world' && templateParams && templateParams.length > 0) {
+  if (tName !== 'hello_world' && Array.isArray(templateParams) && templateParams.length > 0) {
     payload.template.components = [
       {
         type: 'body',
@@ -151,7 +277,7 @@ async function dispatchMetaMessage({ to, templateName, templateLanguage, templat
 
     if (res.ok && data?.messages?.[0]?.id) {
       const msgId = data.messages[0].id;
-      storedLogs.unshift({
+      await appendWhatsAppLog({
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         lead_id: leadId,
         recipient_type: recipientType,
@@ -160,7 +286,7 @@ async function dispatchMetaMessage({ to, templateName, templateLanguage, templat
         whatsapp_message_id: msgId,
         payload: { template: tName },
         created_at: new Date().toISOString()
-      });
+      }, env);
       return { success: true, messageId: msgId };
     }
 
@@ -168,8 +294,8 @@ async function dispatchMetaMessage({ to, templateName, templateLanguage, templat
     const code = errObj.code || res.status;
     let diagnostic = errObj.message || `Meta API error HTTP ${res.status}`;
 
+    // Auto-fallback for Meta Sandbox / Test Numbers if custom template is not yet approved
     if (code === 132000 && tName !== 'hello_world') {
-      // Auto-fallback to Meta's universally approved hello_world for sandbox / test numbers
       try {
         const fallbackRes = await fetch(endpoint, {
           method: 'POST',
@@ -188,27 +314,27 @@ async function dispatchMetaMessage({ to, templateName, templateLanguage, templat
         const fallbackData = await fallbackRes.json().catch(() => null);
         if (fallbackRes.ok && fallbackData?.messages?.[0]?.id) {
           const fallbackMsgId = fallbackData.messages[0].id;
-          storedLogs.unshift({
+          await appendWhatsAppLog({
             id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             lead_id: leadId,
             recipient_type: recipientType,
             recipient_phone: recipientPhone,
             status: 'SENT',
             whatsapp_message_id: fallbackMsgId,
-            payload: { note: `Custom template '${tName}' not approved. Sent via sandbox 'hello_world'.` },
+            payload: { note: `Custom template '${tName}' not approved (#132000). Delivered via Meta approved sandbox template 'hello_world'.` },
             created_at: new Date().toISOString()
-          });
+          }, env);
           return { success: true, messageId: fallbackMsgId };
         }
       } catch {}
       diagnostic = `Meta Template Error (#132000): Template "${tName}" not approved in Meta WhatsApp Manager. (For test numbers, use 'hello_world').`;
     } else if (code === 131030) {
-      diagnostic = `Meta Sandbox Limitation (#131030): Recipient ${recipientPhone} is not in your authorized test numbers list. Add this number in Meta Developer Portal -> WhatsApp -> API Setup -> To field.`;
+      diagnostic = `Meta Sandbox Limitation (#131030): Recipient ${recipientPhone} is not in your authorized test numbers list. Add this number in Meta Developer Portal -> WhatsApp -> API Setup -> "To" field.`;
     } else if (code === 190) {
       diagnostic = 'Meta Auth Error (#190): Access token is expired or invalid.';
     }
 
-    storedLogs.unshift({
+    await appendWhatsAppLog({
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       lead_id: leadId,
       recipient_type: recipientType,
@@ -216,12 +342,12 @@ async function dispatchMetaMessage({ to, templateName, templateLanguage, templat
       status: 'FAILED',
       error_message: redactSecrets(diagnostic),
       created_at: new Date().toISOString()
-    });
+    }, env);
     return { success: false, error: redactSecrets(diagnostic) };
 
   } catch (netErr) {
     const err = redactSecrets(netErr.message);
-    storedLogs.unshift({
+    await appendWhatsAppLog({
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       lead_id: leadId,
       recipient_type: recipientType,
@@ -229,7 +355,7 @@ async function dispatchMetaMessage({ to, templateName, templateLanguage, templat
       status: 'FAILED',
       error_message: err,
       created_at: new Date().toISOString()
-    });
+    }, env);
     return { success: false, error: err };
   }
 }
@@ -239,19 +365,6 @@ export default {
     const url = new URL(request.url);
     const pathname = url.pathname.replace(/\/$/, '') || '/';
     const method = request.method.toUpperCase();
-
-    // Sync from env if present
-    if (env.WHATSAPP_PHONE_NUMBER_ID && !storedConfig.phone_number_id) {
-      storedConfig.phone_number_id = env.WHATSAPP_PHONE_NUMBER_ID;
-    }
-    if (env.WHATSAPP_ACCESS_TOKEN && !storedConfig.access_token) {
-      storedConfig.access_token = env.WHATSAPP_ACCESS_TOKEN;
-      storedConfig.has_access_token = true;
-      storedConfig.masked_access_token = getMaskedToken(env.WHATSAPP_ACCESS_TOKEN);
-    }
-    if (env.WHATSAPP_BUSINESS_ACCOUNT_ID && !storedConfig.business_account_id) {
-      storedConfig.business_account_id = env.WHATSAPP_BUSINESS_ACCOUNT_ID;
-    }
 
     // 1. CORS Preflight
     if (method === 'OPTIONS') {
@@ -275,7 +388,7 @@ export default {
       return null;
     };
 
-    // 2. LEAD CREATION ROUTE (POST /api/leads) -> Direct save + WhatsApp Notification
+    // 2. LEAD CREATION ROUTE (POST /api/leads)
     if (pathname === '/api/leads') {
       if (method === 'POST') {
         let body = {};
@@ -291,47 +404,88 @@ export default {
         const propTitle = body.property_title || 'Luxury Residence';
         const propLoc = body.property_location || 'Pune';
         const propPrice = body.property_price ? `₹${body.property_price}` : 'Not provided';
-        const leadId = Date.now();
         const hasConsent = body.whatsapp_consent === true || body.whatsapp_consent === 'true';
 
-        // Trigger WhatsApp Notifications asynchronously on Worker
-        if (ctx && typeof ctx.waitUntil === 'function') {
-          ctx.waitUntil((async () => {
-            // Admin notification
-            if (storedConfig.enabled && storedConfig.admin_alerts_enabled && storedConfig.admin_phone) {
-              await dispatchMetaMessage({
-                to: storedConfig.admin_phone,
-                templateName: storedConfig.template_name_admin || 'hello_world',
-                templateLanguage: storedConfig.template_language_admin || 'en_US',
-                templateParams: [name, phone, propTitle, propLoc, propPrice, notes],
-                recipientType: 'ADMIN',
-                leadId
+        let leadId = Date.now();
+
+        // 1. Save lead to Supabase Database
+        try {
+          const insertPayload = {
+            name,
+            phone: phone || null,
+            email: email || null,
+            notes,
+            source: body.source || 'Website Concierge',
+            status: 'New',
+            whatsapp_consent: hasConsent,
+            whatsapp_consent_at: hasConsent ? new Date().toISOString() : null,
+            created_at: new Date().toISOString()
+          };
+          const sbRes = await fetchFromSupabase('leads', env, {
+            method: 'POST',
+            headers: { 'Prefer': 'return=representation' },
+            body: JSON.stringify([insertPayload])
+          });
+          if (sbRes.ok) {
+            const savedData = await sbRes.json();
+            if (savedData?.[0]?.id) {
+              leadId = savedData[0].id;
+            }
+          }
+        } catch (dbErr) {
+          console.warn('Lead DB save warning:', dbErr);
+        }
+
+        // 2. Load live WhatsApp config from Supabase
+        const config = await loadWhatsAppConfig(env);
+
+        // 3. Dispatch WhatsApp notifications
+        const dispatchWork = async () => {
+          // Admin Alert
+          if (config.enabled && config.admin_alerts_enabled && config.admin_phone) {
+            await sendMetaWhatsAppMessageOnWorker({
+              to: config.admin_phone,
+              templateName: config.template_name_admin || 'hello_world',
+              templateLanguage: config.template_language_admin || 'en_US',
+              templateParams: [name, phone, propTitle, propLoc, propPrice, notes],
+              recipientType: 'ADMIN',
+              leadId,
+              env,
+              config
+            });
+          }
+
+          // Customer Confirmation (only if opt-in consent was provided)
+          if (config.enabled && config.customer_confirmation_enabled && phone) {
+            if (hasConsent) {
+              await sendMetaWhatsAppMessageOnWorker({
+                to: phone,
+                templateName: config.template_name_customer || 'hello_world',
+                templateLanguage: config.template_language_customer || 'en_US',
+                templateParams: [name, propTitle, propLoc],
+                recipientType: 'CUSTOMER',
+                leadId,
+                env,
+                config
               });
+            } else {
+              await appendWhatsAppLog({
+                id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                lead_id: leadId,
+                recipient_type: 'CUSTOMER',
+                recipient_phone: phone,
+                status: 'SKIPPED',
+                error_message: 'Customer did not provide explicit WhatsApp opt-in consent (checkbox left unchecked).',
+                created_at: new Date().toISOString()
+              }, env);
             }
-            // Customer notification (only if opt-in consent provided)
-            if (storedConfig.enabled && storedConfig.customer_confirmation_enabled && phone) {
-              if (hasConsent) {
-                await dispatchMetaMessage({
-                  to: phone,
-                  templateName: storedConfig.template_name_customer || 'hello_world',
-                  templateLanguage: storedConfig.template_language_customer || 'en_US',
-                  templateParams: [name, propTitle, propLoc],
-                  recipientType: 'CUSTOMER',
-                  leadId
-                });
-              } else {
-                storedLogs.unshift({
-                  id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-                  lead_id: leadId,
-                  recipient_type: 'CUSTOMER',
-                  recipient_phone: phone,
-                  status: 'SKIPPED',
-                  error_message: 'Customer did not opt-in to WhatsApp updates (checkbox left unchecked).',
-                  created_at: new Date().toISOString()
-                });
-              }
-            }
-          })());
+          }
+        };
+
+        if (ctx && typeof ctx.waitUntil === 'function') {
+          ctx.waitUntil(dispatchWork());
+        } else {
+          await dispatchWork();
         }
 
         return jsonResponse({
@@ -357,22 +511,57 @@ export default {
         const phone = (body.customer_phone || body.phone || '').trim();
         const propTitle = body.property_title || body.propertyName || 'Luxury Residence';
         const propLoc = body.property_location || 'Pune';
-        const bookingId = Date.now();
         const hasConsent = body.whatsapp_consent === true || body.whatsapp_consent === 'true';
+        let bookingId = Date.now();
+
+        try {
+          const insertPayload = {
+            property_id: body.propertyId || body.property_id || null,
+            property_title: propTitle,
+            property_location: propLoc,
+            customer_name: name,
+            customer_phone: phone,
+            customer_email: body.customer_email || body.email || null,
+            notes: body.notes || 'Property booking request',
+            status: 'NEW',
+            whatsapp_consent: hasConsent,
+            whatsapp_consent_at: hasConsent ? new Date().toISOString() : null,
+            created_at: new Date().toISOString()
+          };
+          const sbRes = await fetchFromSupabase('property_bookings', env, {
+            method: 'POST',
+            headers: { 'Prefer': 'return=representation' },
+            body: JSON.stringify([insertPayload])
+          });
+          if (sbRes.ok) {
+            const savedData = await sbRes.json();
+            if (savedData?.[0]?.id) bookingId = savedData[0].id;
+          }
+        } catch (dbErr) {
+          console.warn('Booking DB save warning:', dbErr);
+        }
+
+        const config = await loadWhatsAppConfig(env);
+
+        const dispatchWork = async () => {
+          if (config.enabled && config.admin_alerts_enabled && config.admin_phone) {
+            await sendMetaWhatsAppMessageOnWorker({
+              to: config.admin_phone,
+              templateName: config.template_name_admin || 'hello_world',
+              templateLanguage: config.template_language_admin || 'en_US',
+              templateParams: [name, phone, propTitle, propLoc],
+              recipientType: 'ADMIN',
+              leadId: bookingId,
+              env,
+              config
+            });
+          }
+        };
 
         if (ctx && typeof ctx.waitUntil === 'function') {
-          ctx.waitUntil((async () => {
-            if (storedConfig.enabled && storedConfig.admin_alerts_enabled && storedConfig.admin_phone) {
-              await dispatchMetaMessage({
-                to: storedConfig.admin_phone,
-                templateName: storedConfig.template_name_admin || 'hello_world',
-                templateLanguage: storedConfig.template_language_admin || 'en_US',
-                templateParams: [name, phone, propTitle, propLoc],
-                recipientType: 'ADMIN',
-                leadId: bookingId
-              });
-            }
-          })());
+          ctx.waitUntil(dispatchWork());
+        } else {
+          await dispatchWork();
         }
 
         return jsonResponse({
@@ -389,11 +578,12 @@ export default {
         const authErr = requireAuth();
         if (authErr) return authErr;
 
+        const config = await loadWhatsAppConfig(env);
         return jsonResponse({
-          ...storedConfig,
-          access_token: undefined,
-          masked_access_token: storedConfig.masked_access_token || getMaskedToken(storedConfig.access_token),
-          has_access_token: Boolean(storedConfig.access_token)
+          ...config,
+          access_token: undefined, // Never expose raw token in response
+          masked_access_token: config.masked_access_token || getMaskedToken(config.access_token),
+          has_access_token: Boolean(config.access_token)
         });
       }
 
@@ -409,34 +599,32 @@ export default {
           return jsonResponse({ error: 'Invalid JSON payload' }, 400);
         }
 
+        const currentConfig = await loadWhatsAppConfig(env);
         const newAccessToken = body.access_token && !body.access_token.includes('••') && !body.access_token.includes('*')
           ? String(body.access_token).trim()
-          : storedConfig.access_token;
+          : currentConfig.access_token;
 
-        storedConfig = {
-          ...storedConfig,
-          phone_number_id: body.phone_number_id !== undefined ? String(body.phone_number_id).trim() : storedConfig.phone_number_id,
-          business_account_id: body.business_account_id !== undefined ? String(body.business_account_id).trim() : storedConfig.business_account_id,
-          admin_phone: body.admin_phone !== undefined ? String(body.admin_phone).trim() : storedConfig.admin_phone,
-          api_base_url: body.api_base_url || storedConfig.api_base_url,
-          graph_version: body.graph_version || storedConfig.graph_version,
-          enabled: body.enabled !== undefined ? Boolean(body.enabled) : storedConfig.enabled,
-          customer_confirmation_enabled: body.customer_confirmation_enabled !== undefined ? Boolean(body.customer_confirmation_enabled) : storedConfig.customer_confirmation_enabled,
-          admin_alerts_enabled: body.admin_alerts_enabled !== undefined ? Boolean(body.admin_alerts_enabled) : storedConfig.admin_alerts_enabled,
-          template_name_customer: body.template_name_customer || storedConfig.template_name_customer,
-          template_language_customer: body.template_language_customer || storedConfig.template_language_customer,
-          template_name_admin: body.template_name_admin || storedConfig.template_name_admin,
-          template_language_admin: body.template_language_admin || storedConfig.template_language_admin,
-          access_token: newAccessToken,
-          has_access_token: Boolean(newAccessToken),
-          masked_access_token: getMaskedToken(newAccessToken),
-          updated_at: new Date().toISOString()
+        const updated = {
+          ...currentConfig,
+          phone_number_id: body.phone_number_id !== undefined ? String(body.phone_number_id).trim() : currentConfig.phone_number_id,
+          business_account_id: body.business_account_id !== undefined ? String(body.business_account_id).trim() : currentConfig.business_account_id,
+          admin_phone: body.admin_phone !== undefined ? String(body.admin_phone).trim() : currentConfig.admin_phone,
+          enabled: body.enabled !== undefined ? Boolean(body.enabled) : currentConfig.enabled,
+          customer_confirmation_enabled: body.customer_confirmation_enabled !== undefined ? Boolean(body.customer_confirmation_enabled) : currentConfig.customer_confirmation_enabled,
+          admin_alerts_enabled: body.admin_alerts_enabled !== undefined ? Boolean(body.admin_alerts_enabled) : currentConfig.admin_alerts_enabled,
+          template_name_customer: body.template_name_customer || currentConfig.template_name_customer,
+          template_language_customer: body.template_language_customer || currentConfig.template_language_customer,
+          template_name_admin: body.template_name_admin || currentConfig.template_name_admin,
+          template_language_admin: body.template_language_admin || currentConfig.template_language_admin,
+          access_token: newAccessToken
         };
+
+        await saveWhatsAppConfigToSupabase(updated, env);
 
         return jsonResponse({
           success: true,
-          message: 'WhatsApp configuration saved successfully.',
-          settings: { ...storedConfig, access_token: undefined }
+          message: 'WhatsApp configuration saved permanently.',
+          settings: { ...updated, access_token: undefined, has_access_token: Boolean(newAccessToken) }
         });
       }
 
@@ -458,14 +646,15 @@ export default {
         if (text && text.trim()) body = JSON.parse(text);
       } catch {}
 
-      const rawPhoneId = body.phone_number_id || storedConfig.phone_number_id || env.WHATSAPP_PHONE_NUMBER_ID || '';
+      const config = await loadWhatsAppConfig(env);
+      const rawPhoneId = body.phone_number_id || config.phone_number_id || '';
       const phoneNumberId = String(rawPhoneId).trim();
       const rawToken = (body.access_token && !body.access_token.includes('••') && !body.access_token.includes('*'))
         ? body.access_token
-        : (storedConfig.access_token || env.WHATSAPP_ACCESS_TOKEN || '');
-      const accessToken = String(rawToken).trim();
-      const apiBaseUrl = (body.api_base_url || storedConfig.api_base_url || 'https://graph.facebook.com').replace(/\/$/, '');
-      const graphVersion = (body.graph_version || storedConfig.graph_version || 'v21.0').replace(/^\//, '');
+        : config.access_token;
+      const accessToken = String(rawToken || '').trim();
+      const apiBaseUrl = (body.api_base_url || config.api_base_url || 'https://graph.facebook.com').replace(/\/$/, '');
+      const graphVersion = (body.graph_version || config.graph_version || 'v21.0').replace(/^\//, '');
 
       if (!phoneNumberId) {
         return jsonResponse({
@@ -527,17 +716,20 @@ export default {
         if (text) body = JSON.parse(text);
       } catch {}
 
-      const targetPhone = body.phone || storedConfig.admin_phone;
+      const config = await loadWhatsAppConfig(env);
+      const targetPhone = body.phone || config.admin_phone;
       if (!targetPhone) {
         return jsonResponse({ error: 'Please enter a recipient phone number.' }, 400);
       }
 
-      const result = await dispatchMetaMessage({
+      const result = await sendMetaWhatsAppMessageOnWorker({
         to: targetPhone,
         templateName: body.template_name || 'hello_world',
         templateLanguage: body.template_language || 'en_US',
         recipientType: 'TEST',
-        leadId: Date.now()
+        leadId: Date.now(),
+        env,
+        config
       });
 
       if (result.success) {
@@ -553,11 +745,13 @@ export default {
 
     // 7. TENANTS & LOGS
     if (pathname === '/api/whatsapp/tenants') {
-      return jsonResponse([{ tenant_id: 'rental_pune', client_name: storedConfig.client_name }]);
+      const config = await loadWhatsAppConfig(env);
+      return jsonResponse([{ tenant_id: 'rental_pune', client_name: config.client_name }]);
     }
 
     if (pathname === '/api/whatsapp/logs') {
-      return jsonResponse(storedLogs.slice(0, 50));
+      const logs = await loadWhatsAppLogs(env);
+      return jsonResponse(logs);
     }
 
     // 8. STATIC ASSETS & SPA ROUTING

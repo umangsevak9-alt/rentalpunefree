@@ -362,8 +362,10 @@ export function updateWhatsAppConfig(newConfig: Partial<WhatsAppConfig>, targetT
         if (tokenToSave) {
           (async () => {
             try {
-              await supabase.from('whatsapp_credentials').upsert([{ id: 1, access_token: tokenToSave, updated_at: merged.updated_at }]);
-            } catch {}
+              await supabase.from('settings').upsert([{ key: 'whatsapp_access_token', value: tokenToSave }], { onConflict: 'key' });
+            } catch (err) {
+              console.warn('Error saving whatsapp_access_token to Supabase settings:', err);
+            }
           })();
         }
       }
