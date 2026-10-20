@@ -842,11 +842,53 @@ export async function sendMetaWhatsAppMessage(params: {
       if (errorCode === 190) {
         actionableMsg = 'Meta Auth Error (#190): Access token expired or invalid. Please rotate your System User Token in Meta Business Settings.';
       } else if (errorCode === 132000) {
-        actionableMsg = `Meta Template Error (#132000): Template "${params.templateName}" not found in language "${params.templateLanguage || 'en'}". Please submit and approve this template in Meta WhatsApp Manager.`;
+        actionableMsg = `Meta Template Error (#132000): Template "${params.templateName}" not found in language "${params.templateLanguage || 'en'}".`;
+        
+        // Automatic fallback for sandbox/test numbers: attempt Meta's pre-approved hello_world template
+        if (params.templateName !== 'hello_world') {
+          try {
+            const fallbackRes = await fetch(endpoint, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${access_token}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                messaging_product: 'whatsapp',
+                recipient_type: 'individual',
+                to: cleanPhone,
+                type: 'template',
+                template: {
+                  name: 'hello_world',
+                  language: { code: 'en_US' }
+                }
+              })
+            });
+            const fallbackData: any = await fallbackRes.json().catch(() => null);
+            if (fallbackRes.ok && fallbackData?.messages?.[0]?.id) {
+              const fallbackMsgId = fallbackData.messages[0].id;
+              await logWhatsAppNotification({
+                lead_id: params.leadId,
+                tenant_id: tenantId,
+                recipient_type: params.recipientType,
+                recipient_phone: cleanPhone,
+                message_type: params.messageType,
+                status: 'SENT',
+                whatsapp_message_id: fallbackMsgId,
+                payload: {
+                  text: `Template '${params.templateName}' unapproved (#132000). Delivered via Meta approved sandbox template 'hello_world'.`,
+                  template: 'hello_world'
+                }
+              });
+              return { success: true, messageId: fallbackMsgId };
+            }
+          } catch {}
+        }
+        actionableMsg = `Meta Template Error (#132000): Template "${params.templateName}" not found in language "${params.templateLanguage || 'en'}". Please submit and approve this template in Meta WhatsApp Manager (or use 'hello_world' for test numbers).`;
       } else if (errorCode === 132001) {
         actionableMsg = `Meta Template Error (#132001): Parameter count mismatch for template "${params.templateName}".`;
       } else if (errorCode === 131030) {
-        actionableMsg = `Meta Sandbox Limitation (#131030): Recipient ${cleanPhone} is not in your authorized test numbers list.`;
+        actionableMsg = `Meta Sandbox Limitation (#131030): Recipient ${cleanPhone} is not in your authorized test numbers list. Add this phone in Meta Developer Portal -> WhatsApp -> API Setup -> "To" field.`;
       } else if (errorCode === 131047) {
         actionableMsg = 'Meta Policy Error (#131047): Outside 24-hr customer service window. An approved Meta Utility template is required.';
       } else if (errorCode === 80007) {

@@ -24,7 +24,8 @@ import {
   FileCode2,
   Activity,
   Lock,
-  RotateCcw
+  RotateCcw,
+  Info
 } from 'lucide-react';
 
 interface WhatsAppTenantItem {
@@ -131,9 +132,9 @@ export default function WhatsAppSettings() {
 
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  // Test message modal
   const [testRecipientPhone, setTestRecipientPhone] = useState('');
   const [testCustomMessage, setTestCustomMessage] = useState('');
+  const [useSandboxTemplate, setUseSandboxTemplate] = useState(true);
   const [showTestModal, setShowTestModal] = useState(false);
   const [copiedWebhook, setCopiedWebhook] = useState(false);
   const [testConfirmed, setTestConfirmed] = useState(false);
@@ -374,7 +375,8 @@ export default function WhatsAppSettings() {
       const res = await supabaseService.whatsapp.sendTestMessage(
         testRecipientPhone.trim(),
         testCustomMessage.trim() || undefined,
-        selectedTenantId
+        selectedTenantId,
+        useSandboxTemplate ? 'hello_world' : undefined
       );
 
       if (res.success) {
@@ -654,6 +656,34 @@ export default function WhatsAppSettings() {
           </div>
         </div>
 
+      </div>
+
+      {/* Meta Sandbox Test Number Guidance Banner */}
+      <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border border-amber-500/25 rounded-3xl p-5 sm:p-6 space-y-3">
+        <div className="flex items-center space-x-2.5">
+          <Info className="w-5 h-5 text-amber-400 flex-shrink-0" />
+          <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+            Important: Testing with Meta Developer Test Numbers
+          </h3>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-neutral-300">
+          <div className="space-y-1">
+            <span className="font-semibold text-amber-300 flex items-center gap-1.5">
+              <span>1. Allowed Recipient Numbers (Meta Limitation #131030)</span>
+            </span>
+            <p className="text-neutral-400 text-[11px] leading-relaxed">
+              Meta Test Numbers can <strong>only send to phone numbers registered in your Meta Developer Portal</strong>. In your Meta App Dashboard, go to <em>WhatsApp &gt; API Setup &gt; Step 1: Select phone numbers &gt; "To" field</em> and add your test phone number.
+            </p>
+          </div>
+          <div className="space-y-1">
+            <span className="font-semibold text-amber-300 flex items-center gap-1.5">
+              <span>2. Sandbox Template Fallback (Meta Limitation #132000)</span>
+            </span>
+            <p className="text-neutral-400 text-[11px] leading-relaxed">
+              Meta test numbers only have the <code className="text-[#d4a359]">hello_world</code> template pre-approved. The system now automatically falls back to <code className="text-[#d4a359]">hello_world</code> if custom templates are unapproved so your test messages are delivered.
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* Main Settings Form */}
@@ -1179,18 +1209,51 @@ export default function WhatsAppSettings() {
                 </span>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-neutral-300 mb-1.5 uppercase tracking-wider">
-                  Custom Test Message (Optional)
+              {/* Template Mode Selection */}
+              <div className="space-y-2 p-3 rounded-xl bg-white/5 border border-white/10">
+                <span className="text-[11px] font-bold text-neutral-300 block uppercase tracking-wider">Message Type</span>
+                <label className="flex items-start space-x-2.5 cursor-pointer text-xs">
+                  <input
+                    type="radio"
+                    name="template_mode"
+                    checked={useSandboxTemplate}
+                    onChange={() => setUseSandboxTemplate(true)}
+                    className="mt-0.5 text-[#d4a359] focus:ring-0"
+                  />
+                  <div>
+                    <span className="font-semibold text-white">Meta Sandbox Template ('hello_world')</span>
+                    <span className="block text-[11px] text-emerald-400">Recommended for Meta Test Numbers (Pre-approved by Meta).</span>
+                  </div>
                 </label>
-                <textarea
-                  rows={3}
-                  value={testCustomMessage}
-                  onChange={(e) => setTestCustomMessage(e.target.value)}
-                  placeholder={`Leave empty to send default verified ${brandName} greeting.`}
-                  className="w-full bg-[#080f1a] border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white placeholder-neutral-600 focus:outline-none focus:border-[#d4a359]"
-                />
+                <label className="flex items-start space-x-2.5 cursor-pointer text-xs">
+                  <input
+                    type="radio"
+                    name="template_mode"
+                    checked={!useSandboxTemplate}
+                    onChange={() => setUseSandboxTemplate(false)}
+                    className="mt-0.5 text-[#d4a359] focus:ring-0"
+                  />
+                  <div>
+                    <span className="font-semibold text-white">Custom Lead Alert Template</span>
+                    <span className="block text-[11px] text-neutral-400">Uses template '{config.template_name_admin}' (requires Meta approval).</span>
+                  </div>
+                </label>
               </div>
+
+              {!useSandboxTemplate && (
+                <div>
+                  <label className="block text-xs font-bold text-neutral-300 mb-1.5 uppercase tracking-wider">
+                    Custom Test Message (Optional)
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={testCustomMessage}
+                    onChange={(e) => setTestCustomMessage(e.target.value)}
+                    placeholder={`Leave empty to send default verified ${brandName} greeting.`}
+                    className="w-full bg-[#080f1a] border border-white/10 rounded-xl px-4 py-2 text-xs text-white placeholder-neutral-600 focus:outline-none focus:border-[#d4a359]"
+                  />
+                </div>
+              )}
 
               <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300 space-y-1">
                 <label className="flex items-center space-x-2 cursor-pointer">
@@ -1203,7 +1266,7 @@ export default function WhatsAppSettings() {
                   <span className="font-semibold text-white">Confirm Authorization:</span>
                 </label>
                 <p className="text-[11px] text-neutral-400 pl-6">
-                  I confirm that the recipient number belongs to our internal admin/testing team.
+                  I confirm this number is added to Meta Developer Portal's "Allowed Test Numbers" list.
                 </p>
               </div>
             </div>

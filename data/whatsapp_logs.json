@@ -1,5 +1,27 @@
 [
   {
+    "id": "1792522356900-8wti5",
+    "lead_id": 1792522356450,
+    "tenant_id": "rental_pune",
+    "recipient_type": "ADMIN",
+    "recipient_phone": "919822012345",
+    "message_type": "ADMIN_ALERT",
+    "status": "FAILED",
+    "error_message": "WhatsApp credentials not configured (Phone Number ID or Access Token missing).",
+    "created_at": "2026-10-20T18:52:36.900Z"
+  },
+  {
+    "id": "1792522356628-ao2c0",
+    "lead_id": 1792522356450,
+    "tenant_id": "rental_pune",
+    "recipient_type": "CUSTOMER",
+    "recipient_phone": "919876543210",
+    "message_type": "CUSTOMER_CONFIRMATION",
+    "status": "FAILED",
+    "error_message": "WhatsApp credentials not configured (Phone Number ID or Access Token missing).",
+    "created_at": "2026-10-20T18:52:36.628Z"
+  },
+  {
     "id": "1792517871984-l4c39",
     "lead_id": 1792517871188,
     "tenant_id": "rental_pune",

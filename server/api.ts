@@ -2918,10 +2918,16 @@ router.post('/whatsapp/send-test', authenticate, requireAdmin, async (req, res) 
 
     const branding = await getBusinessBranding();
     const testText = message || `✅ *${branding.websiteName} WhatsApp Integration Test*\n\nThis is a verified test notification confirming that Meta WhatsApp Business Platform Cloud API is successfully configured and active!\n\n🏢 ${config.client_name || branding.companyName}\n📅 Timestamp: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`;
+    
+    // For test phone numbers or when requested, send approved template (hello_world by default for sandbox)
+    const templateName = req.body.template_name || (message ? undefined : (config.template_name_admin || 'hello_world'));
+    const templateLanguage = req.body.template_language || (templateName === 'hello_world' ? 'en_US' : (config.template_language_admin || 'en'));
 
     const result = await sendMetaWhatsAppMessage({
       to: targetPhone,
       text: testText,
+      templateName: templateName || 'hello_world',
+      templateLanguage: templateLanguage || 'en_US',
       recipientType: 'TEST',
       messageType: 'TEST',
       tenantId: targetTenant

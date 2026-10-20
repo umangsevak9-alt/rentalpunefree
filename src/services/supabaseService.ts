@@ -4223,7 +4223,7 @@ export const supabaseService = {
       }
     },
 
-    async sendTestMessage(phone?: string, message?: string, tenantId = 'rental_pune'): Promise<{ success: boolean; message?: string; error?: string }> {
+    async sendTestMessage(phone?: string, message?: string, tenantId = 'rental_pune', templateName?: string): Promise<{ success: boolean; message?: string; error?: string }> {
       try {
         const token = getToken();
         const res = await fetch('/api/whatsapp/send-test', {
@@ -4232,7 +4232,7 @@ export const supabaseService = {
             'Content-Type': 'application/json',
             ...(token ? { Authorization: `Bearer ${token}` } : {})
           },
-          body: JSON.stringify({ phone, message, tenant_id: tenantId })
+          body: JSON.stringify({ phone, message, tenant_id: tenantId, template_name: templateName })
         });
         const parsed = await safeParseApiResponse<any>(res, 'Failed to send test message');
         if (parsed.ok && parsed.data) {
