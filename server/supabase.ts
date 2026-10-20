@@ -9,7 +9,7 @@ let lastUsedUrl = '';
 let lastUsedKey = '';
 
 // Export request-scoped context storage
-export const supabaseStorage = new AsyncLocalStorage<{ token?: string }>();
+export const supabaseStorage = new AsyncLocalStorage<{ token?: string; isSupabaseToken?: boolean }>();
 
 export function getSupabaseConfig() {
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL;
@@ -27,8 +27,10 @@ export function getSupabase(): SupabaseClient | null {
   // Retrieve request-scoped token from AsyncLocalStorage
   const store = supabaseStorage.getStore();
   const token = store?.token;
+  const isSupabaseToken = store?.isSupabaseToken;
 
-  if (token) {
+  // Only pass Authorization Bearer header if token was verified as a genuine Supabase Auth user token
+  if (token && isSupabaseToken) {
     // Return a request-scoped client with the active user's JWT token
     return createClient(url, key, {
       auth: {

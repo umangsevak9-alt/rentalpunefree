@@ -599,7 +599,7 @@ const authenticate = async (req: any, res: any, next: any) => {
           name: user.user_metadata?.name || user.email?.split('@')[0],
           isSupabaseUser: true
         };
-        return supabaseStorage.run({ token }, () => next());
+        return supabaseStorage.run({ token, isSupabaseToken: true }, () => next());
       }
     } catch (err) {
       // Continue to local JWT fallback
@@ -610,7 +610,7 @@ const authenticate = async (req: any, res: any, next: any) => {
   try {
     const decoded: any = jwt.verify(token, JWT_SECRET);
     req.user = decoded;
-    return supabaseStorage.run({ token }, () => next());
+    return supabaseStorage.run({ token, isSupabaseToken: false }, () => next());
   } catch (err) {
     // If token was provided from frontend in development mode, allow proceeding
     return res.status(401).json({ error: 'Invalid or expired authentication session' });
@@ -1380,24 +1380,27 @@ router.post('/leads', async (req, res) => {
   try {
     const { name, email, phone, notes, property_id } = req.body;
     
-    if (!name || !phone) {
-      return res.status(400).json({ error: 'Name and phone number are required.' });
+    const cleanEmail = email ? String(email).trim() : '';
+    const cleanPhone = phone ? String(phone).trim() : '';
+    const cleanName = name ? String(name).trim() : (cleanEmail ? cleanEmail.split('@')[0] : '');
+
+    if (!cleanPhone && !cleanEmail) {
+      return res.status(400).json({ error: 'Please provide either a phone number or email address.' });
     }
 
+    const finalPhone = cleanPhone || (cleanEmail ? `Email: ${cleanEmail}` : 'Not provided');
+    const finalName = cleanName || (cleanEmail ? cleanEmail.split('@')[0] : 'Website Visitor');
     const cleanPropertyId = property_id && !isNaN(Number(property_id)) ? Number(property_id) : null;
     const cleanNotes = notes ? String(notes) : '';
-    const cleanEmail = email ? String(email) : '';
-    const cleanName = String(name).trim();
-    const cleanPhone = String(phone).trim();
 
-    const cleanSource = req.body.source ? String(req.body.source).trim() : 'Website';
+    const cleanSource = req.body.source ? String(req.body.source).trim() : (cleanPhone ? 'Website' : 'Newsletter / Web Enquiry');
     const hasConsent = req.body.whatsapp_consent === true || req.body.whatsapp_consent === 'true';
     const consentTime = hasConsent ? (req.body.whatsapp_consent_at || new Date().toISOString()) : null;
 
     const result = await supabaseDb.createLead({
-      name: cleanName,
+      name: finalName,
       email: cleanEmail,
-      phone: cleanPhone,
+      phone: finalPhone,
       notes: cleanNotes,
       property_id: cleanPropertyId,
       source: cleanSource,
@@ -1603,23 +1606,21 @@ router.post('/leads/bulk-delete', authenticate, requireAdmin, async (req, res) =
 // --- PROPERTY BOOKINGS (Dedicated "Property Booked" System) ---
 router.post('/bookings', async (req, res) => {
   try {
-    const { 
-      property_id, 
-      property_title, 
-      property_location, 
-      property_price, 
-      property_type,
-      property_image,
-      customer_name, 
-      customer_phone, 
-      customer_email, 
-      preferred_date, 
-      preferred_time, 
-      move_in_timeline, 
-      occupancy_type, 
-      notes,
-      token_amount
-    } = req.body;
+    const customer_name = (req.body.customer_name || req.body.userName || req.body.name || '').trim();
+    const customer_phone = (req.body.customer_phone || req.body.userPhone || req.body.phone || '').trim();
+    const customer_email = (req.body.customer_email || req.body.userEmail || req.body.email || '').trim();
+    const property_id = req.body.property_id || req.body.propertyId;
+    let property_title = (req.body.property_title || req.body.propertyName || req.body.title || '').trim();
+    let property_location = (req.body.property_location || req.body.location || '').trim();
+    let property_price = req.body.property_price || req.body.price;
+    let property_type = req.body.property_type || req.body.type || '';
+    let property_image = req.body.property_image || req.body.image || '';
+    const preferred_date = req.body.preferred_date || req.body.visitDate || req.body.date || '';
+    const preferred_time = req.body.preferred_time || req.body.visitTime || req.body.time || req.body.timeSlot || '11:00 AM';
+    const move_in_timeline = req.body.move_in_timeline || req.body.timeline || 'Immediate';
+    const occupancy_type = req.body.occupancy_type || 'Standard';
+    const notes = req.body.notes || '';
+    const token_amount = req.body.token_amount || 0;
 
     if (!customer_name || !customer_phone) {
       return res.status(400).json({ error: 'Name and phone number are required to book property.' });
@@ -1930,18 +1931,60 @@ router.get('/visits', authenticate, async (req: any, res: any) => {
   }
 });
 
-router.post('/visits', authenticate, requireAdmin, async (req, res) => {
+router.post('/visits', async (req: any, res: any) => {
   try {
-    const { lead_id, property_id, agent_id, visit_date, visit_time, notes } = req.body;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      return authenticate(req, res, async () => {
+        const { lead_id, property_id, agent_id, visit_date, visit_time, notes } = req.body;
+        const result = await supabaseDb.createVisit({
+          lead_id,
+          property_id,
+          agent_id,
+          visit_date,
+          visit_time,
+          notes
+        });
+        return res.json({ id: result.id });
+      });
+    }
+
+    // Public visitor scheduling a site visit directly
+    const name = (req.body.name || req.body.customer_name || req.body.userName || '').trim();
+    const phone = (req.body.phone || req.body.customer_phone || req.body.userPhone || '').trim();
+    const email = (req.body.email || req.body.customer_email || req.body.userEmail || '').trim();
+    const property_id = req.body.property_id || req.body.propertyId;
+    const property_title = req.body.property_title || req.body.propertyName || req.body.title || '';
+    const visit_date = req.body.visit_date || req.body.preferred_date || req.body.preferredDate || req.body.date || '';
+    const visit_time = req.body.visit_time || req.body.preferred_time || req.body.preferredTime || req.body.time || '11:00 AM';
+    const notes = req.body.notes || req.body.message || '';
+
+    if (!name && !phone && !req.body.lead_id) {
+      return res.status(400).json({ error: 'Name and phone number or lead_id are required' });
+    }
+
+    let lead_id = req.body.lead_id;
+    if (!lead_id && (name || phone)) {
+      const lead = await supabaseDb.createLead({
+        name: name || 'Site Visitor',
+        phone: phone || '',
+        email: email || undefined,
+        notes: `Visit scheduled for ${property_title || ('Property #' + (property_id || ''))}: ${notes}`,
+        source: 'Schedule Site Visit',
+        property_id: property_id ? Number(property_id) : undefined
+      });
+      lead_id = lead?.id;
+    }
+
     const result = await supabaseDb.createVisit({
-      lead_id,
-      property_id,
-      agent_id,
+      lead_id: lead_id || 1,
+      property_id: property_id ? Number(property_id) : undefined,
       visit_date,
       visit_time,
-      notes
+      notes: notes || `Public visit request for ${property_title || 'property'}`
     });
-    res.json({ id: result.id });
+
+    return res.status(201).json({ success: true, id: result.id, message: 'Visit scheduled successfully' });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
@@ -2406,27 +2449,25 @@ router.post('/supabase/sync', authenticate, requireAdmin, async (req, res) => {
 // Public POST route for landlords/owners to submit listing
 router.post('/owner-submissions', async (req, res) => {
   try {
-    const {
-      owner_name,
-      owner_phone,
-      owner_email,
-      owner_type = 'OWNER',
-      property_title,
-      property_type = 'Apartment',
-      bhk_config = '2 BHK',
-      location,
-      address,
-      expected_rent,
-      security_deposit,
-      furnishing = 'Semi-Furnished',
-      furniture = [],
-      available_from,
-      preferred_tenants = 'Any',
-      amenities = [],
-      images = [],
-      videos = [],
-      notes
-    } = req.body;
+    const owner_name = (req.body.owner_name || req.body.ownerName || req.body.name || '').trim();
+    const owner_phone = (req.body.owner_phone || req.body.ownerPhone || req.body.phone || '').trim();
+    const owner_email = (req.body.owner_email || req.body.ownerEmail || req.body.email || '').trim();
+    const owner_type = req.body.owner_type || req.body.ownerType || 'OWNER';
+    const property_title = (req.body.property_title || req.body.title || req.body.propertyName || '').trim();
+    const property_type = req.body.property_type || req.body.propertyType || 'Apartment';
+    const bhk_config = req.body.bhk_config || req.body.bhkConfig || req.body.bhk || '2 BHK';
+    const location = (req.body.location || req.body.locality || req.body.city || req.body.address || '').trim();
+    const address = req.body.address || location;
+    const expected_rent = Number(req.body.expected_rent || req.body.expectedRent || req.body.rent || 0);
+    const security_deposit = Number(req.body.security_deposit || req.body.securityDeposit || req.body.deposit || 0);
+    const furnishing = req.body.furnishing || 'Semi-Furnished';
+    const furniture = req.body.furniture || [];
+    const available_from = req.body.available_from || req.body.availableFrom;
+    const preferred_tenants = req.body.preferred_tenants || req.body.preferredTenants || 'Any';
+    const amenities = req.body.amenities || [];
+    const images = req.body.images || [];
+    const videos = req.body.videos || [];
+    const notes = req.body.notes || '';
 
     if (!owner_name || !owner_phone || !property_title || !location) {
       return res.status(400).json({ error: 'Please provide name, phone, property title, and location' });
@@ -2846,6 +2887,21 @@ router.post('/whatsapp/test-connection', authenticate, requireAdmin, async (req,
   } catch (err: any) {
     return res.status(500).json({ connected: false, message: err?.message || 'Server error testing connection', error: err?.message || 'Server error testing connection' });
   }
+});
+
+// Explicit RFC-compliant 405 and OPTIONS handler for /whatsapp/test-connection
+router.all('/whatsapp/test-connection', (req, res) => {
+  res.setHeader('Allow', 'POST, OPTIONS');
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+  return res.status(405).json({
+    connected: false,
+    message: `HTTP 405 Method Not Allowed. Endpoint ${req.originalUrl} requires POST method.`,
+    error: `Method ${req.method} not allowed. Please use POST.`,
+    allowedMethods: ['POST', 'OPTIONS']
+  });
 });
 
 // 4. Send Test Message via Meta WhatsApp Cloud API

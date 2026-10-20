@@ -1,0 +1,28 @@
+[
+  {
+    "id": 1792517871188,
+    "property_id": 1,
+    "property_title": "Luxury 3BHK Kharadi",
+    "property_location": "Baner, Pune",
+    "property_price": 45000,
+    "property_type": "",
+    "property_image": "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&q=80&w=1000",
+    "customer_name": "Booking Test User",
+    "customer_phone": "+91 98765 11111",
+    "customer_email": "booking@example.com",
+    "preferred_date": "2026-10-25",
+    "preferred_time": "11:00 AM",
+    "move_in_timeline": "Immediate",
+    "occupancy_type": "Standard",
+    "status": "NEW",
+    "token_amount": 0,
+    "notes": "Site visit for family",
+    "assigned_agent_id": null,
+    "assigned_agent_name": "",
+    "source": "PROPERTY_BOOKED",
+    "whatsapp_consent": false,
+    "whatsapp_consent_at": null,
+    "created_at": "2026-10-20T17:37:51.188Z",
+    "updated_at": "2026-10-20T17:37:51.188Z"
+  }
+]

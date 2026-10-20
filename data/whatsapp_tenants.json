@@ -17,11 +17,11 @@
     "template_name_admin": "rental_pune_admin_alert",
     "template_language_admin": "en",
     "webhook_verify_token": "rental_pune_secure_verify_2026",
-    "updated_at": "2026-10-19T22:42:36.889Z",
-    "last_test_at": "2026-10-19T22:42:36.888Z",
+    "updated_at": "2026-10-20T18:10:55.882Z",
+    "last_test_at": "2026-10-20T18:10:55.882Z",
     "last_test_status": "FAILED",
     "last_test_error": "Meta Auth Error (#190): Access token is expired, invalid, or lacks required whatsapp_business_messaging permissions.",
     "last_error": "Meta Auth Error (#190): Access token is expired, invalid, or lacks required whatsapp_business_messaging permissions.",
-    "last_error_at": "2026-10-19T22:42:36.888Z"
+    "last_error_at": "2026-10-20T18:10:55.882Z"
   }
 }

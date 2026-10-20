@@ -173,13 +173,16 @@ export async function safeParseApiResponse<T = any>(
 
   const trimmed = rawText.trim();
   if (!trimmed) {
+    let emptyMsg = `Server returned HTTP ${res.status} ${res.statusText || ''} with an empty response body.`;
+    if (res.status === 405) {
+      const allowHeader = res.headers.get('Allow') || res.headers.get('allow');
+      emptyMsg = `Server returned HTTP 405 Method Not Allowed with an empty body.${allowHeader ? ` Allowed methods: ${allowHeader}.` : ' Ensure POST /api/whatsapp/test-connection is routed by the host/worker.'}`;
+    }
     return {
       ok: res.ok,
       status: res.status,
       data: null,
-      error: res.ok 
-        ? undefined 
-        : `Server returned HTTP ${res.status} ${res.statusText || ''} with an empty response body.`
+      error: res.ok ? undefined : emptyMsg
     };
   }
 

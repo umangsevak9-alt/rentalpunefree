@@ -1,0 +1,62 @@
+[
+  {
+    "id": 1,
+    "title": "Tower Exterior & Pool Promenade",
+    "category": "Grand Architecture",
+    "image_url": "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=1600&q=85",
+    "description": "International standard tower facade with manicured landscaped deck and infinity pool promenade view.",
+    "sort_order": 1,
+    "is_active": 1,
+    "created_at": "2026-10-20T17:12:50.032Z"
+  },
+  {
+    "id": 2,
+    "title": "Infinity Edge Swimming Pool",
+    "category": "Lifestyle",
+    "image_url": "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=1600&q=85",
+    "description": "Temperature-controlled infinity lap pool with luxury sun loungers and panoramic sky view.",
+    "sort_order": 2,
+    "is_active": 1,
+    "created_at": "2026-10-20T17:12:50.033Z"
+  },
+  {
+    "id": 3,
+    "title": "Grand Living & Dining Hall",
+    "category": "Interiors",
+    "image_url": "https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=1600&q=85",
+    "description": "Double-height Italian marble living room with designer chandeliers and floor-to-ceiling glass.",
+    "sort_order": 3,
+    "is_active": 1,
+    "created_at": "2026-10-20T17:12:50.033Z"
+  },
+  {
+    "id": 4,
+    "title": "Presidential Master Bedroom",
+    "category": "Suites",
+    "image_url": "https://images.unsplash.com/photo-1616594039964-ae9021a400a0?auto=format&fit=crop&w=1600&q=85",
+    "description": "Spacious master suite featuring wooden flooring, walk-in closet, and private sunset deck.",
+    "sort_order": 4,
+    "is_active": 1,
+    "created_at": "2026-10-20T17:12:50.033Z"
+  },
+  {
+    "id": 5,
+    "title": "Executive Clubhouse & Lounge",
+    "category": "Amenities",
+    "image_url": "https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?auto=format&fit=crop&w=1600&q=85",
+    "description": "Private resident lounge, business center, and meeting suites for community networking.",
+    "sort_order": 5,
+    "is_active": 1,
+    "created_at": "2026-10-20T17:12:50.033Z"
+  },
+  {
+    "id": 6,
+    "title": "High-Tech Fitness Gymnasium",
+    "category": "Wellness",
+    "image_url": "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?auto=format&fit=crop&w=1600&q=85",
+    "description": "State-of-the-art cardio and weight training equipment with dedicated yoga studio.",
+    "sort_order": 6,
+    "is_active": 1,
+    "created_at": "2026-10-20T17:12:50.033Z"
+  }
+]

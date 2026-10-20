@@ -1,0 +1,11 @@
+name = "rentalpunefree"
+main = "_worker.js"
+compatibility_date = "2024-09-23"
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+
+[vars]
+WHATSAPP_PHONE_NUMBER_ID = ""
+WHATSAPP_BUSINESS_ACCOUNT_ID = ""

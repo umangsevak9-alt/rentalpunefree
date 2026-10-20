@@ -1,0 +1,123 @@
+[
+  {
+    "id": "1792517871984-l4c39",
+    "lead_id": 1792517871188,
+    "tenant_id": "rental_pune",
+    "recipient_type": "ADMIN",
+    "recipient_phone": "919822012345",
+    "message_type": "ADMIN_ALERT",
+    "status": "FAILED",
+    "error_message": "WhatsApp credentials not configured (Phone Number ID or Access Token missing).",
+    "created_at": "2026-10-20T17:37:51.984Z"
+  },
+  {
+    "id": "1792517871465-kvpz4",
+    "lead_id": 1792517871188,
+    "tenant_id": "rental_pune",
+    "recipient_type": "CUSTOMER",
+    "recipient_phone": "919876511111",
+    "message_type": "CUSTOMER_CONFIRMATION",
+    "status": "FAILED",
+    "error_message": "Customer did not provide explicit WhatsApp opt-in consent (checkbox left unchecked).",
+    "created_at": "2026-10-20T17:37:51.465Z"
+  },
+  {
+    "id": "1792517871313-9bpu3",
+    "lead_id": 24,
+    "tenant_id": "rental_pune",
+    "recipient_type": "ADMIN",
+    "recipient_phone": "919822012345",
+    "message_type": "ADMIN_ALERT",
+    "status": "FAILED",
+    "error_message": "WhatsApp credentials not configured (Phone Number ID or Access Token missing).",
+    "created_at": "2026-10-20T17:37:51.313Z"
+  },
+  {
+    "id": "1792517871293-d0uz2",
+    "lead_id": 23,
+    "tenant_id": "rental_pune",
+    "recipient_type": "ADMIN",
+    "recipient_phone": "919822012345",
+    "message_type": "ADMIN_ALERT",
+    "status": "FAILED",
+    "error_message": "WhatsApp credentials not configured (Phone Number ID or Access Token missing).",
+    "created_at": "2026-10-20T17:37:51.293Z"
+  },
+  {
+    "id": "1792517870883-riv0u",
+    "lead_id": 23,
+    "tenant_id": "rental_pune",
+    "recipient_type": "CUSTOMER",
+    "recipient_phone": "919876543210",
+    "message_type": "CUSTOMER_CONFIRMATION",
+    "status": "FAILED",
+    "error_message": "Customer did not provide explicit WhatsApp opt-in consent (checkbox left unchecked).",
+    "created_at": "2026-10-20T17:37:50.883Z"
+  },
+  {
+    "id": "1792517816434-3v1sk",
+    "lead_id": 23,
+    "tenant_id": "rental_pune",
+    "recipient_type": "ADMIN",
+    "recipient_phone": "919822012345",
+    "message_type": "ADMIN_ALERT",
+    "status": "FAILED",
+    "error_message": "WhatsApp credentials not configured (Phone Number ID or Access Token missing).",
+    "created_at": "2026-10-20T17:36:56.434Z"
+  },
+  {
+    "id": "1792517816430-z50n9",
+    "lead_id": 22,
+    "tenant_id": "rental_pune",
+    "recipient_type": "ADMIN",
+    "recipient_phone": "919822012345",
+    "message_type": "ADMIN_ALERT",
+    "status": "FAILED",
+    "error_message": "WhatsApp credentials not configured (Phone Number ID or Access Token missing).",
+    "created_at": "2026-10-20T17:36:56.430Z"
+  },
+  {
+    "id": "1792517816135-fh8sn",
+    "lead_id": 22,
+    "tenant_id": "rental_pune",
+    "recipient_type": "CUSTOMER",
+    "recipient_phone": "919876543210",
+    "message_type": "CUSTOMER_CONFIRMATION",
+    "status": "FAILED",
+    "error_message": "Customer did not provide explicit WhatsApp opt-in consent (checkbox left unchecked).",
+    "created_at": "2026-10-20T17:36:56.135Z"
+  },
+  {
+    "id": "1792517425550-4we2y",
+    "lead_id": 21,
+    "tenant_id": "rental_pune",
+    "recipient_type": "ADMIN",
+    "recipient_phone": "919822012345",
+    "message_type": "ADMIN_ALERT",
+    "status": "FAILED",
+    "error_message": "WhatsApp credentials not configured (Phone Number ID or Access Token missing).",
+    "created_at": "2026-10-20T17:30:25.550Z"
+  },
+  {
+    "id": "1792517425173-x9ml0",
+    "lead_id": 20,
+    "tenant_id": "rental_pune",
+    "recipient_type": "ADMIN",
+    "recipient_phone": "919822012345",
+    "message_type": "ADMIN_ALERT",
+    "status": "FAILED",
+    "error_message": "WhatsApp credentials not configured (Phone Number ID or Access Token missing).",
+    "created_at": "2026-10-20T17:30:25.173Z"
+  },
+  {
+    "id": "1792517424910-9q0ve",
+    "lead_id": 20,
+    "tenant_id": "rental_pune",
+    "recipient_type": "CUSTOMER",
+    "recipient_phone": "919876543210",
+    "message_type": "CUSTOMER_CONFIRMATION",
+    "status": "FAILED",
+    "error_message": "Customer did not provide explicit WhatsApp opt-in consent (checkbox left unchecked).",
+    "created_at": "2026-10-20T17:30:24.910Z"
+  }
+]
