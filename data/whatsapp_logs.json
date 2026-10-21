@@ -1,5 +1,59 @@
 [
   {
+    "id": "1792589270334-zqmnj",
+    "lead_id": 1792589266160,
+    "tenant_id": "rental_pune",
+    "recipient_type": "ADMIN",
+    "recipient_phone": "919571855773",
+    "message_type": "ADMIN_ALERT",
+    "status": "SENT",
+    "whatsapp_message_id": "wamid.HBgMOTE5NTcxODU1NzczFQIAERgSRjgzNUFCNjM0MDRBMjg5QjRDAA==",
+    "payload": {
+      "text": "Template 'rental_pune_admin_alert' not approved (#132001). Delivered via Meta approved sandbox template 'hello_world'.",
+      "template": "hello_world"
+    },
+    "error_message": "",
+    "created_at": "2026-10-21T13:27:50.334Z"
+  },
+  {
+    "id": "1792589268889-x8mst",
+    "lead_id": 1792589266160,
+    "tenant_id": "rental_pune",
+    "recipient_type": "CUSTOMER",
+    "recipient_phone": "919571855773",
+    "message_type": "CUSTOMER_CONFIRMATION",
+    "status": "SENT",
+    "whatsapp_message_id": "wamid.HBgMOTE5NTcxODU1NzczFQIAERgSNTA2NjAwMkJBM0FENzk1QjZGAA==",
+    "payload": {
+      "text": "Template 'rental_pune_enquiry_customer' not approved (#132001). Delivered via Meta approved sandbox template 'hello_world'.",
+      "template": "hello_world"
+    },
+    "error_message": "",
+    "created_at": "2026-10-21T13:27:48.889Z"
+  },
+  {
+    "id": "1792589114788-5a9xi",
+    "lead_id": 1792589114464,
+    "tenant_id": "rental_pune",
+    "recipient_type": "ADMIN",
+    "recipient_phone": "919822012345",
+    "message_type": "ADMIN_ALERT",
+    "status": "FAILED",
+    "error_message": "WhatsApp credentials not configured (Phone Number ID or Access Token missing).",
+    "created_at": "2026-10-21T13:25:14.788Z"
+  },
+  {
+    "id": "1792589114483-217ix",
+    "lead_id": 1792589114464,
+    "tenant_id": "rental_pune",
+    "recipient_type": "CUSTOMER",
+    "recipient_phone": "919571855773",
+    "message_type": "CUSTOMER_CONFIRMATION",
+    "status": "FAILED",
+    "error_message": "Customer did not provide explicit WhatsApp opt-in consent (checkbox left unchecked).",
+    "created_at": "2026-10-21T13:25:14.483Z"
+  },
+  {
     "id": "1792522356900-8wti5",
     "lead_id": 1792522356450,
     "tenant_id": "rental_pune",

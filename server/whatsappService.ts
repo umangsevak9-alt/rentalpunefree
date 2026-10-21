@@ -247,6 +247,43 @@ function loadTenantsMap(): Record<string, WhatsAppConfig> {
 }
 
 /**
+ * Synchronize WhatsApp credentials from Supabase into memory and local config files
+ */
+export async function syncWhatsAppConfigFromSupabase(tenantId = DEFAULT_TENANT_ID): Promise<WhatsAppConfig | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase
+      .from('settings')
+      .select('key, value')
+      .like('key', 'whatsapp_%');
+    if (!error && Array.isArray(data) && data.length > 0) {
+      const map: Record<string, string> = {};
+      data.forEach((r: any) => { if (r.key) map[r.key] = r.value; });
+      const tenants = loadJson<Record<string, WhatsAppConfig>>(WHATSAPP_TENANTS_FILE, {});
+      const current = tenants[tenantId] || { ...DEFAULT_CONFIG, tenant_id: tenantId };
+      if (map['whatsapp_phone_number_id']) current.phone_number_id = map['whatsapp_phone_number_id'];
+      if (map['whatsapp_business_account_id']) current.business_account_id = map['whatsapp_business_account_id'];
+      if (map['whatsapp_access_token']) current.access_token = map['whatsapp_access_token'];
+      if (map['whatsapp_admin_phone']) current.admin_phone = map['whatsapp_admin_phone'];
+      if (map['whatsapp_enabled'] !== undefined) current.enabled = map['whatsapp_enabled'] !== 'false';
+      if (map['whatsapp_template_name_customer']) current.template_name_customer = map['whatsapp_template_name_customer'];
+      if (map['whatsapp_template_name_admin']) current.template_name_admin = map['whatsapp_template_name_admin'];
+      if (map['whatsapp_template_language_customer']) current.template_language_customer = map['whatsapp_template_language_customer'];
+      if (map['whatsapp_template_language_admin']) current.template_language_admin = map['whatsapp_template_language_admin'];
+      current.updated_at = map['whatsapp_updated_at'] || new Date().toISOString();
+      tenants[tenantId] = current;
+      saveJson(WHATSAPP_TENANTS_FILE, tenants);
+      saveJson(WHATSAPP_CONFIG_FILE, current);
+      return current;
+    }
+  } catch (err) {
+    console.warn('syncWhatsAppConfigFromSupabase error:', err);
+  }
+  return null;
+}
+
+/**
  * List all configured tenant client profiles (with masked tokens).
  */
 export function listWhatsAppTenants(): WhatsAppTenantSummary[] {
@@ -864,10 +901,11 @@ export async function sendMetaWhatsAppMessage(params: {
       const errorCode = metaErr?.code;
       let actionableMsg = metaErr?.message || (rawText ? rawText.replace(/<[^>]*>/g, ' ').slice(0, 150) : `Meta API Error (HTTP ${res.status})`);
 
+      const isTemplateError = (errorCode !== undefined && errorCode >= 132000 && errorCode <= 132099) || errorCode === 132000 || errorCode === 132001;
       if (errorCode === 190) {
         actionableMsg = 'Meta Auth Error (#190): Access token expired or invalid. Please rotate your System User Token in Meta Business Settings.';
-      } else if (errorCode === 132000) {
-        actionableMsg = `Meta Template Error (#132000): Template "${params.templateName}" not found in language "${params.templateLanguage || 'en'}".`;
+      } else if (isTemplateError) {
+        actionableMsg = `Meta Template Error (#${errorCode}): Template "${params.templateName}" not found or translation missing in language "${params.templateLanguage || 'en'}".`;
         
         // Automatic fallback for sandbox/test numbers: attempt Meta's pre-approved hello_world template
         if (params.templateName !== 'hello_world') {
@@ -901,7 +939,7 @@ export async function sendMetaWhatsAppMessage(params: {
                 status: 'SENT',
                 whatsapp_message_id: fallbackMsgId,
                 payload: {
-                  text: `Template '${params.templateName}' unapproved (#132000). Delivered via Meta approved sandbox template 'hello_world'.`,
+                  text: `Template '${params.templateName}' not approved (#${errorCode}). Delivered via Meta approved sandbox template 'hello_world'.`,
                   template: 'hello_world'
                 }
               });
@@ -909,9 +947,7 @@ export async function sendMetaWhatsAppMessage(params: {
             }
           } catch {}
         }
-        actionableMsg = `Meta Template Error (#132000): Template "${params.templateName}" not found in language "${params.templateLanguage || 'en'}". Please submit and approve this template in Meta WhatsApp Manager (or use 'hello_world' for test numbers).`;
-      } else if (errorCode === 132001) {
-        actionableMsg = `Meta Template Error (#132001): Parameter count mismatch for template "${params.templateName}".`;
+        actionableMsg = `Meta Template Error (#${errorCode}): Template "${params.templateName}" not approved in Meta WhatsApp Manager. (For test numbers, use 'hello_world').`;
       } else if (errorCode === 131030) {
         actionableMsg = `Meta Sandbox Limitation (#131030): Recipient ${cleanPhone} is not in your authorized test numbers list. Add this phone in Meta Developer Portal -> WhatsApp -> API Setup -> "To" field.`;
       } else if (errorCode === 131047) {
@@ -979,6 +1015,7 @@ export async function sendLeadWhatsAppNotifications(leadData: {
   adminNotification: { attempted: boolean; success?: boolean; error?: string };
 }> {
   const tenantId = leadData.tenant_id || DEFAULT_TENANT_ID;
+  await syncWhatsAppConfigFromSupabase(tenantId);
   const config = getWhatsAppConfig(tenantId);
   const branding = await getBusinessBranding();
   const leadId = leadData.id || Date.now();
@@ -990,7 +1027,7 @@ export async function sendLeadWhatsAppNotifications(leadData: {
   const submissionTime = leadData.created_at 
     ? new Date(leadData.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) 
     : new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
-  const hasConsent = Boolean(leadData.whatsapp_consent);
+  const hasConsent = Boolean(leadData.whatsapp_consent ?? (leadData as any).whatsappConsent);
 
   // Property price formatting
   let propPrice = 'Not provided';

@@ -296,7 +296,8 @@ async function sendMetaWhatsAppMessageOnWorker({ to, templateName, templateLangu
     let diagnostic = errObj.message || `Meta API error HTTP ${res.status}`;
 
     // Auto-fallback for Meta Sandbox / Test Numbers if custom template is not yet approved
-    if (code === 132000 && tName !== 'hello_world') {
+    const isTemplateError = (code >= 132000 && code <= 132099) || code === 132000 || code === 132001;
+    if (isTemplateError && tName !== 'hello_world') {
       try {
         const fallbackRes = await fetch(endpoint, {
           method: 'POST',
@@ -322,13 +323,13 @@ async function sendMetaWhatsAppMessageOnWorker({ to, templateName, templateLangu
             recipient_phone: recipientPhone,
             status: 'SENT',
             whatsapp_message_id: fallbackMsgId,
-            payload: { note: `Custom template '${tName}' not approved (#132000). Delivered via Meta approved sandbox template 'hello_world'.` },
+            payload: { note: `Custom template '${tName}' not approved (#${code}). Delivered via Meta approved sandbox template 'hello_world'.` },
             created_at: new Date().toISOString()
           }, env);
           return { success: true, messageId: fallbackMsgId };
         }
       } catch {}
-      diagnostic = `Meta Template Error (#132000): Template "${tName}" not approved in Meta WhatsApp Manager. (For test numbers, use 'hello_world').`;
+      diagnostic = `Meta Template Error (#${code}): Template "${tName}" not approved or translation missing in Meta WhatsApp Manager. (For test numbers, use 'hello_world').`;
     } else if (code === 131030) {
       diagnostic = `Meta Sandbox Limitation (#131030): Recipient ${recipientPhone} is not in your authorized test numbers list. Add this number in Meta Developer Portal -> WhatsApp -> API Setup -> "To" field.`;
     } else if (code === 190) {
