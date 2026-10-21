@@ -66,7 +66,7 @@ import PropertyDetailsModal from '../../components/common/PropertyDetailsModal.j
 import HomeFaqSection from '../../components/home/HomeFaqSection.js';
 import { supabaseService } from '../../services/supabaseService.js';
 
-export const DEFAULT_SAMPLE_HERO_VIDEO = 'https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-building-exterior-41549-large.mp4';
+export const DEFAULT_SAMPLE_HERO_VIDEO = '/uploads/hero_showcase_video.mp4';
 
 function parseVideoSource(rawUrl?: string, mediaType?: string) {
   if (mediaType === 'image' && (!rawUrl || rawUrl === DEFAULT_SAMPLE_HERO_VIDEO)) {
@@ -819,8 +819,13 @@ export default function Home() {
                     loop 
                     playsInline 
                     preload="auto"
+                    poster={activeHeroImage}
                     disablePictureInPicture
                     disableRemotePlayback
+                    onError={() => {
+                      console.warn('Hero video failed to load, falling back to image');
+                      setHeroVideoFailed(true);
+                    }}
                     // @ts-ignore
                     controlsList="nodownload nofullscreen noremoteplayback noplaybackrate"
                     ref={(el) => {

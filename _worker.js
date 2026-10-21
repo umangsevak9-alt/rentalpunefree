@@ -993,11 +993,25 @@ export default {
     // 9. STATIC ASSETS & SPA ROUTING
     if (env.ASSETS && typeof env.ASSETS.fetch === 'function') {
       try {
-        const assetRes = await env.ASSETS.fetch(request);
+        let assetRes = await env.ASSETS.fetch(request);
         if (assetRes.status !== 404) return assetRes;
 
-        const acceptHeader = request.headers.get('Accept') || '';
         const hasFileExtension = /\.[a-zA-Z0-9]+$/.test(pathname);
+
+        // Resilient asset path resolution: handle /uploads/asset vs /asset
+        if (hasFileExtension && method === 'GET') {
+          if (pathname.startsWith('/uploads/')) {
+            const altPath = pathname.replace(/^\/uploads/, '') || '/';
+            const altRes = await env.ASSETS.fetch(new Request(new URL(altPath, request.url), request));
+            if (altRes.status !== 404) return altRes;
+          } else {
+            const altPath = '/uploads' + pathname;
+            const altRes = await env.ASSETS.fetch(new Request(new URL(altPath, request.url), request));
+            if (altRes.status !== 404) return altRes;
+          }
+        }
+
+        const acceptHeader = request.headers.get('Accept') || '';
         if (method === 'GET' && !pathname.startsWith('/api/') && (!hasFileExtension || acceptHeader.includes('text/html'))) {
           const indexReq = new Request(new URL('/index.html', request.url), request);
           return await env.ASSETS.fetch(indexReq);

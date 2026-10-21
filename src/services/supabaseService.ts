@@ -3552,8 +3552,9 @@ export const supabaseService = {
         hero_heading: 'Curated Luxury Residences in Prime Pune',
         hero_subheading: 'Handpicked penthouses, riverside apartments, and signature villas in Pune\'s most exclusive enclaves.',
         hero_media_type: 'video',
-        hero_video_url: 'https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-building-exterior-41549-large.mp4',
+        hero_video_url: '/uploads/hero_showcase_video.mp4',
         hero_video_title: 'Pune Luxury Architectural Showcase & Residences',
+        logo_url: '/uploads/company_brand_logo.png',
         whatsapp_number: '+919822012345',
         whatsapp_message: 'Hello Rental Pune, I am looking for a luxury rental property in Pune.'
       };

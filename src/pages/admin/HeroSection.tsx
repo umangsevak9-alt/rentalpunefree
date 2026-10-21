@@ -41,6 +41,11 @@ const PRESET_HERO_IMAGES = [
 
 const PRESET_HERO_VIDEOS = [
   {
+    title: 'Pune Luxury Showcase (Original)',
+    url: '/uploads/hero_showcase_video.mp4',
+    category: 'Brand Original'
+  },
+  {
     title: 'Modern Penthouse Loop',
     url: 'https://assets.mixkit.co/videos/preview/mixkit-modern-apartment-building-exterior-41549-large.mp4',
     category: 'Architecture'

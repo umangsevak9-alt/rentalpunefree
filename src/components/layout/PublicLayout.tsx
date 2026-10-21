@@ -29,6 +29,7 @@ export default function PublicLayout() {
   const [newsletterEmail, setNewsletterEmail] = useState('');
   const [newsletterStatus, setNewsletterStatus] = useState<string | null>(null);
   const [isSubmittingNewsletter, setIsSubmittingNewsletter] = useState(false);
+  const [logoFailed, setLogoFailed] = useState(false);
 
   const handleNewsletterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -124,8 +125,13 @@ export default function PublicLayout() {
           
           {/* Brand Logo matching the reference "LAVISH / RENTAL PUNE" */}
           <Link to="/" className="flex items-center space-x-3 group">
-            {settings.logo_url ? (
-              <img src={settings.logo_url} alt="Rental Pune" className="h-10 w-auto object-contain" />
+            {settings.logo_url && !logoFailed ? (
+              <img 
+                src={settings.logo_url} 
+                alt="Rental Pune" 
+                className="h-10 w-auto object-contain max-w-[200px]" 
+                onError={() => setLogoFailed(true)}
+              />
             ) : (
               <div className="flex items-center space-x-2.5">
                 {/* Architectural Building Icon in Gold */}
@@ -509,20 +515,29 @@ export default function PublicLayout() {
           
           {/* Logo & Tagline */}
           <div className="lg:col-span-2 space-y-4">
-            <div className="flex items-center space-x-2.5">
-              <div className="w-9 h-9 rounded-lg bg-[#b8863b]/15 border border-[#b8863b]/30 flex items-center justify-center text-[#b8863b]">
-                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-4M9 9h1M9 13h1M9 17h1M15 13h1M15 17h1" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </div>
-              <div className="flex flex-col">
-                <div className="flex items-baseline tracking-wider">
-                  <span className="font-serif text-xl font-bold tracking-widest text-[#1a202c]">RENTAL</span>
-                  <span className="font-serif text-xl font-bold tracking-widest text-[#b8863b] ml-1">PUNE</span>
+            {settings.logo_url && !logoFailed ? (
+              <img 
+                src={settings.logo_url} 
+                alt="Rental Pune" 
+                className="h-9 w-auto object-contain max-w-[180px]" 
+                onError={() => setLogoFailed(true)}
+              />
+            ) : (
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-lg bg-[#b8863b]/15 border border-[#b8863b]/30 flex items-center justify-center text-[#b8863b]">
+                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-4M9 9h1M9 13h1M9 17h1M15 13h1M15 17h1" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
                 </div>
-                <span className="text-[8.5px] font-bold tracking-[0.28em] text-[#b8863b] uppercase">LUXURY LIVING</span>
+                <div className="flex flex-col">
+                  <div className="flex items-baseline tracking-wider">
+                    <span className="font-serif text-xl font-bold tracking-widest text-[#1a202c]">RENTAL</span>
+                    <span className="font-serif text-xl font-bold tracking-widest text-[#b8863b] ml-1">PUNE</span>
+                  </div>
+                  <span className="text-[8.5px] font-bold tracking-[0.28em] text-[#b8863b] uppercase">LUXURY LIVING</span>
+                </div>
               </div>
-            </div>
+            )}
 
             <p className="text-neutral-600 text-xs leading-relaxed max-w-sm">
               Crafting spaces that reflect elegance, comfort and sophistication. Pune's premier real estate portal for residential rentals, commercial IT offices, and outright luxury residences.

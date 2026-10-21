@@ -5,10 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build": "vite build && mkdir -p dist/uploads && cp -r uploads/* dist/uploads/ 2>/dev/null || true && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "preview": "vite preview",
-    "build:worker": "vite build",
+    "build:worker": "vite build && mkdir -p dist/uploads && cp -r uploads/* dist/uploads/ 2>/dev/null || true",
     "deploy:worker": "npm run build && wrangler deploy",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"
