@@ -56,6 +56,14 @@ function cleanPhone(phone) {
   return digits;
 }
 
+function maskPhone(phone) {
+  if (!phone) return '—';
+  const clean = String(phone).trim();
+  if (clean.length <= 4) return '••••';
+  if (clean.length <= 8) return `${clean.slice(0, 2)}••••${clean.slice(-2)}`;
+  return `${clean.slice(0, 4)}••••••${clean.slice(-2)}`;
+}
+
 // Supabase REST Helper
 function getSupabaseCredentials(env) {
   const url = (env && env.SUPABASE_URL) || SUPABASE_DEFAULT_URL;
@@ -205,16 +213,95 @@ async function loadWhatsAppLogs(env) {
   return [];
 }
 
-// Send message via Meta WhatsApp Cloud API with Sandbox Fallback
-async function sendMetaWhatsAppMessageOnWorker({ to, templateName, templateLanguage, templateParams, recipientType, leadId, env, config }) {
+// Update notification log entry status when webhook delivers updates
+async function updateWhatsAppLogStatus(msgId, newStatus, errorDetails, env) {
+  if (!msgId) return;
+  try {
+    const res = await fetchFromSupabase('settings?select=value&key=eq.whatsapp_audit_logs', env);
+    let logs = [];
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data[0]?.value) {
+        try { logs = JSON.parse(data[0].value); } catch {}
+      }
+    }
+    
+    let modified = false;
+    const hierarchy = { 'SKIPPED': 0, 'FAILED': 1, 'SENT': 2, 'DELIVERED': 3, 'READ': 4 };
+    const upperStatus = String(newStatus || '').toUpperCase();
+
+    for (const log of logs) {
+      if (log.whatsapp_message_id === msgId) {
+        const currentRank = hierarchy[log.status] || 0;
+        const newRank = hierarchy[upperStatus] || 0;
+        
+        // Update status if new status is FAILED or has higher or equal delivery hierarchy
+        if (upperStatus === 'FAILED' || newRank >= currentRank) {
+          log.status = upperStatus;
+          log.updated_at = new Date().toISOString();
+          if (errorDetails) {
+            log.error_message = redactSecrets(errorDetails);
+          }
+          modified = true;
+        }
+      }
+    }
+
+    if (modified) {
+      await fetchFromSupabase('settings?on_conflict=key', env, {
+        method: 'POST',
+        headers: { 'Prefer': 'resolution=merge-duplicates' },
+        body: JSON.stringify([{ key: 'whatsapp_audit_logs', value: JSON.stringify(logs) }])
+      });
+      console.log(`[Webhook Status] Updated msg ${msgId} to ${upperStatus}`);
+    }
+  } catch (err) {
+    console.error('Failed to update audit log status from webhook:', err);
+  }
+}
+
+// Verify Meta Webhook HMAC-SHA256 signature
+async function verifyWebhookSignature(request, rawBody, appSecret) {
+  if (!appSecret) return true;
+  const signatureHeader = request.headers.get('X-Hub-Signature-256') || '';
+  if (!signatureHeader) {
+    console.warn('[Webhook] Missing X-Hub-Signature-256 header while appSecret is present');
+    return false;
+  }
+  const cleanSignature = signatureHeader.replace(/^sha256=/, '').trim();
+  try {
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(appSecret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+    const signatureBuffer = await crypto.subtle.sign('HMAC', key, encoder.encode(rawBody));
+    const hashArray = Array.from(new Uint8Array(signatureBuffer));
+    const computedSignature = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    return computedSignature.toLowerCase() === cleanSignature.toLowerCase();
+  } catch (e) {
+    console.error('[Webhook] HMAC signature verification failed:', e);
+    return false;
+  }
+}
+
+// Send message via Meta WhatsApp Cloud API with Sandbox Fallback & Detailed Diagnostics
+async function sendMetaWhatsAppMessageOnWorker({ to, templateName, templateLanguage, templateParams, recipientType, leadId, correlationId, env, config }) {
   const recipientPhone = cleanPhone(to);
+  const maskedPhone = maskPhone(to);
+  const corrId = correlationId || `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
   if (!recipientPhone) {
     const err = `Invalid phone number: ${to}`;
     await appendWhatsAppLog({
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       lead_id: leadId,
+      correlation_id: corrId,
       recipient_type: recipientType,
-      recipient_phone: to || '',
+      recipient_phone: maskedPhone,
       status: 'FAILED',
       error_message: err,
       created_at: new Date().toISOString()
@@ -228,8 +315,9 @@ async function sendMetaWhatsAppMessageOnWorker({ to, templateName, templateLangu
     await appendWhatsAppLog({
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       lead_id: leadId,
+      correlation_id: corrId,
       recipient_type: recipientType,
-      recipient_phone: recipientPhone,
+      recipient_phone: maskedPhone,
       status: 'FAILED',
       error_message: err,
       created_at: new Date().toISOString()
@@ -264,6 +352,8 @@ async function sendMetaWhatsAppMessageOnWorker({ to, templateName, templateLangu
     ];
   }
 
+  console.log(`[Meta WhatsApp Send] [${corrId}] Dispatching ${tName} (${tLang}) to ${maskedPhone} (${recipientType})`);
+
   try {
     const res = await fetch(endpoint, {
       method: 'POST',
@@ -278,14 +368,17 @@ async function sendMetaWhatsAppMessageOnWorker({ to, templateName, templateLangu
 
     if (res.ok && data?.messages?.[0]?.id) {
       const msgId = data.messages[0].id;
+      console.log(`[Meta WhatsApp Send] [${corrId}] Accepted by Meta! msgId=${msgId}`);
       await appendWhatsAppLog({
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         lead_id: leadId,
+        correlation_id: corrId,
         recipient_type: recipientType,
-        recipient_phone: recipientPhone,
+        recipient_phone: maskedPhone,
         status: 'SENT',
+        meta_http_status: res.status,
         whatsapp_message_id: msgId,
-        payload: { template: tName },
+        payload: { template: tName, correlation_id: corrId },
         created_at: new Date().toISOString()
       }, env);
       return { success: true, messageId: msgId };
@@ -293,12 +386,16 @@ async function sendMetaWhatsAppMessageOnWorker({ to, templateName, templateLangu
 
     const errObj = data?.error || {};
     const code = errObj.code || res.status;
+    const subcode = errObj.error_subcode || null;
     let diagnostic = errObj.message || `Meta API error HTTP ${res.status}`;
+
+    console.warn(`[Meta WhatsApp Send] [${corrId}] Primary attempt failed (HTTP ${res.status}, Code ${code}, Subcode ${subcode}): ${diagnostic}`);
 
     // Auto-fallback for Meta Sandbox / Test Numbers if custom template is not yet approved
     const isTemplateError = (code >= 132000 && code <= 132099) || code === 132000 || code === 132001;
     if (isTemplateError && tName !== 'hello_world') {
       try {
+        console.log(`[Meta WhatsApp Send] [${corrId}] Attempting sandbox pre-approved 'hello_world' fallback...`);
         const fallbackRes = await fetch(endpoint, {
           method: 'POST',
           headers: {
@@ -316,22 +413,27 @@ async function sendMetaWhatsAppMessageOnWorker({ to, templateName, templateLangu
         const fallbackData = await fallbackRes.json().catch(() => null);
         if (fallbackRes.ok && fallbackData?.messages?.[0]?.id) {
           const fallbackMsgId = fallbackData.messages[0].id;
+          console.log(`[Meta WhatsApp Send] [${corrId}] Fallback accepted! msgId=${fallbackMsgId}`);
           await appendWhatsAppLog({
             id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             lead_id: leadId,
+            correlation_id: corrId,
             recipient_type: recipientType,
-            recipient_phone: recipientPhone,
+            recipient_phone: maskedPhone,
             status: 'SENT',
+            meta_http_status: fallbackRes.status,
             whatsapp_message_id: fallbackMsgId,
             payload: { note: `Custom template '${tName}' not approved (#${code}). Delivered via Meta approved sandbox template 'hello_world'.` },
             created_at: new Date().toISOString()
           }, env);
           return { success: true, messageId: fallbackMsgId };
         }
-      } catch {}
+      } catch (fbErr) {
+        console.warn(`[Meta WhatsApp Send] [${corrId}] Fallback failed:`, fbErr);
+      }
       diagnostic = `Meta Template Error (#${code}): Template "${tName}" not approved or translation missing in Meta WhatsApp Manager. (For test numbers, use 'hello_world').`;
     } else if (code === 131030) {
-      diagnostic = `Meta Sandbox Limitation (#131030): Recipient ${recipientPhone} is not in your authorized test numbers list. Add this number in Meta Developer Portal -> WhatsApp -> API Setup -> "To" field.`;
+      diagnostic = `Meta Sandbox Limitation (#131030): Recipient ${maskedPhone} is not in your authorized test numbers list. Add this number in Meta Developer Portal -> WhatsApp -> API Setup -> "To" field.`;
     } else if (code === 190) {
       diagnostic = 'Meta Auth Error (#190): Access token is expired or invalid.';
     }
@@ -339,9 +441,13 @@ async function sendMetaWhatsAppMessageOnWorker({ to, templateName, templateLangu
     await appendWhatsAppLog({
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       lead_id: leadId,
+      correlation_id: corrId,
       recipient_type: recipientType,
-      recipient_phone: recipientPhone,
+      recipient_phone: maskedPhone,
       status: 'FAILED',
+      meta_http_status: res.status,
+      error_code: code,
+      error_subcode: subcode,
       error_message: redactSecrets(diagnostic),
       created_at: new Date().toISOString()
     }, env);
@@ -352,8 +458,9 @@ async function sendMetaWhatsAppMessageOnWorker({ to, templateName, templateLangu
     await appendWhatsAppLog({
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       lead_id: leadId,
+      correlation_id: corrId,
       recipient_type: recipientType,
-      recipient_phone: recipientPhone,
+      recipient_phone: maskedPhone,
       status: 'FAILED',
       error_message: err,
       created_at: new Date().toISOString()
@@ -440,42 +547,58 @@ export default {
 
         // 2. Load live WhatsApp config from Supabase
         const config = await loadWhatsAppConfig(env);
+        const correlationId = `lead-${leadId}-${Math.random().toString(36).slice(2, 8)}`;
+        console.log(`[Lead Ingestion] Correlation ID: ${correlationId} | Lead ID: ${leadId} | Customer: ${maskPhone(phone)} | Consent: ${hasConsent}`);
 
-        // 3. Dispatch WhatsApp notifications
+        // 3. Dispatch WhatsApp notifications independently
         const dispatchWork = async () => {
           // Admin Alert
           if (config.enabled && config.admin_alerts_enabled && config.admin_phone) {
-            await sendMetaWhatsAppMessageOnWorker({
-              to: config.admin_phone,
-              templateName: config.template_name_admin || 'hello_world',
-              templateLanguage: config.template_language_admin || 'en_US',
-              templateParams: [name, phone, propTitle, propLoc, propPrice, notes],
-              recipientType: 'ADMIN',
-              leadId,
-              env,
-              config
-            });
+            try {
+              console.log(`[Notification Dispatch] Starting admin alert for ${correlationId} to ${maskPhone(config.admin_phone)}`);
+              await sendMetaWhatsAppMessageOnWorker({
+                to: config.admin_phone,
+                templateName: config.template_name_admin || 'hello_world',
+                templateLanguage: config.template_language_admin || 'en_US',
+                templateParams: [name, phone, propTitle, propLoc, propPrice, notes],
+                recipientType: 'ADMIN',
+                leadId,
+                correlationId,
+                env,
+                config
+              });
+            } catch (adminErr) {
+              console.error(`[Notification Dispatch] Admin alert exception for ${correlationId}:`, adminErr);
+            }
           }
 
           // Customer Confirmation (only if opt-in consent was provided)
           if (config.enabled && config.customer_confirmation_enabled && phone) {
             if (hasConsent) {
-              await sendMetaWhatsAppMessageOnWorker({
-                to: phone,
-                templateName: config.template_name_customer || 'hello_world',
-                templateLanguage: config.template_language_customer || 'en_US',
-                templateParams: [name, propTitle, propLoc],
-                recipientType: 'CUSTOMER',
-                leadId,
-                env,
-                config
-              });
+              try {
+                console.log(`[Notification Dispatch] Starting customer confirmation for ${correlationId} to ${maskPhone(phone)}`);
+                await sendMetaWhatsAppMessageOnWorker({
+                  to: phone,
+                  templateName: config.template_name_customer || 'hello_world',
+                  templateLanguage: config.template_language_customer || 'en_US',
+                  templateParams: [name, propTitle, propLoc],
+                  recipientType: 'CUSTOMER',
+                  leadId,
+                  correlationId,
+                  env,
+                  config
+                });
+              } catch (custErr) {
+                console.error(`[Notification Dispatch] Customer confirmation exception for ${correlationId}:`, custErr);
+              }
             } else {
+              console.log(`[Notification Dispatch] Customer confirmation skipped for ${correlationId}: consent not granted`);
               await appendWhatsAppLog({
                 id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
                 lead_id: leadId,
+                correlation_id: correlationId,
                 recipient_type: 'CUSTOMER',
-                recipient_phone: phone,
+                recipient_phone: maskPhone(phone),
                 status: 'SKIPPED',
                 error_message: 'Customer did not provide explicit WhatsApp opt-in consent (checkbox left unchecked).',
                 created_at: new Date().toISOString()
@@ -493,6 +616,7 @@ export default {
         return jsonResponse({
           success: true,
           id: leadId,
+          correlation_id: correlationId,
           message: 'Enquiry received. Our team will contact you in 2 hours.'
         }, 201);
       }
@@ -544,19 +668,27 @@ export default {
         }
 
         const config = await loadWhatsAppConfig(env);
+        const correlationId = `booking-${bookingId}-${Math.random().toString(36).slice(2, 8)}`;
+        console.log(`[Booking Ingestion] Correlation ID: ${correlationId} | Booking ID: ${bookingId} | Customer: ${maskPhone(phone)}`);
 
         const dispatchWork = async () => {
           if (config.enabled && config.admin_alerts_enabled && config.admin_phone) {
-            await sendMetaWhatsAppMessageOnWorker({
-              to: config.admin_phone,
-              templateName: config.template_name_admin || 'hello_world',
-              templateLanguage: config.template_language_admin || 'en_US',
-              templateParams: [name, phone, propTitle, propLoc],
-              recipientType: 'ADMIN',
-              leadId: bookingId,
-              env,
-              config
-            });
+            try {
+              console.log(`[Notification Dispatch] Starting booking admin alert for ${correlationId}`);
+              await sendMetaWhatsAppMessageOnWorker({
+                to: config.admin_phone,
+                templateName: config.template_name_admin || 'hello_world',
+                templateLanguage: config.template_language_admin || 'en_US',
+                templateParams: [name, phone, propTitle, propLoc],
+                recipientType: 'ADMIN',
+                leadId: bookingId,
+                correlationId,
+                env,
+                config
+              });
+            } catch (err) {
+              console.error(`[Notification Dispatch] Booking alert exception for ${correlationId}:`, err);
+            }
           }
         };
 
@@ -568,7 +700,8 @@ export default {
 
         return jsonResponse({
           success: true,
-          booking: { id: bookingId, customer_name: name, customer_phone: phone, property_title: propTitle }
+          booking: { id: bookingId, customer_name: name, customer_phone: maskPhone(phone), property_title: propTitle },
+          correlation_id: correlationId
         }, 201);
       }
       return jsonResponse({ error: 'Method Not Allowed', allowedMethods: ['POST', 'OPTIONS'] }, 405, { 'Allow': 'POST, OPTIONS' });
@@ -737,6 +870,7 @@ export default {
         templateLanguage: body.template_language || 'en_US',
         recipientType: 'TEST',
         leadId: Date.now(),
+        correlationId: `test-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         env,
         config
       });
@@ -744,8 +878,9 @@ export default {
       if (result.success) {
         return jsonResponse({
           success: true,
-          message: `Test message successfully delivered to ${targetPhone} via Meta Cloud API!`,
-          messageId: result.messageId
+          message: `Message accepted by Meta Cloud API! Dispatched to ${maskPhone(targetPhone)}. (Message ID: ${result.messageId}). Delivery confirmation pending webhook receipt.`,
+          messageId: result.messageId,
+          status: 'ACCEPTED'
         });
       } else {
         return jsonResponse({ success: false, error: result.error || 'Failed to send test message via Meta API.' }, 400);
@@ -763,7 +898,99 @@ export default {
       return jsonResponse(logs);
     }
 
-    // 8. STATIC ASSETS & SPA ROUTING
+    // 8. META WHATSAPP WEBHOOK (GET Verification Challenge & POST Delivery Status Events)
+    if (pathname === '/api/whatsapp/webhook') {
+      // GET Verification Challenge from Meta App Dashboard
+      if (method === 'GET') {
+        const mode = url.searchParams.get('hub.mode');
+        const token = url.searchParams.get('hub.verify_token');
+        const challenge = url.searchParams.get('hub.challenge');
+
+        const config = await loadWhatsAppConfig(env);
+        const expectedToken = (env && env.WHATSAPP_WEBHOOK_VERIFY_TOKEN) || config.webhook_verify_token || 'rental_pune_secure_verify_2026';
+
+        if (mode === 'subscribe' && token === expectedToken) {
+          console.log('[Meta Webhook] Verification succeeded. Returning challenge.');
+          return new Response(challenge || '', {
+            status: 200,
+            headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+          });
+        }
+
+        console.warn('[Meta Webhook] Verification challenge failed: token mismatch');
+        return jsonResponse({ error: 'Verification token mismatch' }, 403);
+      }
+
+      // POST Event Notifications (Message Delivery Statuses: sent, delivered, read, failed)
+      if (method === 'POST') {
+        let rawBody = '';
+        try {
+          rawBody = await request.text();
+        } catch {
+          return new Response('EVENT_RECEIVED', { status: 200, headers: { 'Content-Type': 'text/plain' } });
+        }
+
+        // Verify HMAC-SHA256 signature if app secret is provided in Worker bindings
+        const appSecret = (env && env.WHATSAPP_APP_SECRET) || '';
+        if (appSecret) {
+          const isValid = await verifyWebhookSignature(request, rawBody, appSecret);
+          if (!isValid) {
+            console.warn('[Meta Webhook] Invalid HMAC-SHA256 signature');
+            return jsonResponse({ error: 'Invalid HMAC signature' }, 401);
+          }
+        }
+
+        let payload = null;
+        try {
+          if (rawBody && rawBody.trim()) {
+            payload = JSON.parse(rawBody);
+          }
+        } catch (e) {
+          console.warn('[Meta Webhook] Invalid JSON payload received');
+          return new Response('EVENT_RECEIVED', { status: 200, headers: { 'Content-Type': 'text/plain' } });
+        }
+
+        const processWebhook = async () => {
+          try {
+            const entry = payload?.entry?.[0];
+            const changes = entry?.changes?.[0];
+            const value = changes?.value;
+            const statuses = value?.statuses;
+
+            if (Array.isArray(statuses) && statuses.length > 0) {
+              for (const st of statuses) {
+                const msgId = st.id;
+                const statusStr = String(st.status || '').toUpperCase(); // 'SENT' | 'DELIVERED' | 'READ' | 'FAILED'
+                let errorDetails = null;
+                if (st.errors && Array.isArray(st.errors) && st.errors.length > 0) {
+                  const err = st.errors[0];
+                  errorDetails = `Meta Webhook Error (#${err.code || 'unknown'}): ${err.title || err.message || 'Delivery failed'}`;
+                }
+                console.log(`[Meta Webhook] Status update: msgId=${msgId}, status=${statusStr}, errors=${errorDetails || 'none'}`);
+                await updateWhatsAppLogStatus(msgId, statusStr, errorDetails, env);
+              }
+            }
+          } catch (procErr) {
+            console.error('[Meta Webhook] Processing error:', procErr);
+          }
+        };
+
+        if (ctx && typeof ctx.waitUntil === 'function') {
+          ctx.waitUntil(processWebhook());
+        } else {
+          await processWebhook();
+        }
+
+        return new Response('EVENT_RECEIVED', {
+          status: 200,
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+        });
+      }
+
+      return jsonResponse({ error: 'Method Not Allowed', allowedMethods: ['GET', 'POST', 'OPTIONS'] }, 405, { 'Allow': 'GET, POST, OPTIONS' });
+    }
+
+    // 9. STATIC ASSETS & SPA ROUTING
     if (env.ASSETS && typeof env.ASSETS.fetch === 'function') {
       try {
         const assetRes = await env.ASSETS.fetch(request);

@@ -4223,7 +4223,7 @@ export const supabaseService = {
       }
     },
 
-    async sendTestMessage(phone?: string, message?: string, tenantId = 'rental_pune', templateName?: string): Promise<{ success: boolean; message?: string; error?: string }> {
+    async sendTestMessage(phone?: string, message?: string, tenantId = 'rental_pune', templateName?: string): Promise<{ success: boolean; message?: string; error?: string; messageId?: string; status?: string }> {
       try {
         const token = getToken();
         const res = await fetch('/api/whatsapp/send-test', {
@@ -4236,7 +4236,12 @@ export const supabaseService = {
         });
         const parsed = await safeParseApiResponse<any>(res, 'Failed to send test message');
         if (parsed.ok && parsed.data) {
-          return { success: true, message: parsed.data.message };
+          return {
+            success: true,
+            message: parsed.data.message,
+            messageId: parsed.data.messageId,
+            status: parsed.data.status
+          };
         }
         return { success: false, error: parsed.error || parsed.data?.error || 'Failed to send test message' };
       } catch (err: any) {

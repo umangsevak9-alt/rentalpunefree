@@ -74,7 +74,7 @@ interface WhatsAppLogItem {
   recipient_type: 'CUSTOMER' | 'ADMIN' | 'TEST';
   recipient_phone: string;
   message_type: 'CUSTOMER_CONFIRMATION' | 'ADMIN_ALERT' | 'TEST';
-  status: 'SENT' | 'DELIVERED' | 'READ' | 'FAILED';
+  status: 'SENT' | 'DELIVERED' | 'READ' | 'FAILED' | 'SKIPPED';
   whatsapp_message_id?: string;
   error_message?: string;
   created_at: string;
@@ -412,7 +412,7 @@ export function WhatsAppSettings() {
       if (res.success) {
         setStatusMessage({
           type: 'success',
-          text: res.message || `Test message delivered successfully to ${testRecipientPhone}!`
+          text: res.message || (res.messageId ? `Message accepted by Meta Cloud API (ID: ${res.messageId}). Delivery confirmation pending webhook.` : 'Test message accepted by Meta API.')
         });
         setShowTestModal(false);
         setTestConfirmed(false);
@@ -1230,11 +1230,17 @@ export function WhatsAppSettings() {
                     <td className="py-3 px-3 text-white whitespace-nowrap">{log.recipient_phone}</td>
                     <td className="py-3 px-3 whitespace-nowrap">
                       <span className={`px-2 py-0.5 rounded font-bold uppercase text-[9px] inline-flex items-center space-x-1 ${
-                        log.status === 'SENT' || log.status === 'DELIVERED' || log.status === 'READ'
+                        log.status === 'READ'
+                          ? 'bg-sky-500/20 text-sky-300'
+                          : log.status === 'DELIVERED'
                           ? 'bg-[#10b981]/20 text-[#10b981]'
+                          : log.status === 'SENT'
+                          ? 'bg-amber-500/20 text-amber-300'
+                          : log.status === 'SKIPPED'
+                          ? 'bg-neutral-500/20 text-neutral-400'
                           : 'bg-rose-500/20 text-rose-300'
                       }`}>
-                        <span>{log.status}</span>
+                        <span>{log.status === 'SENT' ? 'ACCEPTED' : log.status}</span>
                       </span>
                     </td>
                     <td className="py-3 px-3 text-neutral-400 whitespace-nowrap">
@@ -1246,10 +1252,10 @@ export function WhatsAppSettings() {
                           {log.error_message}
                         </span>
                       ) : log.whatsapp_message_id ? (
-                        <span className="text-neutral-500 font-mono" title={log.whatsapp_message_id}>
-                          ID: {log.whatsapp_message_id.substring(0, 18)}...
+                        <span className="text-neutral-400 font-mono" title={log.whatsapp_message_id}>
+                          ID: {log.whatsapp_message_id.substring(0, 20)}...
                         </span>
-                      ) : 'Success'}
+                      ) : 'Accepted'}
                     </td>
                   </tr>
                 ))}

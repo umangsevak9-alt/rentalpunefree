@@ -436,13 +436,26 @@ export function updateWhatsAppConfig(newConfig: Partial<WhatsAppConfig>, targetT
 }
 
 /**
+ * Mask phone number for safe PII-free diagnostics
+ */
+export function maskPhone(phone?: string | null): string {
+  if (!phone) return '—';
+  const clean = String(phone).trim();
+  if (clean.length <= 4) return '••••';
+  if (clean.length <= 8) return `${clean.slice(0, 2)}••••${clean.slice(-2)}`;
+  return `${clean.slice(0, 4)}••••••${clean.slice(-2)}`;
+}
+
+/**
  * Record a WhatsApp notification log.
  */
 export async function logWhatsAppNotification(logEntry: Omit<WhatsAppLog, 'id' | 'created_at'>): Promise<WhatsAppLog> {
   const sanitizedError = redactSecrets(logEntry.error_message);
+  const maskedNumber = maskPhone(logEntry.recipient_phone);
   const fullEntry: WhatsAppLog = {
     id: Date.now() + '-' + Math.random().toString(36).substring(2, 7),
     ...logEntry,
+    recipient_phone: maskedNumber,
     error_message: sanitizedError,
     created_at: new Date().toISOString()
   };
@@ -459,17 +472,26 @@ export async function logWhatsAppNotification(logEntry: Omit<WhatsAppLog, 'id' |
   const supabase = getSupabase();
   if (supabase) {
     try {
-      await supabase.from('whatsapp_logs').insert([{
-        lead_id: logEntry.lead_id && !isNaN(Number(logEntry.lead_id)) ? Number(logEntry.lead_id) : null,
-        recipient_type: logEntry.recipient_type,
-        recipient_phone: logEntry.recipient_phone,
-        message_type: logEntry.message_type,
-        status: logEntry.status,
-        whatsapp_message_id: logEntry.whatsapp_message_id || null,
-        error_message: sanitizedError || null,
-        payload: logEntry.payload ? JSON.parse(redactSecrets(JSON.stringify(logEntry.payload))) : null
-      }]);
-    } catch {}
+      const { data } = await supabase
+        .from('settings')
+        .select('value')
+        .eq('key', 'whatsapp_audit_logs')
+        .limit(1);
+
+      let list: any[] = [];
+      if (Array.isArray(data) && data[0]?.value) {
+        try { list = JSON.parse(data[0].value); } catch {}
+      }
+      list.unshift(fullEntry);
+      if (list.length > 100) list.length = 100;
+
+      await supabase.from('settings').upsert({
+        key: 'whatsapp_audit_logs',
+        value: JSON.stringify(list)
+      });
+    } catch (dbErr) {
+      console.warn('Failed to persist log to Supabase settings:', dbErr);
+    }
   }
 
   return fullEntry;
@@ -482,26 +504,17 @@ export async function getWhatsAppLogs(limit = 50, tenantId?: string): Promise<Wh
   const supabase = getSupabase();
   if (supabase) {
     try {
-      const { data, error } = await supabase
-        .from('whatsapp_logs')
-        .select('*')
-        .order('id', { ascending: false })
-        .limit(limit);
+      const { data } = await supabase
+        .from('settings')
+        .select('value')
+        .eq('key', 'whatsapp_audit_logs')
+        .limit(1);
 
-      if (!error && Array.isArray(data) && data.length > 0) {
-        return data.map((d: any) => ({
-          id: d.id,
-          lead_id: d.lead_id,
-          tenant_id: d.tenant_id,
-          recipient_type: d.recipient_type,
-          recipient_phone: d.recipient_phone,
-          message_type: d.message_type,
-          status: d.status,
-          whatsapp_message_id: d.whatsapp_message_id,
-          error_message: redactSecrets(d.error_message),
-          payload: d.payload,
-          created_at: d.created_at
-        }));
+      if (Array.isArray(data) && data[0]?.value) {
+        const parsed = JSON.parse(data[0].value);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.slice(0, limit);
+        }
       }
     } catch {}
   }
@@ -1213,14 +1226,40 @@ export async function handleMetaWebhookPayload(body: any): Promise<void> {
         const supabase = getSupabase();
         if (supabase) {
           try {
-            await supabase
-              .from('whatsapp_logs')
-              .update({
-                status: statusStr,
-                error_message: st.errors ? redactSecrets(JSON.stringify(st.errors)) : null
-              })
-              .eq('whatsapp_message_id', msgId);
-          } catch {}
+            const { data } = await supabase
+              .from('settings')
+              .select('value')
+              .eq('key', 'whatsapp_audit_logs')
+              .limit(1);
+
+            if (Array.isArray(data) && data[0]?.value) {
+              const logs: any[] = JSON.parse(data[0].value);
+              let changed = false;
+              const hierarchy: Record<string, number> = { 'SKIPPED': 0, 'FAILED': 1, 'SENT': 2, 'DELIVERED': 3, 'READ': 4 };
+              for (const log of logs) {
+                if (log.whatsapp_message_id === msgId) {
+                  const currentRank = hierarchy[log.status] || 0;
+                  const newRank = hierarchy[statusStr] || 0;
+                  if (statusStr === 'FAILED' || newRank >= currentRank) {
+                    log.status = statusStr;
+                    log.updated_at = new Date().toISOString();
+                    if (st.errors) {
+                      log.error_message = redactSecrets(JSON.stringify(st.errors));
+                    }
+                    changed = true;
+                  }
+                }
+              }
+              if (changed) {
+                await supabase.from('settings').upsert({
+                  key: 'whatsapp_audit_logs',
+                  value: JSON.stringify(logs)
+                });
+              }
+            }
+          } catch (dbErr) {
+            console.warn('Error updating Supabase settings whatsapp_audit_logs:', dbErr);
+          }
         }
       }
     }

@@ -28,7 +28,8 @@ import {
   handleMetaWebhookPayload,
   getBusinessBranding,
   invalidateBrandingCache,
-  listWhatsAppTenants
+  listWhatsAppTenants,
+  maskPhone
 } from './whatsappService.js';
 
 const router = Router();
@@ -2936,8 +2937,9 @@ router.post('/whatsapp/send-test', authenticate, requireAdmin, async (req, res) 
     if (result.success) {
       return res.json({
         success: true,
-        message: `Test message sent successfully to ${targetPhone}!`,
-        messageId: result.messageId
+        message: `Message accepted by Meta Cloud API! Dispatched to ${maskPhone(targetPhone)}. (Message ID: ${result.messageId}). Delivery confirmation pending webhook receipt.`,
+        messageId: result.messageId,
+        status: 'ACCEPTED'
       });
     } else {
       return res.status(400).json({
