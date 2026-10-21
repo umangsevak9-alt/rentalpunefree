@@ -12,6 +12,7 @@ import { supabase, supabaseService } from './services/supabaseService.js';
 import PublicLayout from './components/layout/PublicLayout.js';
 import AdminLayout from './components/layout/AdminLayout.js';
 import ScrollToTop from './components/common/ScrollToTop.js';
+import ErrorBoundary from './components/common/ErrorBoundary.js';
 
 // Public - Landing page loaded directly for 0ms initial render
 import Home from './pages/public/Home.js';
@@ -180,45 +181,47 @@ export default function App() {
   return (
     <BrowserRouter>
       <ScrollToTop />
-      <React.Suspense fallback={<PageLoader />}>
-        <Routes>
-          {/* Public Routes */}
-          <Route path="/" element={<PublicLayout />}>
-            <Route index element={<Home />} />
-            <Route path="list-property" element={<ListProperty />} />
-            <Route path="thank-you" element={<ThankYou />} />
-          </Route>
-          
-          {/* Authentication Routes */}
-          <Route path="/login" element={<Login />} />
-          <Route path="/admin/login" element={<Navigate to="/login" replace />} />
-          
-          {/* Protected Admin Routes */}
-          <Route path="/admin" element={
-            <ProtectedRoute>
-              <AdminLayout />
-            </ProtectedRoute>
-          }>
-            <Route index element={<Dashboard />} />
-            <Route path="hero" element={<ProtectedRoute requireAdmin><HeroSection /></ProtectedRoute>} />
-            <Route path="properties" element={<ProtectedRoute requireAdmin><Properties /></ProtectedRoute>} />
-            <Route path="owner-submissions" element={<ProtectedRoute requireAdmin><OwnerSubmissions /></ProtectedRoute>} />
-            <Route path="faqs" element={<ProtectedRoute requireAdmin><Faqs /></ProtectedRoute>} />
-            <Route path="gallery" element={<ProtectedRoute requireAdmin><Gallery /></ProtectedRoute>} />
-            <Route path="bookings" element={<Bookings />} />
-            <Route path="leads" element={<ProtectedRoute requireAdmin><Leads /></ProtectedRoute>} />
-            <Route path="settings" element={<ProtectedRoute requireAdmin><Settings /></ProtectedRoute>} />
-            <Route path="whatsapp" element={<ProtectedRoute requireAdmin><WhatsAppSettings /></ProtectedRoute>} />
-            <Route path="agents" element={<ProtectedRoute requireAdmin><Agents /></ProtectedRoute>} />
-            <Route path="invoices" element={<ProtectedRoute requireAdmin><Invoices /></ProtectedRoute>} />
-            <Route path="visits" element={<Visits />} />
-            <Route path="feedback" element={<Feedback />} />
-          </Route>
+      <ErrorBoundary fallbackTitle="Admin Portal Error">
+        <React.Suspense fallback={<PageLoader />}>
+          <Routes>
+            {/* Public Routes */}
+            <Route path="/" element={<PublicLayout />}>
+              <Route index element={<Home />} />
+              <Route path="list-property" element={<ListProperty />} />
+              <Route path="thank-you" element={<ThankYou />} />
+            </Route>
+            
+            {/* Authentication Routes */}
+            <Route path="/login" element={<Login />} />
+            <Route path="/admin/login" element={<Navigate to="/login" replace />} />
+            
+            {/* Protected Admin Routes */}
+            <Route path="/admin" element={
+              <ProtectedRoute>
+                <AdminLayout />
+              </ProtectedRoute>
+            }>
+              <Route index element={<Dashboard />} />
+              <Route path="hero" element={<ProtectedRoute requireAdmin><HeroSection /></ProtectedRoute>} />
+              <Route path="properties" element={<ProtectedRoute requireAdmin><Properties /></ProtectedRoute>} />
+              <Route path="owner-submissions" element={<ProtectedRoute requireAdmin><OwnerSubmissions /></ProtectedRoute>} />
+              <Route path="faqs" element={<ProtectedRoute requireAdmin><Faqs /></ProtectedRoute>} />
+              <Route path="gallery" element={<ProtectedRoute requireAdmin><Gallery /></ProtectedRoute>} />
+              <Route path="bookings" element={<Bookings />} />
+              <Route path="leads" element={<ProtectedRoute requireAdmin><Leads /></ProtectedRoute>} />
+              <Route path="settings" element={<ProtectedRoute requireAdmin><Settings /></ProtectedRoute>} />
+              <Route path="whatsapp" element={<ProtectedRoute requireAdmin><WhatsAppSettings /></ProtectedRoute>} />
+              <Route path="agents" element={<ProtectedRoute requireAdmin><Agents /></ProtectedRoute>} />
+              <Route path="invoices" element={<ProtectedRoute requireAdmin><Invoices /></ProtectedRoute>} />
+              <Route path="visits" element={<Visits />} />
+              <Route path="feedback" element={<Feedback />} />
+            </Route>
 
-          {/* Catch-all fallback */}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </React.Suspense>
+            {/* Catch-all fallback */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </React.Suspense>
+      </ErrorBoundary>
     </BrowserRouter>
   );
 }

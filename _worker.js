@@ -769,7 +769,8 @@ export default {
         if (assetRes.status !== 404) return assetRes;
 
         const acceptHeader = request.headers.get('Accept') || '';
-        if (method === 'GET' && acceptHeader.includes('text/html')) {
+        const hasFileExtension = /\.[a-zA-Z0-9]+$/.test(pathname);
+        if (method === 'GET' && !pathname.startsWith('/api/') && (!hasFileExtension || acceptHeader.includes('text/html'))) {
           const indexReq = new Request(new URL('/index.html', request.url), request);
           return await env.ASSETS.fetch(indexReq);
         }

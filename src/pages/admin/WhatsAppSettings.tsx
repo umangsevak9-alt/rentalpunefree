@@ -80,7 +80,34 @@ interface WhatsAppLogItem {
   created_at: string;
 }
 
-export default function WhatsAppSettings() {
+// Safe formatting helper to prevent Invalid Date and Safari runtime exceptions
+function formatDateTime(val?: string | number | null, fallback = '—'): string {
+  if (!val) return fallback;
+  try {
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return fallback;
+    return d.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'short', timeStyle: 'short' });
+  } catch {
+    try {
+      const d = new Date(val);
+      if (!isNaN(d.getTime())) return d.toISOString().replace('T', ' ').slice(0, 16);
+    } catch {}
+    return String(val);
+  }
+}
+
+function formatTime(val?: string | number | null, fallback = 'Never'): string {
+  if (!val) return fallback;
+  try {
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return fallback;
+    return d.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' });
+  } catch {
+    return String(val);
+  }
+}
+
+export function WhatsAppSettings() {
   const { settings } = useAppStore();
   const brandName = settings?.website_name || 'Rental Pune';
 
@@ -116,6 +143,7 @@ export default function WhatsAppSettings() {
   const [showTokenInput, setShowTokenInput] = useState(false);
   const [logs, setLogs] = useState<WhatsAppLogItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
   const [sendingTestMessage, setSendingTestMessage] = useState(false);
@@ -142,11 +170,12 @@ export default function WhatsAppSettings() {
   // Load WhatsApp settings & recent logs for current tenant
   const loadData = async (tenantId = selectedTenantId) => {
     setLoading(true);
+    setLoadError(null);
     try {
       const [tenantsList, settingsData, logsData] = await Promise.all([
-        supabaseService.whatsapp.getTenants(),
-        supabaseService.whatsapp.getSettings(tenantId),
-        supabaseService.whatsapp.getLogs(40, tenantId)
+        supabaseService.whatsapp.getTenants().catch(() => []),
+        supabaseService.whatsapp.getSettings(tenantId).catch(() => null),
+        supabaseService.whatsapp.getLogs(40, tenantId).catch(() => [])
       ]);
 
       if (Array.isArray(tenantsList) && tenantsList.length > 0) {
@@ -160,7 +189,7 @@ export default function WhatsAppSettings() {
         }]);
       }
 
-      if (settingsData) {
+      if (settingsData && typeof settingsData === 'object') {
         setConfig({
           tenant_id: settingsData.tenant_id || tenantId,
           client_name: settingsData.client_name || (tenantId === 'rental_pune' ? 'Rental Pune Luxury Real Estate' : tenantId),
@@ -189,8 +218,8 @@ export default function WhatsAppSettings() {
           last_error_at: settingsData.last_error_at
         });
 
-        if (!testRecipientPhone) {
-          setTestRecipientPhone(settingsData.admin_phone || '');
+        if (!testRecipientPhone && settingsData.admin_phone) {
+          setTestRecipientPhone(settingsData.admin_phone);
         }
 
         // Auto-check connection if credentials exist
@@ -202,8 +231,9 @@ export default function WhatsAppSettings() {
       if (Array.isArray(logsData)) {
         setLogs(logsData);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error loading WhatsApp settings:', err);
+      setLoadError(err?.message || 'Failed to load WhatsApp settings from backend.');
     } finally {
       setLoading(false);
     }
@@ -446,11 +476,11 @@ export default function WhatsAppSettings() {
   };
 
   // Readiness Calculations
-  const hasPhoneId = Boolean(config.phone_number_id.trim());
-  const hasWabaId = Boolean(config.business_account_id.trim());
-  const hasToken = config.has_access_token || Boolean(config.access_token.trim());
-  const hasAdminPhone = Boolean(config.admin_phone.trim());
-  const hasTemplates = Boolean(config.template_name_customer.trim() && config.template_name_admin.trim());
+  const hasPhoneId = Boolean((config.phone_number_id || '').trim());
+  const hasWabaId = Boolean((config.business_account_id || '').trim());
+  const hasToken = config.has_access_token || Boolean((config.access_token || '').trim());
+  const hasAdminPhone = Boolean((config.admin_phone || '').trim());
+  const hasTemplates = Boolean((config.template_name_customer || '').trim() && (config.template_name_admin || '').trim());
   
   const checklist = [
     { label: 'WhatsApp Phone Number ID', ready: hasPhoneId },
@@ -461,6 +491,61 @@ export default function WhatsAppSettings() {
   ];
   const readyCount = checklist.filter(c => c.ready).length;
   const isFullyConfigured = readyCount === checklist.length;
+
+  // Safe Loading State
+  if (loading) {
+    return (
+      <div className="space-y-8 animate-in fade-in duration-300">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-white/10">
+          <div className="flex items-center space-x-3">
+            <span className="p-2.5 rounded-2xl bg-[#10b981]/15 text-[#10b981] border border-[#10b981]/30">
+              <MessageSquare className="w-6 h-6" />
+            </span>
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">WhatsApp Cloud API</h1>
+              <p className="text-xs text-neutral-400">Loading configuration and live status...</p>
+            </div>
+          </div>
+        </div>
+        <div className="min-h-[45vh] flex flex-col items-center justify-center space-y-4 py-16 bg-[#050a12] border border-white/5 rounded-3xl">
+          <RefreshCw className="w-8 h-8 text-[#d4a359] animate-spin" />
+          <p className="text-sm font-semibold text-neutral-300">Loading WhatsApp Administration...</p>
+          <span className="text-xs text-neutral-500">Connecting to Meta Business settings</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Safe Error State with Retry
+  if (loadError) {
+    return (
+      <div className="space-y-8 animate-in fade-in duration-300">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-white/10">
+          <div className="flex items-center space-x-3">
+            <span className="p-2.5 rounded-2xl bg-rose-500/15 text-rose-400 border border-rose-500/30">
+              <AlertTriangle className="w-6 h-6" />
+            </span>
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">WhatsApp Cloud API</h1>
+              <p className="text-xs text-neutral-400">Connection error</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-[#050a12] border border-rose-500/30 rounded-3xl p-8 max-w-lg mx-auto text-center space-y-4 shadow-2xl">
+          <AlertTriangle className="w-12 h-12 text-rose-400 mx-auto" />
+          <h3 className="text-lg font-bold text-white">Failed to Load Settings</h3>
+          <p className="text-xs text-neutral-300 font-mono bg-black/40 p-3 rounded-xl border border-white/5">{loadError}</p>
+          <button
+            onClick={() => loadData(selectedTenantId)}
+            className="px-6 py-2.5 bg-[#d4a359] hover:bg-[#c2934a] text-[#080f1a] font-bold text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer flex items-center justify-center space-x-2 mx-auto"
+          >
+            <RotateCcw className="w-4 h-4" />
+            <span>Retry Connection</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
@@ -1374,3 +1459,5 @@ export default function WhatsAppSettings() {
     </div>
   );
 }
+
+export default WhatsAppSettings;
