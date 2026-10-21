@@ -230,6 +230,19 @@ function loadTenantsMap(): Record<string, WhatsAppConfig> {
       tenant_id: DEFAULT_TENANT_ID
     };
   }
+
+  // If phone_number_id or access_token are missing in tenant config, load from central settings.json
+  const fileSettings = loadJson<Record<string, any>>(SETTINGS_FILE, {});
+  if (!tenants[DEFAULT_TENANT_ID].phone_number_id && fileSettings.whatsapp_phone_number_id) {
+    tenants[DEFAULT_TENANT_ID].phone_number_id = fileSettings.whatsapp_phone_number_id;
+  }
+  if (!tenants[DEFAULT_TENANT_ID].access_token && fileSettings.whatsapp_access_token) {
+    tenants[DEFAULT_TENANT_ID].access_token = fileSettings.whatsapp_access_token;
+  }
+  if (!tenants[DEFAULT_TENANT_ID].admin_phone && fileSettings.whatsapp_admin_phone) {
+    tenants[DEFAULT_TENANT_ID].admin_phone = fileSettings.whatsapp_admin_phone;
+  }
+
   return tenants;
 }
 
@@ -339,7 +352,22 @@ export function updateWhatsAppConfig(newConfig: Partial<WhatsAppConfig>, targetT
   if (cleanTenantId === DEFAULT_TENANT_ID) {
     saveJson(WHATSAPP_CONFIG_FILE, merged);
 
-    // Synchronize to Supabase settings and credentials
+    // Also persist into data/settings.json for local node persistence
+    try {
+      const fileSettings = loadJson<Record<string, any>>(SETTINGS_FILE, {});
+      fileSettings.whatsapp_phone_number_id = merged.phone_number_id;
+      fileSettings.whatsapp_business_account_id = merged.business_account_id;
+      fileSettings.whatsapp_admin_phone = merged.admin_phone;
+      fileSettings.whatsapp_enabled = String(merged.enabled);
+      fileSettings.whatsapp_customer_confirmation_enabled = String(merged.customer_confirmation_enabled);
+      fileSettings.whatsapp_admin_alerts_enabled = String(merged.admin_alerts_enabled);
+      fileSettings.whatsapp_template_name_customer = merged.template_name_customer;
+      fileSettings.whatsapp_template_name_admin = merged.template_name_admin;
+      if (tokenToSave) fileSettings.whatsapp_access_token = tokenToSave;
+      saveJson(SETTINGS_FILE, fileSettings);
+    } catch {}
+
+    // Synchronize to Supabase settings and credentials table
     try {
       const supabase = getSupabase();
       if (supabase) {
@@ -353,21 +381,16 @@ export function updateWhatsAppConfig(newConfig: Partial<WhatsAppConfig>, targetT
           { key: 'whatsapp_template_name_customer', value: merged.template_name_customer },
           { key: 'whatsapp_template_name_admin', value: merged.template_name_admin }
         ];
+        if (tokenToSave) {
+          publicSettings.push({ key: 'whatsapp_access_token', value: tokenToSave });
+        }
         (async () => {
           try {
             await supabase.from('settings').upsert(publicSettings, { onConflict: 'key' });
-          } catch {}
+          } catch (err) {
+            console.warn('Error saving whatsapp settings to Supabase:', err);
+          }
         })();
-
-        if (tokenToSave) {
-          (async () => {
-            try {
-              await supabase.from('settings').upsert([{ key: 'whatsapp_access_token', value: tokenToSave }], { onConflict: 'key' });
-            } catch (err) {
-              console.warn('Error saving whatsapp_access_token to Supabase settings:', err);
-            }
-          })();
-        }
       }
     } catch {}
   }

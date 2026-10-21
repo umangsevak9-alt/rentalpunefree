@@ -155,14 +155,15 @@ async function saveWhatsAppConfigToSupabase(newConfig, env) {
     rows.push({ key: 'whatsapp_access_token', value: newConfig.access_token.trim() });
   }
 
-  try {
-    await fetchFromSupabase('settings', env, {
-      method: 'POST',
-      headers: { 'Prefer': 'resolution=merge-duplicates' },
-      body: JSON.stringify(rows)
-    });
-  } catch (e) {
-    console.error('Failed to save settings to Supabase:', e);
+  const res = await fetchFromSupabase('settings?on_conflict=key', env, {
+    method: 'POST',
+    headers: { 'Prefer': 'resolution=merge-duplicates' },
+    body: JSON.stringify(rows)
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Supabase settings storage error (HTTP ${res.status}): ${errText}`);
   }
 }
 
@@ -180,7 +181,7 @@ async function appendWhatsAppLog(logEntry, env) {
     logs.unshift(logEntry);
     if (logs.length > 100) logs.length = 100;
 
-    await fetchFromSupabase('settings', env, {
+    await fetchFromSupabase('settings?on_conflict=key', env, {
       method: 'POST',
       headers: { 'Prefer': 'resolution=merge-duplicates' },
       body: JSON.stringify([{ key: 'whatsapp_audit_logs', value: JSON.stringify(logs) }])
@@ -619,7 +620,14 @@ export default {
           access_token: newAccessToken
         };
 
-        await saveWhatsAppConfigToSupabase(updated, env);
+        try {
+          await saveWhatsAppConfigToSupabase(updated, env);
+        } catch (saveErr) {
+          return jsonResponse({
+            success: false,
+            error: `Failed to save configuration to database: ${saveErr.message}`
+          }, 500);
+        }
 
         return jsonResponse({
           success: true,
