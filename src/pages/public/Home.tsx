@@ -180,6 +180,7 @@ export default function Home() {
     // In case the browser delays autoplay until first user interaction or tab focus
     window.addEventListener('click', startPlay, { once: true, passive: true });
     window.addEventListener('touchstart', startPlay, { once: true, passive: true });
+    window.addEventListener('scroll', startPlay, { once: true, passive: true });
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') {
         startPlay();
@@ -189,6 +190,7 @@ export default function Home() {
     return () => {
       window.removeEventListener('click', startPlay);
       window.removeEventListener('touchstart', startPlay);
+      window.removeEventListener('scroll', startPlay);
     };
   }, [heroVideoInfo.url, heroVideoInfo.type, heroVideoFailed]);
   const [activeGalleryImage, setActiveGalleryImage] = useState<string | null>(null);
@@ -840,9 +842,7 @@ export default function Home() {
                     }}
                     className="w-full h-full object-cover object-center brightness-85 scale-105 pointer-events-none select-none"
                   >
-                    <source src={videoFallbackUrl || heroVideoInfo.url} type="video/mp4" />
-                    <source src={videoFallbackUrl || heroVideoInfo.url} type="video/webm" />
-                    <source src={videoFallbackUrl || heroVideoInfo.url} />
+                    <source src={heroVideoInfo.url} type="video/mp4" />
                   </video>
                 ) : heroVideoInfo.type === 'youtube' ? (
                   <div className="w-full h-full relative overflow-hidden pointer-events-none">
