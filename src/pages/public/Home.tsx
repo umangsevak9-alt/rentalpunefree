@@ -751,6 +751,19 @@ export default function Home() {
         if (createdBooking) {
           submittedSuccessfully = true;
         }
+
+        // Also register in leads CRM for unified and instant lead reflection
+        const leadPayload = {
+          name: trimmedName,
+          email: trimmedEmail || undefined,
+          phone: trimmedPhone,
+          property_id: Number(targetProp.id),
+          notes: `[Walkthrough Booking: ${targetProp.title}] Preferred: ${leadForm.visitDate || 'Flexible'} ${leadForm.visitTime || ''} | Notes: ${trimmedNotes || 'Walkthrough request'}`,
+          source: `Property Walkthrough: ${targetProp.title}`,
+          whatsapp_consent: hasConsent,
+          whatsapp_consent_at: consentTimestamp
+        };
+        await supabaseService.leads.create(leadPayload).catch((e) => console.warn('Companion lead save note:', e));
       } catch (err: any) {
         console.error('Booking creation error:', err);
       }

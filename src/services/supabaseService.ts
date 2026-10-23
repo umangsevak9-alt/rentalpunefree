@@ -118,6 +118,15 @@ export function notifyUpdate(key: string, data?: any): void {
     }
 
     window.dispatchEvent(new CustomEvent('rp_data_updated', { detail: { entity: key, data } }));
+
+    // Instant cross-tab broadcast synchronization
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        const bc = new BroadcastChannel('rp_realtime_channel');
+        bc.postMessage({ key, timestamp, data });
+        bc.close();
+      } catch {}
+    }
   } catch (e) {}
 }
 
@@ -1845,9 +1854,10 @@ export const supabaseService = {
       // 1. Instant fetch from backend API with session token
       try {
         const { data: { session } } = await supabase.auth.getSession();
+        const activeToken = session?.access_token || getStoredToken();
         const headers: Record<string, string> = {};
-        if (session?.access_token) {
-          headers['Authorization'] = `Bearer ${session.access_token}`;
+        if (activeToken) {
+          headers['Authorization'] = `Bearer ${activeToken}`;
         }
         const apiRes = await fetch('/api/leads', { headers });
         if (apiRes.ok) {
@@ -1938,20 +1948,22 @@ export const supabaseService = {
 
       // 2. Direct Supabase fallback
       try {
+        const consentTime = lead.whatsapp_consent_at || (lead.whatsapp_consent ? new Date().toISOString() : null);
+        const consentAudit = lead.whatsapp_consent
+          ? `\n[WhatsApp Consent: Opted-In on ${consentTime}]`
+          : (lead.whatsapp_consent === false ? `\n[WhatsApp Consent: Not Provided]` : '');
+        const combinedNotes = (lead.notes ? `${lead.notes}${consentAudit}` : consentAudit).trim();
+
         const insertPayload: any = {
           name: lead.name,
-          email: lead.email,
+          email: lead.email || '',
           phone: lead.phone,
           status: lead.status || 'New',
           source: lead.source || 'Website Concierge',
           property_id: lead.property_id ? Number(lead.property_id) : null,
           assigned_agent_id: lead.assigned_agent_id ? Number(lead.assigned_agent_id) : null,
-          notes: lead.notes
+          notes: combinedNotes
         };
-        if (lead.whatsapp_consent !== undefined) {
-          insertPayload.whatsapp_consent = Boolean(lead.whatsapp_consent);
-          insertPayload.whatsapp_consent_at = lead.whatsapp_consent_at || (lead.whatsapp_consent ? new Date().toISOString() : null);
-        }
 
         const { data, error } = await supabase
           .from('leads')

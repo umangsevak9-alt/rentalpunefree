@@ -1670,6 +1670,23 @@ router.post('/bookings', async (req, res) => {
     const hasBookingConsent = req.body.whatsapp_consent === true || req.body.whatsapp_consent === 'true';
     const bookingConsentTime = hasBookingConsent ? (req.body.whatsapp_consent_at || new Date().toISOString()) : null;
 
+    // Also record into leads table for unified CRM reflection
+    try {
+      await supabaseDb.createLead({
+        name: customer_name,
+        phone: customer_phone,
+        email: customer_email || undefined,
+        property_id: property_id ? Number(property_id) : undefined,
+        notes: `[Booking Request] Property: ${resolvedTitle} (${resolvedLocation}) | Preferred: ${preferred_date || 'Flexible'} ${preferred_time || ''} | Notes: ${notes || 'None'}`,
+        source: 'Property Booking Request',
+        status: 'New',
+        whatsapp_consent: hasBookingConsent,
+        whatsapp_consent_at: bookingConsentTime
+      });
+    } catch (e) {
+      console.warn('Booking companion lead creation warning:', e);
+    }
+
     // Trigger WhatsApp notification asynchronously (Booking lead is saved first)
     (async () => {
       try {

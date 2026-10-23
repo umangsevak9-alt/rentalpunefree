@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 import { formatINR, formatCompactINR } from '../../utils/currency.js';
 import { formatDateDDMMYYYY } from '../../utils/dateFormatter.js';
-import { supabaseService } from '../../services/supabaseService.js';
+import { supabaseService, supabase } from '../../services/supabaseService.js';
 
 export default function Dashboard() {
   const { user, token } = useAppStore();
@@ -73,9 +73,12 @@ export default function Dashboard() {
     const handleUpdate = () => {
       fetchDashboardStats(false);
     };
+
+    // 1. Same-window and local event listeners
     window.addEventListener('rp_data_updated', handleUpdate);
     window.addEventListener('agents_updated', handleUpdate);
     window.addEventListener('leads_updated', handleUpdate);
+    window.addEventListener('bookings_updated', handleUpdate);
     window.addEventListener('visits_updated', handleUpdate);
     window.addEventListener('feedbacks_updated', handleUpdate);
     window.addEventListener('invoices_updated', handleUpdate);
@@ -83,16 +86,47 @@ export default function Dashboard() {
     window.addEventListener('properties_updated', handleUpdate);
     window.addEventListener('storage', handleUpdate);
 
+    // 2. Cross-tab BroadcastChannel listener
+    let bc: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        bc = new BroadcastChannel('rp_realtime_channel');
+        bc.onmessage = () => {
+          fetchDashboardStats(false);
+        };
+      } catch {}
+    }
+
+    // 3. Direct Supabase Postgres Changes Realtime Subscription
+    const dashboardChannel = supabase
+      .channel('dashboard-metrics-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'leads' },
+        () => fetchDashboardStats(false)
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'property_bookings' },
+        () => fetchDashboardStats(false)
+      )
+      .subscribe((status, err) => {
+        if (err) console.warn('[Supabase Realtime] Dashboard channel note:', status, err);
+      });
+
     return () => {
       window.removeEventListener('rp_data_updated', handleUpdate);
       window.removeEventListener('agents_updated', handleUpdate);
       window.removeEventListener('leads_updated', handleUpdate);
+      window.removeEventListener('bookings_updated', handleUpdate);
       window.removeEventListener('visits_updated', handleUpdate);
       window.removeEventListener('feedbacks_updated', handleUpdate);
       window.removeEventListener('invoices_updated', handleUpdate);
       window.removeEventListener('owner_submissions_updated', handleUpdate);
       window.removeEventListener('properties_updated', handleUpdate);
       window.removeEventListener('storage', handleUpdate);
+      if (bc) bc.close();
+      supabase.removeChannel(dashboardChannel);
     };
   }, [token, user]);
 

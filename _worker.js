@@ -519,16 +519,20 @@ export default {
 
         // 1. Save lead to Supabase Database
         try {
+          const consentTime = new Date().toISOString();
+          const consentAudit = hasConsent 
+            ? `\n[WhatsApp Consent: Opted-In on ${consentTime}]` 
+            : `\n[WhatsApp Consent: Not Provided]`;
+          const combinedNotes = (notes ? `${notes}${consentAudit}` : consentAudit).trim();
+
           const insertPayload = {
             name,
             phone: phone || null,
             email: email || null,
-            notes,
+            notes: combinedNotes,
             source: body.source || 'Website Concierge',
             status: 'New',
-            whatsapp_consent: hasConsent,
-            whatsapp_consent_at: hasConsent ? new Date().toISOString() : null,
-            created_at: new Date().toISOString()
+            created_at: consentTime
           };
           const sbRes = await fetchFromSupabase('leads', env, {
             method: 'POST',
@@ -621,7 +625,20 @@ export default {
         }, 201);
       }
 
-      return jsonResponse({ error: 'Method Not Allowed', allowedMethods: ['POST', 'OPTIONS'] }, 405, { 'Allow': 'POST, OPTIONS' });
+      if (method === 'GET') {
+        try {
+          const res = await fetchFromSupabase('leads?select=*&order=id.desc', env);
+          if (res.ok) {
+            const data = await res.json();
+            return jsonResponse(data, 200);
+          }
+          return jsonResponse([], 200);
+        } catch {
+          return jsonResponse([], 200);
+        }
+      }
+
+      return jsonResponse({ error: 'Method Not Allowed', allowedMethods: ['GET', 'POST', 'OPTIONS'] }, 405, { 'Allow': 'GET, POST, OPTIONS' });
     }
 
     // 3. BOOKING CREATION ROUTE (POST /api/bookings)
@@ -663,6 +680,27 @@ export default {
             const savedData = await sbRes.json();
             if (savedData?.[0]?.id) bookingId = savedData[0].id;
           }
+
+          // Also save companion lead into leads table for instant unified CRM reflection
+          const companionConsentTime = new Date().toISOString();
+          const companionConsentAudit = hasConsent 
+            ? `\n[WhatsApp Consent: Opted-In on ${companionConsentTime}]` 
+            : `\n[WhatsApp Consent: Not Provided]`;
+          const companionNotes = `[Booking Request] Property: ${propTitle} (${propLoc}) | Date: ${body.preferred_date || 'Flexible'} ${body.preferred_time || ''} | Notes: ${body.notes || 'None'}${companionConsentAudit}`;
+          const companionLeadPayload = {
+            name,
+            phone: phone || null,
+            email: body.customer_email || body.email || null,
+            notes: companionNotes,
+            source: 'Property Walkthrough Booking',
+            status: 'New',
+            property_id: body.propertyId || body.property_id || null,
+            created_at: companionConsentTime
+          };
+          await fetchFromSupabase('leads', env, {
+            method: 'POST',
+            body: JSON.stringify([companionLeadPayload])
+          }).catch(() => {});
         } catch (dbErr) {
           console.warn('Booking DB save warning:', dbErr);
         }

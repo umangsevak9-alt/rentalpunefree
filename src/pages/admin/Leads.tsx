@@ -96,24 +96,65 @@ export default function Leads() {
     const handleUpdate = () => {
       fetchData(false);
     };
+
+    // 1. Same-window and local event listeners
     window.addEventListener('leads_updated', handleUpdate);
     window.addEventListener('rp_data_updated', handleUpdate);
+    window.addEventListener('bookings_updated', handleUpdate);
     window.addEventListener('storage', handleUpdate);
     window.addEventListener('focus', handleUpdate);
 
-    // Smart background polling: only polls when tab is actively visible
+    // 2. Instant cross-tab BroadcastChannel listener
+    let bc: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        bc = new BroadcastChannel('rp_realtime_channel');
+        bc.onmessage = (event) => {
+          if (event.data?.key === 'leads' || event.data?.key === 'bookings' || event.data?.key === 'rp_data_updated') {
+            fetchData(false);
+          }
+        };
+      } catch {}
+    }
+
+    // 3. Direct Supabase Postgres Changes Realtime Subscription
+    const realtimeChannel = supabase
+      .channel('leads-admin-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'leads' },
+        (payload) => {
+          console.log('[Supabase Realtime] Leads table update detected:', payload);
+          fetchData(false);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'property_bookings' },
+        () => {
+          fetchData(false);
+        }
+      )
+      .subscribe((status, err) => {
+        if (err) console.warn('[Supabase Realtime] Leads channel note:', status, err);
+      });
+
+    // 4. Fallback polling every 3 seconds while tab is focused
     const interval = setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
         return;
       }
       fetchData(false);
-    }, 5000);
+    }, 3000);
 
     return () => {
       window.removeEventListener('leads_updated', handleUpdate);
       window.removeEventListener('rp_data_updated', handleUpdate);
+      window.removeEventListener('bookings_updated', handleUpdate);
       window.removeEventListener('storage', handleUpdate);
       window.removeEventListener('focus', handleUpdate);
+      if (bc) bc.close();
+      supabase.removeChannel(realtimeChannel);
       clearInterval(interval);
     };
   }, [token, user]);
