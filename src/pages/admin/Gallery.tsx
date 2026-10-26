@@ -91,8 +91,8 @@ const CATEGORIES = [
 export default function Gallery() {
   const { settings, setSettings } = useAppStore();
   const [activeTab, setActiveTab] = useState<'gallery' | 'about'>('gallery');
-  const [galleryItems, setGalleryItems] = useState<GalleryItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [galleryItems, setGalleryItems] = useState<GalleryItem[]>(() => supabaseService.getLocal<GalleryItem[]>('gallery', []));
+  const [loading, setLoading] = useState(() => supabaseService.getLocal<GalleryItem[]>('gallery', []).length === 0);
   const [selectedCategory, setSelectedCategory] = useState('All');
   
   // Status notifications
@@ -145,9 +145,9 @@ export default function Gallery() {
   const [aboutImageUploading, setAboutImageUploading] = useState(false);
   const aboutFileRef = useRef<HTMLInputElement>(null);
 
-  // Load Gallery Items
-  const loadGallery = async () => {
-    setLoading(true);
+  // Load Gallery Items without blocking navigation
+  const loadGallery = async (showLoading = false) => {
+    if (showLoading && galleryItems.length === 0) setLoading(true);
     try {
       const items = await supabaseService.gallery.getAll();
       setGalleryItems(items || []);
@@ -155,12 +155,12 @@ export default function Gallery() {
       console.error('Error fetching gallery:', err);
       showStatus('Failed to load gallery items', 'error');
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadGallery();
+    loadGallery(galleryItems.length === 0);
   }, []);
 
   // Initialize About Form from Store Settings

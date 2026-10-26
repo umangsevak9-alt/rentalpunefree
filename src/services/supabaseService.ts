@@ -229,18 +229,38 @@ export async function safeParseApiResponse<T = any>(
   };
 }
 
-// Local storage caching helpers
+// High-performance in-memory cache & request-deduping layer
+const memoryCache = new Map<string, any>();
+const inFlightRequests = new Map<string, Promise<any>>();
+
+export function dedupedRequest<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const existing = inFlightRequests.get(key);
+  if (existing) return existing;
+  const p = fn().finally(() => {
+    inFlightRequests.delete(key);
+  });
+  inFlightRequests.set(key, p);
+  return p;
+}
+
+// Local storage caching helpers with instant in-memory lookup
 export function getLocal<T>(key: string, fallback: T): T {
+  if (memoryCache.has(key)) {
+    return memoryCache.get(key) as T;
+  }
   if (typeof window === 'undefined' || !window.localStorage) return fallback;
   try {
     const val = localStorage.getItem('rp_' + key);
-    return safeJsonParse<T>(val, fallback);
+    const parsed = safeJsonParse<T>(val, fallback);
+    memoryCache.set(key, parsed);
+    return parsed;
   } catch {
     return fallback;
   }
 }
 
 export function setLocal<T>(key: string, data: T): void {
+  memoryCache.set(key, data);
   if (typeof window === 'undefined' || !window.localStorage) return;
   try {
     localStorage.setItem('rp_' + key, JSON.stringify(data));

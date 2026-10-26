@@ -91,8 +91,8 @@ export default function Properties() {
   const photoFileInputRef = useRef<HTMLInputElement>(null);
   const videoFileInputRef = useRef<HTMLInputElement>(null);
 
-  const fetchProperties = async (showLoading = true) => {
-    if (showLoading) setLoading(true);
+  const fetchProperties = async (showLoading = false) => {
+    if (showLoading && properties.length === 0) setLoading(true);
     try {
       const data = await supabaseService.properties.getAll();
       if (Array.isArray(data) && data.length > 0) {
@@ -112,7 +112,7 @@ export default function Properties() {
   };
 
   useEffect(() => {
-    fetchProperties(true);
+    fetchProperties(properties.length === 0);
 
     const handleUpdate = () => {
       fetchProperties(false);
@@ -121,8 +121,9 @@ export default function Properties() {
     window.addEventListener('storage', handleUpdate);
 
     const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       fetchProperties(false);
-    }, 3000);
+    }, 10000);
 
     let channel: any = null;
     try {

@@ -50,20 +50,20 @@ export default function Faqs() {
     is_active: 1
   });
 
-  const fetchFaqs = async () => {
-    setLoading(true);
+  const fetchFaqs = async (showLoading = false) => {
+    if (showLoading && faqs.length === 0) setLoading(true);
     try {
       const data = await supabaseService.faqs.getAll();
       setFaqs(data);
     } catch (err) {
       console.error('Error fetching FAQs:', err);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchFaqs();
+    fetchFaqs(faqs.length === 0);
 
     const handleUpdate = () => {
       const cached = supabaseService.getLocal<FAQ[]>('faqs', []);
@@ -295,7 +295,7 @@ export default function Faqs() {
               Configured Home Page FAQs ({faqs.length})
             </h3>
             <button
-              onClick={fetchFaqs}
+              onClick={() => fetchFaqs(true)}
               className="p-1.5 text-neutral-400 hover:text-white hover:bg-white/10 rounded-lg cursor-pointer"
               title="Refresh FAQs"
             >

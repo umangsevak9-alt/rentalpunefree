@@ -109,7 +109,7 @@ export default function Visits() {
   };
 
   useEffect(() => {
-    fetchData(true);
+    fetchData(visits.length === 0);
 
     const handleUpdate = () => {
       fetchData(false);

@@ -112,37 +112,41 @@ export function WhatsAppSettings() {
   const brandName = settings?.website_name || 'Rental Pune';
 
   // Multi-tenant state
-  const [tenants, setTenants] = useState<WhatsAppTenantItem[]>([]);
+  const [tenants, setTenants] = useState<WhatsAppTenantItem[]>(() => supabaseService.getLocal<WhatsAppTenantItem[]>('whatsapp_tenants', []));
   const [selectedTenantId, setSelectedTenantId] = useState('rental_pune');
   const [showNewTenantModal, setShowNewTenantModal] = useState(false);
   const [newTenantName, setNewTenantName] = useState('');
   const [newTenantId, setNewTenantId] = useState('');
 
-  const [config, setConfig] = useState<WhatsAppConfigState>({
-    tenant_id: 'rental_pune',
-    client_name: 'Rental Pune Luxury Real Estate',
-    provider: 'META_CLOUD_API',
-    api_base_url: 'https://graph.facebook.com',
-    graph_version: 'v21.0',
-    phone_number_id: '',
-    business_account_id: '',
-    access_token: '',
-    admin_phone: '+919822012345',
-    enabled: true,
-    customer_confirmation_enabled: true,
-    admin_alerts_enabled: true,
-    template_name_customer: 'rental_pune_enquiry_customer',
-    template_language_customer: 'en',
-    template_name_admin: 'rental_pune_admin_alert',
-    template_language_admin: 'en',
-    has_access_token: false,
-    masked_access_token: '',
-    webhook_verify_token: 'rental_pune_secure_verify_2026'
+  const [config, setConfig] = useState<WhatsAppConfigState>(() => {
+    const cached = supabaseService.getLocal<WhatsAppConfigState | null>('whatsapp_config_rental_pune', null);
+    if (cached) return cached;
+    return {
+      tenant_id: 'rental_pune',
+      client_name: 'Rental Pune Luxury Real Estate',
+      provider: 'META_CLOUD_API',
+      api_base_url: 'https://graph.facebook.com',
+      graph_version: 'v21.0',
+      phone_number_id: '',
+      business_account_id: '',
+      access_token: '',
+      admin_phone: '+919822012345',
+      enabled: true,
+      customer_confirmation_enabled: true,
+      admin_alerts_enabled: true,
+      template_name_customer: 'rental_pune_enquiry_customer',
+      template_language_customer: 'en',
+      template_name_admin: 'rental_pune_admin_alert',
+      template_language_admin: 'en',
+      has_access_token: false,
+      masked_access_token: '',
+      webhook_verify_token: 'rental_pune_secure_verify_2026'
+    };
   });
 
   const [showTokenInput, setShowTokenInput] = useState(false);
-  const [logs, setLogs] = useState<WhatsAppLogItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [logs, setLogs] = useState<WhatsAppLogItem[]>(() => supabaseService.getLocal<WhatsAppLogItem[]>('whatsapp_logs_rental_pune', []));
+  const [loading, setLoading] = useState(() => !supabaseService.getLocal<WhatsAppConfigState | null>('whatsapp_config_rental_pune', null));
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
@@ -168,8 +172,8 @@ export function WhatsAppSettings() {
   const [testConfirmed, setTestConfirmed] = useState(false);
 
   // Load WhatsApp settings & recent logs for current tenant
-  const loadData = async (tenantId = selectedTenantId) => {
-    setLoading(true);
+  const loadData = async (tenantId = selectedTenantId, showBlocking = false) => {
+    if (showBlocking) setLoading(true);
     setLoadError(null);
     try {
       const [tenantsList, settingsData, logsData] = await Promise.all([
@@ -180,6 +184,7 @@ export function WhatsAppSettings() {
 
       if (Array.isArray(tenantsList) && tenantsList.length > 0) {
         setTenants(tenantsList);
+        supabaseService.setLocal('whatsapp_tenants', tenantsList);
       } else {
         setTenants([{
           tenant_id: 'rental_pune',
@@ -190,7 +195,7 @@ export function WhatsAppSettings() {
       }
 
       if (settingsData && typeof settingsData === 'object') {
-        setConfig({
+        const newConfig: WhatsAppConfigState = {
           tenant_id: settingsData.tenant_id || tenantId,
           client_name: settingsData.client_name || (tenantId === 'rental_pune' ? 'Rental Pune Luxury Real Estate' : tenantId),
           provider: settingsData.provider || 'META_CLOUD_API',
@@ -216,7 +221,9 @@ export function WhatsAppSettings() {
           last_test_error: settingsData.last_test_error,
           last_error: settingsData.last_error,
           last_error_at: settingsData.last_error_at
-        });
+        };
+        setConfig(newConfig);
+        supabaseService.setLocal('whatsapp_config_' + tenantId, newConfig);
 
         if (!testRecipientPhone && settingsData.admin_phone) {
           setTestRecipientPhone(settingsData.admin_phone);
@@ -230,6 +237,7 @@ export function WhatsAppSettings() {
 
       if (Array.isArray(logsData)) {
         setLogs(logsData);
+        supabaseService.setLocal('whatsapp_logs_' + tenantId, logsData);
       }
     } catch (err: any) {
       console.error('Error loading WhatsApp settings:', err);

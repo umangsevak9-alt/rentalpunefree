@@ -64,10 +64,10 @@ const PRESET_HERO_VIDEOS = [
 
 export default function HeroSection() {
   const { token, settings, setSettings } = useAppStore();
-  const [formData, setFormData] = useState<any>({});
+  const [formData, setFormData] = useState<any>(() => settings || {});
   const [status, setStatus] = useState('');
-  const [logoPreview, setLogoPreview] = useState<string>('');
-  const [heroImagePreview, setHeroImagePreview] = useState<string>('');
+  const [logoPreview, setLogoPreview] = useState<string>(() => settings?.logo_url || '');
+  const [heroImagePreview, setHeroImagePreview] = useState<string>(() => settings?.hero_image_url || '');
   
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);

@@ -130,9 +130,9 @@ export default function Invoices() {
     }
   ]);
 
-  // Load Invoices, Properties & Leads
-  const fetchData = async (showLoading = true) => {
-    if (showLoading) setLoading(true);
+  // Load Invoices, Properties & Leads without blocking navigation
+  const fetchData = async (showLoading = false) => {
+    if (showLoading && invoices.length === 0) setLoading(true);
     try {
       const [invData, propData, leadData] = await Promise.all([
         supabaseService.invoices.getAll(),
@@ -151,7 +151,7 @@ export default function Invoices() {
   };
 
   useEffect(() => {
-    fetchData(true);
+    fetchData(invoices.length === 0);
 
     const handleUpdate = () => {
       fetchData(false);
@@ -160,8 +160,9 @@ export default function Invoices() {
     window.addEventListener('storage', handleUpdate);
 
     const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       fetchData(false);
-    }, 3000);
+    }, 10000);
 
     let channel: any = null;
     try {

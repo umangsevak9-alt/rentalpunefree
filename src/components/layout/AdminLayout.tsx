@@ -1,7 +1,35 @@
-import { useState } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAppStore } from '../../store/index.js';
 import { supabaseService } from '../../services/supabaseService.js';
+import AdminTabSkeleton from '../common/AdminTabSkeleton.js';
+
+// Route chunk preloader map for 0ms instant tab switching
+const ADMIN_ROUTE_LOADERS: Record<string, () => Promise<any>> = {
+  '/admin': () => import('../../pages/admin/Dashboard.js'),
+  '/admin/bookings': () => import('../../pages/admin/Bookings.js'),
+  '/admin/leads': () => import('../../pages/admin/Leads.js'),
+  '/admin/owner-submissions': () => import('../../pages/admin/OwnerSubmissions.js'),
+  '/admin/invoices': () => import('../../pages/admin/Invoices.js'),
+  '/admin/feedback': () => import('../../pages/admin/Feedback.js'),
+  '/admin/visits': () => import('../../pages/admin/Visits.js'),
+  '/admin/properties': () => import('../../pages/admin/Properties.js'),
+  '/admin/faqs': () => import('../../pages/admin/Faqs.js'),
+  '/admin/gallery': () => import('../../pages/admin/Gallery.js'),
+  '/admin/agents': () => import('../../pages/admin/Agents.js'),
+  '/admin/hero': () => import('../../pages/admin/HeroSection.js'),
+  '/admin/whatsapp': () => import('../../pages/admin/WhatsAppSettings.js'),
+  '/admin/settings': () => import('../../pages/admin/Settings.js'),
+};
+
+export function preloadAdminRoute(path: string) {
+  const loader = ADMIN_ROUTE_LOADERS[path];
+  if (loader) {
+    try {
+      loader().catch(() => {});
+    } catch {}
+  }
+}
 import { 
   Home, 
   Users, 
@@ -28,6 +56,16 @@ export default function AdminLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Preload tab chunks in background on idle so all admin tabs open with 0ms delay
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      Object.values(ADMIN_ROUTE_LOADERS).forEach(loader => {
+        try { loader().catch(() => {}); } catch {}
+      });
+    }, 150);
+    return () => clearTimeout(timer);
+  }, []);
 
   const handleLogout = async () => {
     try {
@@ -82,6 +120,9 @@ export default function AdminLayout() {
                 <li key={item.name}>
                   <Link
                     to={item.path}
+                    onMouseEnter={() => preloadAdminRoute(item.path)}
+                    onTouchStart={() => preloadAdminRoute(item.path)}
+                    onFocus={() => preloadAdminRoute(item.path)}
                     className={`flex items-center px-3.5 py-2.5 rounded-xl text-sm font-bold transition-all ${
                       isActive 
                         ? 'bg-[#d4a359] text-[#080f1a] shadow-lg shadow-[#d4a359]/20 font-black' 
@@ -146,6 +187,8 @@ export default function AdminLayout() {
                   key={item.name}
                   to={item.path}
                   onClick={() => setMobileOpen(false)}
+                  onMouseEnter={() => preloadAdminRoute(item.path)}
+                  onTouchStart={() => preloadAdminRoute(item.path)}
                   className={`flex items-center px-3.5 py-2.5 rounded-xl text-sm font-bold transition-all ${
                     isActive 
                       ? 'bg-[#d4a359] text-[#080f1a] shadow-lg shadow-[#d4a359]/20 font-black' 
@@ -168,7 +211,9 @@ export default function AdminLayout() {
         )}
 
         <div className="flex-1 overflow-auto p-4 sm:p-6 md:p-8 bg-[#080f1a]">
-          <Outlet />
+          <Suspense fallback={<AdminTabSkeleton />}>
+            <Outlet />
+          </Suspense>
         </div>
       </main>
     </div>

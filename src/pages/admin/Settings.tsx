@@ -241,7 +241,7 @@ CREATE POLICY "Auth Upload Storage" ON storage.objects FOR INSERT WITH CHECK (bu
 
 export default function Settings() {
   const { token, settings, setSettings } = useAppStore();
-  const [formData, setFormData] = useState<any>({});
+  const [formData, setFormData] = useState<any>(() => settings || {});
   const [status, setStatus] = useState('');
   const [copiedUPI, setCopiedUPI] = useState(false);
   const [copiedWhatsApp, setCopiedWhatsApp] = useState(false);

@@ -130,13 +130,15 @@ export default function Dashboard() {
     };
   }, [token, user]);
 
-  // Live polling interval every 3 seconds if autoRefresh is enabled
+  // Background sync fallback every 15 seconds if active and tab is visible
   useEffect(() => {
     if (!autoRefresh) return;
 
     const interval = setInterval(() => {
-      fetchDashboardStats(false);
-    }, 3000);
+      if (document.visibilityState === 'visible') {
+        fetchDashboardStats(false);
+      }
+    }, 15000);
 
     return () => clearInterval(interval);
   }, [autoRefresh, token, user]);
